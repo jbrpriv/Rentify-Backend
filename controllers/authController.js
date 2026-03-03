@@ -27,7 +27,13 @@ const registerUser = async (req, res) => {
   if (userExists) return res.status(400).json({ message: 'User already exists' });
 
   const emailOtp = Math.floor(100000 + Math.random() * 900000).toString();
-  const user = await User.create({ name, email, password, role, phoneNumber, otpCode: emailOtp, otpExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000), isVerified: false });
+  const user = await User.create({
+    name, email, password, role, phoneNumber,
+    otpCode:   emailOtp,
+    otpExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    isVerified: false,
+    isPhoneVerified: false,
+  });
 
   if (user) {
     const accessToken  = generateAccessToken(user._id);
@@ -50,12 +56,13 @@ const loginUser = async (req, res) => {
   if (!user || !(await user.matchPassword(password))) return res.status(401).json({ message: 'Invalid email or password' });
   if (!user.isActive) return res.status(403).json({ message: 'Account suspended. Contact support.' });
 
-  // Check email verification (skip for admin/law_reviewer)
-  if (!user.isVerified && !['admin', 'law_reviewer'].includes(user.role)) {
+  // Check email verification — ALL roles must verify
+  if (!user.isVerified) {
     return res.status(403).json({ message: 'EMAIL_NOT_VERIFIED', email: user.email });
   }
-  // Check phone verification (skip for admin/law_reviewer/google users with placeholder)
-  if (!user.isPhoneVerified && !['admin', 'law_reviewer'].includes(user.role) && user.phoneNumber !== '0000000000') {
+
+  // Check phone verification — ALL roles must verify (skip Google placeholder)
+  if (!user.isPhoneVerified && user.phoneNumber !== '0000000000') {
     const accessToken  = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
@@ -225,7 +232,6 @@ const disable2FA = async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
-// Send OTP to email for 2FA disable confirmation
 const send2FADisableOTP = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -234,7 +240,6 @@ const send2FADisableOTP = async (req, res) => {
     user.otpCode = otp;
     user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
-    // Try phone first, then email
     const { sendOTP } = require('../utils/smsService');
     if (user.isPhoneVerified && user.phoneNumber) {
       await sendOTP(user.phoneNumber);
