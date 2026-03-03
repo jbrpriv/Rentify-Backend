@@ -1,5 +1,5 @@
-const express  = require('express');
-const router   = express.Router();
+const express = require('express');
+const router = express.Router();
 const passport = require('../config/passport');
 const { body } = require('express-validator');
 const { protect } = require('../middlewares/authMiddleware');
@@ -33,22 +33,22 @@ router.post('/login',
   loginUser
 );
 
-router.post('/refresh',  refreshToken);
-router.post('/logout',   protect, logoutUser);
+router.post('/refresh', refreshToken);
+router.post('/logout', protect, logoutUser);
 
-router.post('/verify-email',        verifyEmail);
+router.post('/verify-email', verifyEmail);
 router.post('/resend-verification', resendVerification);
-router.post('/forgot-password',     forgotPassword);
-router.post('/reset-password',      resetPassword);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
-router.post('/send-otp',   protect, sendPhoneOTP);
+router.post('/send-otp', protect, sendPhoneOTP);
 router.post('/verify-otp', protect, verifyPhoneOTP);
 
-router.post('/2fa/setup',           protect, setup2FA);
-router.post('/2fa/verify',          protect, verify2FA);
-router.post('/2fa/disable/send-otp',protect, send2FADisableOTP);
-router.post('/2fa/disable',         protect, disable2FA);
-router.post('/2fa/validate',                 validate2FALogin);
+router.post('/2fa/setup', protect, setup2FA);
+router.post('/2fa/verify', protect, verify2FA);
+router.post('/2fa/disable/send-otp', protect, send2FADisableOTP);
+router.post('/2fa/disable', protect, disable2FA);
+router.post('/2fa/validate', validate2FALogin);
 
 // ─── Google OAuth ─────────────────────────────────────────────────────────────
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
@@ -66,24 +66,27 @@ router.get('/google/callback', (req, res, next) => {
       return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_failed`);
     }
     try {
-      const accessToken  = generateAccessToken(user._id);
+      const accessToken = generateAccessToken(user._id);
       const refreshToken = generateRefreshToken(user._id);
 
       // Set HttpOnly refresh cookie
       res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
-        secure:   process.env.NODE_ENV === 'production',
+        secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
-        maxAge:   30 * 24 * 60 * 60 * 1000,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
       });
-
+      const profileComplete = user.isPhoneVerified && user.phoneNumber !== '0000000000';
       return res.redirect(
         `${process.env.CLIENT_URL}/auth/google/success` +
         `?token=${accessToken}` +
         `&name=${encodeURIComponent(user.name)}` +
         `&role=${user.role}` +
         `&id=${user._id}` +
-        `&email=${encodeURIComponent(user.email)}`
+        `&email=${encodeURIComponent(user.email)}` +
+        `&isPhoneVerified=${user.isPhoneVerified}` +
+        `&profileComplete=${profileComplete}`
+
       );
     } catch (callbackErr) {
       return next(callbackErr);
