@@ -7,6 +7,7 @@ const {
   getRentSchedule,
   getPaymentHistory,
   getAvailableGateways,
+  getActiveCheckoutUrl,       // ← was exported but never imported here — this caused the 404
   createRazorpayOrder,
   verifyRazorpayPayment,
   createPayPalOrder,
@@ -23,6 +24,11 @@ router.post('/create-checkout-session', protect, createCheckoutSession);
 
 // Create Stripe checkout session for a specific monthly rent payment
 router.post('/pay-rent', protect, createRentCheckoutSession);
+
+// ─── Active checkout URL (pre-generated or on-demand for next unpaid month) ──
+// FIX: This route was MISSING — getActiveCheckoutUrl existed in the controller
+//      but was never wired up, causing: "Route not found: GET /api/payments/active-checkout/:id"
+router.get('/active-checkout/:agreementId', protect, getActiveCheckoutUrl);
 
 // ─── Razorpay ────────────────────────────────────────────────────────────────
 router.post('/razorpay/create-order', protect, createRazorpayOrder);
