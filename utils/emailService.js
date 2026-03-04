@@ -337,6 +337,33 @@ const templates = {
     `)
     }),
 
+  // ─── DocuSign-style signing invitation ─────────────────────────
+  signingInvite: (partyName, propertyTitle, signingUrl) => ({
+    subject: `Action Required: Sign Your Rental Agreement — ${propertyTitle}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f8fafc;padding:24px;border-radius:12px;">
+        <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);padding:24px;border-radius:8px;text-align:center;margin-bottom:24px;">
+          <h1 style="color:#fff;margin:0;font-size:22px;">📄 Agreement Ready to Sign</h1>
+        </div>
+        <div style="background:#fff;padding:24px;border-radius:8px;border:1px solid #e2e8f0;">
+          <p style="color:#374151;font-size:16px;">Hi <strong>${partyName}</strong>,</p>
+          <p style="color:#374151;">A rental agreement for <strong>${propertyTitle}</strong> is ready for your signature.</p>
+          <p style="color:#6b7280;font-size:14px;">Please review the full agreement and sign using the secure link below. This link expires in 7 days.</p>
+          <div style="text-align:center;margin:28px 0;">
+            <a href="${signingUrl}"
+               style="background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block;">
+              ✍️ Review &amp; Sign Agreement
+            </a>
+          </div>
+          <p style="color:#9ca3af;font-size:12px;border-top:1px solid #f1f5f9;padding-top:12px;margin-top:16px;">
+            Your electronic signature is legally binding. If you did not expect this email, please ignore it.
+          </p>
+        </div>
+      </div>
+    `,
+    text: `Hi ${partyName}, your rental agreement for ${propertyTitle} is ready to sign. Use this link: ${signingUrl}`,
+  }),
+
 };
 
 // ─── Send Function ──────────────────────────────────────────────────

@@ -6,6 +6,341 @@ const { sendSMS } = require('../utils/smsService');
 const { generateReceiptPDFBuffer } = require('../utils/pdfGenerator');
 const { uploadReceiptPDF, isS3Configured } = require('../utils/s3Service');
 
+// ─── Optional gateway initialisers ───────────────────────────────────────────
+let Razorpay, paypal;
+try {
+  Razorpay = require('razorpay');
+} catch (_) { /* razorpay package not installed — gateway disabled */ }
+try {
+  paypal = require('@paypal/checkout-server-sdk');
+} catch (_) { /* paypal package not installed — gateway disabled */ }
+
+// ─── Razorpay helper ─────────────────────────────────────────────────────────
+function getRazorpayClient() {
+  if (!Razorpay || !process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) return null;
+  return new Razorpay({
+    key_id:     process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+}
+
+// ─── PayPal helper ───────────────────────────────────────────────────────────
+function getPayPalClient() {
+  if (!paypal || !process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) return null;
+  const env = process.env.NODE_ENV === 'production'
+    ? new paypal.core.LiveEnvironment(process.env.PAYPAL_CLIENT_ID, process.env.PAYPAL_CLIENT_SECRET)
+    : new paypal.core.SandboxEnvironment(process.env.PAYPAL_CLIENT_ID, process.env.PAYPAL_CLIENT_SECRET);
+  return new paypal.core.PayPalHttpClient(env);
+}
+
+// @desc    List available payment gateways
+// @route   GET /api/payments/gateways
+// @access  Private
+const getAvailableGateways = (req, res) => {
+  const gateways = [{ id: 'stripe', name: 'Stripe', enabled: !!process.env.STRIPE_SECRET_KEY }];
+  if (getRazorpayClient()) gateways.push({ id: 'razorpay', name: 'Razorpay', enabled: true });
+  if (getPayPalClient())   gateways.push({ id: 'paypal',   name: 'PayPal',   enabled: true });
+  res.json({ gateways });
+};
+
+// @desc    Create Razorpay order for initial deposit + rent
+// @route   POST /api/payments/razorpay/create-order
+// @access  Private (Tenant)
+const createRazorpayOrder = async (req, res) => {
+  const rzp = getRazorpayClient();
+  if (!rzp) return res.status(503).json({ message: 'Razorpay gateway not configured' });
+
+  try {
+    const { agreementId } = req.body;
+    const agreement = await Agreement.findById(agreementId)
+      .populate('property', 'title')
+      .populate('tenant', 'name email')
+      .populate('landlord', 'name');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+    if (agreement.tenant._id.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: 'Not authorized' });
+    if (agreement.isPaid) return res.status(400).json({ message: 'Already paid' });
+    if (agreement.status !== 'signed') return res.status(400).json({ message: 'Agreement must be signed first' });
+
+    const totalAmount = (agreement.financials.rentAmount + agreement.financials.depositAmount) * 100;
+
+    const order = await rzp.orders.create({
+      amount:   Math.round(totalAmount),
+      currency: process.env.RAZORPAY_CURRENCY || 'INR',
+      receipt:  `agr_${agreementId}`,
+      notes:    { agreementId: agreementId.toString(), type: 'initial' },
+    });
+
+    res.json({
+      orderId:  order.id,
+      amount:   order.amount,
+      currency: order.currency,
+      keyId:    process.env.RAZORPAY_KEY_ID,
+      prefill: {
+        name:  agreement.tenant.name,
+        email: agreement.tenant.email,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Verify Razorpay payment signature and activate agreement
+// @route   POST /api/payments/razorpay/verify
+// @access  Private (Tenant)
+const verifyRazorpayPayment = async (req, res) => {
+  const rzp = getRazorpayClient();
+  if (!rzp) return res.status(503).json({ message: 'Razorpay gateway not configured' });
+
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, agreementId } = req.body;
+
+    const crypto = require('crypto');
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ message: 'Invalid payment signature — possible tampering detected' });
+    }
+
+    const agreement = await Agreement.findById(agreementId)
+      .populate('tenant', 'name email phoneNumber smsOptIn')
+      .populate('landlord', 'name email')
+      .populate('property', 'title');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    // Build rent schedule
+    const schedule = [];
+    const startDate = new Date(agreement.term.startDate);
+    const duration  = agreement.term.durationMonths || 12;
+    for (let i = 0; i < duration; i++) {
+      const dueDate = new Date(startDate);
+      dueDate.setMonth(startDate.getMonth() + i);
+      schedule.push({
+        dueDate, amount: agreement.financials.rentAmount,
+        status: i === 0 ? 'paid' : 'pending',
+        paidDate: i === 0 ? new Date() : null,
+        paidAmount: i === 0 ? agreement.financials.rentAmount : null,
+        lateFeeApplied: false, lateFeeAmount: 0,
+      });
+    }
+
+    await Payment.create({
+      agreement: agreementId, tenant: agreement.tenant._id, landlord: agreement.landlord._id,
+      property: agreement.property._id,
+      amount: (agreement.financials.rentAmount + agreement.financials.depositAmount),
+      type: 'initial', status: 'paid', paidAt: new Date(),
+      dueDate: startDate, gateway: 'razorpay',
+      gatewayPaymentId: razorpay_payment_id, gatewayOrderId: razorpay_order_id,
+    });
+
+    await Agreement.findByIdAndUpdate(agreementId, {
+      status: 'active', isPaid: true, rentSchedule: schedule,
+      $push: { auditLog: { action: 'LEASE_ACTIVATED', timestamp: new Date(),
+        details: `Initial payment completed via Razorpay. Payment ID: ${razorpay_payment_id}` } },
+    });
+
+    await require('../models/Property').findByIdAndUpdate(agreement.property._id, {
+      status: 'occupied', isListed: false,
+    });
+
+    sendEmail(agreement.tenant.email, 'paymentConfirmed', agreement.tenant.name,
+      agreement.property.title, agreement.financials.rentAmount + agreement.financials.depositAmount);
+
+    res.json({ message: 'Payment verified and lease activated', status: 'active' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create PayPal order for initial payment
+// @route   POST /api/payments/paypal/create-order
+// @access  Private (Tenant)
+const createPayPalOrder = async (req, res) => {
+  const ppClient = getPayPalClient();
+  if (!ppClient) return res.status(503).json({ message: 'PayPal gateway not configured' });
+
+  try {
+    const { agreementId } = req.body;
+    const agreement = await Agreement.findById(agreementId)
+      .populate('property', 'title')
+      .populate('tenant', 'name email');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+    if (agreement.tenant._id.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: 'Not authorized' });
+    if (agreement.isPaid) return res.status(400).json({ message: 'Already paid' });
+
+    const totalAmount = (agreement.financials.rentAmount + agreement.financials.depositAmount).toFixed(2);
+    const currency    = process.env.PAYPAL_CURRENCY || 'USD';
+
+    const request = new paypal.orders.OrdersCreateRequest();
+    request.requestBody({
+      intent: 'CAPTURE',
+      purchase_units: [{
+        amount: { currency_code: currency, value: totalAmount },
+        description: `Security Deposit + 1st Month Rent — ${agreement.property.title}`,
+        custom_id: agreementId.toString(),
+      }],
+      application_context: {
+        return_url: `${process.env.CLIENT_URL}/dashboard/my-lease?success=true&gateway=paypal`,
+        cancel_url: `${process.env.CLIENT_URL}/dashboard/my-lease?canceled=true`,
+      },
+    });
+
+    const response = await ppClient.execute(request);
+    const approveLink = response.result.links.find(l => l.rel === 'approve');
+
+    res.json({
+      orderId:     response.result.id,
+      approveUrl:  approveLink?.href,
+      totalAmount,
+      currency,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Capture PayPal order after user approves
+// @route   POST /api/payments/paypal/capture
+// @access  Private (Tenant)
+const capturePayPalOrder = async (req, res) => {
+  const ppClient = getPayPalClient();
+  if (!ppClient) return res.status(503).json({ message: 'PayPal gateway not configured' });
+
+  try {
+    const { orderId, agreementId } = req.body;
+
+    const request  = new paypal.orders.OrdersCaptureRequest(orderId);
+    request.requestBody({});
+    const response = await ppClient.execute(request);
+
+    if (response.result.status !== 'COMPLETED') {
+      return res.status(400).json({ message: 'PayPal capture failed', status: response.result.status });
+    }
+
+    const agreement = await Agreement.findById(agreementId)
+      .populate('tenant', 'name email phoneNumber smsOptIn')
+      .populate('landlord', 'name email')
+      .populate('property', 'title');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const captureId = response.result.purchase_units?.[0]?.payments?.captures?.[0]?.id;
+
+    const schedule = [];
+    const startDate = new Date(agreement.term.startDate);
+    const duration  = agreement.term.durationMonths || 12;
+    for (let i = 0; i < duration; i++) {
+      const dueDate = new Date(startDate);
+      dueDate.setMonth(startDate.getMonth() + i);
+      schedule.push({
+        dueDate, amount: agreement.financials.rentAmount,
+        status: i === 0 ? 'paid' : 'pending',
+        paidDate: i === 0 ? new Date() : null,
+        paidAmount: i === 0 ? agreement.financials.rentAmount : null,
+        lateFeeApplied: false, lateFeeAmount: 0,
+      });
+    }
+
+    await Payment.create({
+      agreement: agreementId, tenant: agreement.tenant._id, landlord: agreement.landlord._id,
+      property: agreement.property._id,
+      amount: (agreement.financials.rentAmount + agreement.financials.depositAmount),
+      type: 'initial', status: 'paid', paidAt: new Date(), dueDate: startDate,
+      gateway: 'paypal', gatewayPaymentId: captureId, gatewayOrderId: orderId,
+    });
+
+    await Agreement.findByIdAndUpdate(agreementId, {
+      status: 'active', isPaid: true, rentSchedule: schedule,
+      $push: { auditLog: { action: 'LEASE_ACTIVATED', timestamp: new Date(),
+        details: `Initial payment captured via PayPal. Capture ID: ${captureId}` } },
+    });
+
+    await require('../models/Property').findByIdAndUpdate(agreement.property._id, {
+      status: 'occupied', isListed: false,
+    });
+
+    sendEmail(agreement.tenant.email, 'paymentConfirmed', agreement.tenant.name,
+      agreement.property.title, agreement.financials.rentAmount + agreement.financials.depositAmount);
+
+    res.json({ message: 'PayPal payment captured and lease activated', status: 'active' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── Failed Payment Retry Logic ───────────────────────────────────────────────
+// @desc    Queue a failed payment for retry (up to 3 attempts with backoff)
+// @route   POST /api/payments/retry/:paymentId
+// @access  Private (Tenant or Admin)
+const retryFailedPayment = async (req, res) => {
+  try {
+    const payment = await Payment.findById(req.params.paymentId)
+      .populate('agreement')
+      .populate('tenant', 'name email');
+
+    if (!payment) return res.status(404).json({ message: 'Payment record not found' });
+
+    const isTenant = payment.tenant._id.toString() === req.user._id.toString();
+    if (!isTenant && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    if (payment.status === 'paid') {
+      return res.status(400).json({ message: 'Payment already completed' });
+    }
+
+    const retryCount = payment.retryCount || 0;
+    if (retryCount >= 3) {
+      return res.status(400).json({ message: 'Maximum retry attempts (3) reached. Please contact support.' });
+    }
+
+    // Enqueue retry via BullMQ if available, otherwise redirect to checkout
+    let retryQueue;
+    try {
+      const { Queue } = require('bullmq');
+      const { redisConnection } = require('../config/redis');
+      retryQueue = new Queue('payment-retry', { connection: redisConnection });
+    } catch (_) { retryQueue = null; }
+
+    if (retryQueue) {
+      const delayMs = Math.pow(2, retryCount) * 60 * 1000; // 1min, 2min, 4min backoff
+      await retryQueue.add(
+        'retry-payment',
+        { paymentId: payment._id.toString(), agreementId: payment.agreement._id?.toString(), attempt: retryCount + 1 },
+        { delay: delayMs, attempts: 1 }
+      );
+
+      await Payment.findByIdAndUpdate(payment._id, {
+        retryCount:   retryCount + 1,
+        nextRetryAt:  new Date(Date.now() + delayMs),
+        status:       'retry_scheduled',
+      });
+
+      res.json({
+        message:     `Retry scheduled (attempt ${retryCount + 1}/3)`,
+        nextRetryAt: new Date(Date.now() + delayMs),
+        retryCount:  retryCount + 1,
+      });
+    } else {
+      // Fallback: return a new checkout URL
+      res.json({
+        message:  'Retry queue unavailable — please use the checkout link below',
+        redirect: `${process.env.CLIENT_URL}/dashboard/payments?agreementId=${payment.agreement._id}`,
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Create Stripe Checkout Session for Deposit + 1st Month Rent
 // @route   POST /api/payments/create-checkout-session
 // @access  Private (Tenant)
@@ -568,4 +903,10 @@ module.exports = {
   getRentSchedule,
   getPaymentHistory,
   getActiveCheckoutUrl,
+  getAvailableGateways,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  createPayPalOrder,
+  capturePayPalOrder,
+  retryFailedPayment,
 };

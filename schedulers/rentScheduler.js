@@ -203,12 +203,58 @@ const startRentScheduler = () => {
       if (result.modifiedCount > 0) {
         console.log(`✅ ${result.modifiedCount} lease(s) marked as expired.`);
       }
+
+      // ── Set document retention expiry on newly expired leases ────────────
+      // Regulation: retain for 7 years after lease end (legal standard)
+      const retentionDeadline = new Date(today);
+      retentionDeadline.setFullYear(retentionDeadline.getFullYear() + 7);
+
+      await Agreement.updateMany(
+        {
+          status: 'expired',
+          retentionExpiry: null,
+          'term.endDate': { $lt: today },
+        },
+        { retentionExpiry: retentionDeadline }
+      );
     } catch (error) {
       console.error('Scheduler error (expiry):', error.message);
     }
   });
 
-  console.log('✅ Rent scheduler started (reminders @8AM, late fees @9AM, expiry @midnight)');
+  // ── Document retention purge — run weekly on Sunday midnight ─────────────
+  cron.schedule('0 0 * * 0', async () => {
+    try {
+      const now = new Date();
+      // Find agreements whose retention period has passed
+      const expired = await Agreement.find({
+        retentionExpiry: { $lt: now, $ne: null },
+        documentsArchivedAt: null,
+      }).select('_id documentUrl');
+
+      for (const agr of expired) {
+        // Mark documents as archived (actual S3 deletion/glaciering handled separately)
+        await Agreement.findByIdAndUpdate(agr._id, {
+          documentsArchivedAt: now,
+          $push: {
+            auditLog: {
+              action:    'DOCUMENTS_ARCHIVED',
+              timestamp: now,
+              details:   'Document retention period exceeded. Documents flagged for archival per retention policy.',
+            },
+          },
+        });
+      }
+
+      if (expired.length > 0) {
+        console.log(`🗂️  ${expired.length} agreement(s) flagged for document archival (retention expired).`);
+      }
+    } catch (error) {
+      console.error('Scheduler error (retention purge):', error.message);
+    }
+  });
+
+  console.log('✅ Rent scheduler started (reminders @8AM, late fees @9AM, expiry @midnight, retention @Sunday)');
 };
 
 module.exports = { startRentScheduler };

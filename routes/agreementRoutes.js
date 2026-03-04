@@ -5,6 +5,8 @@ const {
   createAgreement, downloadAgreementPDF, getAgreements, signAgreement,
   proposeRenewal, respondToRenewal,
   getAvailableClauses, updateAgreementClauses, getDocumentUrl,
+  sendSigningInvites, signViaToken,
+  getVersionHistory, snapshotAgreement, getAgreementPreview,
 } = require('../controllers/agreementController');
 
 // List / Create agreements
@@ -18,11 +20,20 @@ router.get('/clauses', protect, getAvailableClauses);
 // Download agreement as PDF
 router.get('/:id/pdf', protect, downloadAgreementPDF);
 
+// Inline PDF preview (base64 or S3 signed URL)
+router.get('/:id/preview', protect, getAgreementPreview);
+
 // S3 document vault — get pre-signed download URL (H3)
 router.get('/:id/document-url', protect, getDocumentUrl);
 
 // Signing
-router.put('/:id/sign', protect, signAgreement);
+router.put( '/:id/sign',             protect, signAgreement);
+router.post('/:id/send-invites',     protect, sendSigningInvites);
+router.post('/:id/sign-via-token',           signViaToken);   // public — token-authenticated
+
+// Version history & snapshots
+router.get( '/:id/version-history',  protect, getVersionHistory);
+router.post('/:id/snapshot',         protect, snapshotAgreement);
 
 // Clause set management (H4)
 router.put('/:id/clauses', protect, updateAgreementClauses);

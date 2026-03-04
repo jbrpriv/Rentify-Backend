@@ -59,6 +59,25 @@ const agreementTemplateSchema = new mongoose.Schema(
       type:    Boolean,
       default: false,
     },
+
+    // ─── Jurisdiction / Region ─────────────────────────────────────
+    jurisdiction: {
+      type:    String,
+      default: 'general',
+      trim:    true,
+      // e.g. 'general', 'punjab', 'sindh', 'kpk', 'balochistan', 'islamabad'
+    },
+
+    // ─── Usage analytics ──────────────────────────────────────────
+    usageCount: {
+      type:    Number,
+      default: 0,
+    },
+
+    lastUsedAt: {
+      type:    Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

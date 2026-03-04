@@ -77,6 +77,21 @@ const propertySchema = mongoose.Schema(
       default: false,
     },
 
+    isArchived: {
+      type: Boolean,
+      default: false,
+    },
+
+    archivedAt: {
+      type: Date,
+      default: null,
+    },
+
+    archivedReason: {
+      type: String,
+      default: '',
+    },
+
     listingDescription: {
       type: String,
       default: '',

@@ -25,11 +25,19 @@ const getTemplates = async (req, res) => {
       filter.landlord = req.user._id;
     }
 
+    // ── Jurisdiction / region filter ────────────────────────────────────────
+    if (req.query.jurisdiction) {
+      filter.jurisdiction = req.query.jurisdiction;
+    }
+
     const templates = await populate(
       AgreementTemplate.find(filter).sort('-createdAt')
     );
 
-    res.json(templates);
+    // Include jurisdiction list for UI filter dropdowns
+    const allJurisdictions = await AgreementTemplate.distinct('jurisdiction', { isArchived: false });
+
+    res.json({ templates, jurisdictions: allJurisdictions.filter(Boolean).sort() });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -92,11 +100,12 @@ const createTemplate = async (req, res) => {
     }
 
     const template = await AgreementTemplate.create({
-      landlord:    req.user._id,
-      name:        name.trim(),
-      description: (description || '').trim(),
-      clauseIds:   ids,
-      status:      'pending',
+      landlord:     req.user._id,
+      name:         name.trim(),
+      description:  (description || '').trim(),
+      clauseIds:    ids,
+      status:       'pending',
+      jurisdiction: (req.body.jurisdiction || 'general').trim().toLowerCase(),
     });
 
     const populated = await populate(AgreementTemplate.findById(template._id));
@@ -207,6 +216,50 @@ const reviewTemplate = async (req, res) => {
   }
 };
 
+// @desc    Increment usage count when a template is used to create an agreement
+// @route   POST /api/agreement-templates/:id/use
+// @access  Private (landlord / admin)
+const useTemplate = async (req, res) => {
+  try {
+    const template = await AgreementTemplate.findById(req.params.id);
+    if (!template) return res.status(404).json({ message: 'Template not found' });
+
+    template.usageCount = (template.usageCount || 0) + 1;
+    template.lastUsedAt  = new Date();
+    await template.save();
+
+    res.json({ message: 'Usage recorded', usageCount: template.usageCount });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// @desc    Get template usage analytics (admin only)
+// @route   GET /api/agreement-templates/analytics
+// @access  Private (admin)
+const getTemplateAnalytics = async (req, res) => {
+  try {
+    const templates = await AgreementTemplate.find({ isArchived: false })
+      .select('name jurisdiction usageCount lastUsedAt status createdAt')
+      .sort('-usageCount');
+
+    const byJurisdiction = templates.reduce((acc, t) => {
+      const j = t.jurisdiction || 'general';
+      acc[j] = (acc[j] || 0) + t.usageCount;
+      return acc;
+    }, {});
+
+    res.json({
+      totalTemplates:  templates.length,
+      totalUsage:      templates.reduce((s, t) => s + (t.usageCount || 0), 0),
+      topTemplates:    templates.slice(0, 10),
+      byJurisdiction,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 module.exports = {
   getTemplates,
   getTemplateById,
@@ -214,4 +267,6 @@ module.exports = {
   updateTemplate,
   deleteTemplate,
   reviewTemplate,
+  useTemplate,
+  getTemplateAnalytics,
 };

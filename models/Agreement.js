@@ -140,6 +140,44 @@ const agreementSchema = mongoose.Schema(
         details: String,
       },
     ],
+
+    // ─── Version Snapshots (full agreement content at each key event) ──
+    versionHistory: [
+      {
+        version:   { type: Number, required: true },
+        savedAt:   { type: Date, default: Date.now },
+        savedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        reason:    { type: String, default: '' },
+        snapshot: {
+          clauses:    [String],   // clause titles at this version
+          financials: mongoose.Schema.Types.Mixed,
+          term:       mongoose.Schema.Types.Mixed,
+          status:     String,
+        },
+      },
+    ],
+
+    // ─── DocuSign-style signing tokens ─────────────────────────────
+    signingTokens: [
+      {
+        party:     { type: String, enum: ['landlord', 'tenant'] },
+        token:     { type: String },   // UUID sent via email
+        expiresAt: { type: Date },
+        used:      { type: Boolean, default: false },
+        usedAt:    { type: Date, default: null },
+      },
+    ],
+
+    // ─── Document Retention ────────────────────────────────────────
+    retentionExpiry: {
+      type:    Date,
+      default: null, // Set when lease expires: expiry + 7 years
+    },
+
+    documentsArchivedAt: {
+      type:    Date,
+      default: null,
+    },
   },
   {
     timestamps: true,

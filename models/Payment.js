@@ -70,6 +70,20 @@ const paymentSchema = mongoose.Schema(
       default: null,
     },
 
+    // ─── Multi-Gateway Support ─────────────────────────────────────
+    gateway: {
+      type:    String,
+      enum:    ['stripe', 'razorpay', 'paypal', 'manual'],
+      default: 'stripe',
+    },
+    gatewayPaymentId: { type: String, default: null },
+    gatewayOrderId:   { type: String, default: null },
+
+    // ─── Retry Logic ───────────────────────────────────────────────
+    retryCount:   { type: Number, default: 0 },
+    nextRetryAt:  { type: Date, default: null },
+    failureReason: { type: String, default: null },
+
     // ─── Receipt ──────────────────────────────────────────────────
     receiptUrl: {
       type: String,

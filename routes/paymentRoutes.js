@@ -6,14 +6,36 @@ const {
   createRentCheckoutSession,
   getRentSchedule,
   getPaymentHistory,
+  getAvailableGateways,
+  createRazorpayOrder,
+  verifyRazorpayPayment,
+  createPayPalOrder,
+  capturePayPalOrder,
+  retryFailedPayment,
 } = require('../controllers/paymentController');
 
+// Available payment gateways
+router.get('/gateways', protect, getAvailableGateways);
+
+// ─── Stripe ──────────────────────────────────────────────────────────────────
 // Create Stripe checkout session for initial deposit + 1st month rent
 router.post('/create-checkout-session', protect, createCheckoutSession);
 
-// Create Stripe checkout session for a specific monthly rent payment (C5)
+// Create Stripe checkout session for a specific monthly rent payment
 router.post('/pay-rent', protect, createRentCheckoutSession);
 
+// ─── Razorpay ────────────────────────────────────────────────────────────────
+router.post('/razorpay/create-order', protect, createRazorpayOrder);
+router.post('/razorpay/verify',       protect, verifyRazorpayPayment);
+
+// ─── PayPal ──────────────────────────────────────────────────────────────────
+router.post('/paypal/create-order', protect, createPayPalOrder);
+router.post('/paypal/capture',      protect, capturePayPalOrder);
+
+// ─── Retry failed payments ───────────────────────────────────────────────────
+router.post('/retry/:paymentId', protect, retryFailedPayment);
+
+// ─── Schedules & History ─────────────────────────────────────────────────────
 // Get rent schedule for an agreement
 router.get('/schedule/:agreementId', protect, getRentSchedule);
 

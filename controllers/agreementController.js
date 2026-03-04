@@ -2,6 +2,7 @@ const Agreement = require('../models/Agreement');
 const Property = require('../models/Property');
 const User = require('../models/User');
 const Clause = require('../models/Clause');
+const crypto = require('crypto');
 const { generateAgreementPDF, generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
 const { sendEmail } = require('../utils/emailService');
 const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
@@ -460,6 +461,270 @@ const getDocumentUrl = async (req, res) => {
   }
 };
 
+// @desc    Send DocuSign-style signing invitation emails with secure tokens
+// @route   POST /api/agreements/:id/send-signing-invites
+// @access  Private (Landlord on this agreement)
+const sendSigningInvites = async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id)
+      .populate('tenant', 'name email')
+      .populate('landlord', 'name email')
+      .populate('property', 'title');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const isLandlord = agreement.landlord._id.toString() === req.user._id.toString();
+    if (!isLandlord && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only the landlord can send signing invitations' });
+    }
+
+    if (!['draft', 'pending_signature'].includes(agreement.status)) {
+      return res.status(400).json({ message: 'Agreement must be in draft or pending signature status to send invitations' });
+    }
+
+    // Generate secure tokens for both parties
+    const landlordToken = crypto.randomBytes(32).toString('hex');
+    const tenantToken   = crypto.randomBytes(32).toString('hex');
+    const expiresAt     = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Replace existing tokens for these parties
+    agreement.signingTokens = agreement.signingTokens.filter(
+      t => !['landlord', 'tenant'].includes(t.party)
+    );
+    agreement.signingTokens.push(
+      { party: 'landlord', token: landlordToken, expiresAt, used: false },
+      { party: 'tenant',   token: tenantToken,   expiresAt, used: false }
+    );
+
+    agreement.status = 'pending_signature';
+    agreement.auditLog.push({
+      action:    'SIGNING_INVITES_SENT',
+      actor:     req.user._id,
+      timestamp: new Date(),
+      details:   `Signing invitations sent to ${agreement.landlord.email} and ${agreement.tenant.email}`,
+    });
+    await agreement.save();
+
+    const baseUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+
+    // Email landlord
+    await sendEmail(
+      agreement.landlord.email,
+      'signingInvite',
+      agreement.landlord.name,
+      agreement.property.title,
+      `${baseUrl}/sign/${agreement._id}?token=${landlordToken}&party=landlord`
+    );
+
+    // Email tenant
+    await sendEmail(
+      agreement.tenant.email,
+      'signingInvite',
+      agreement.tenant.name,
+      agreement.property.title,
+      `${baseUrl}/sign/${agreement._id}?token=${tenantToken}&party=tenant`
+    );
+
+    res.json({
+      message: 'Signing invitations sent successfully',
+      sentTo: [agreement.landlord.email, agreement.tenant.email],
+      expiresAt,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Sign agreement via secure token (DocuSign-style link)
+// @route   POST /api/agreements/:id/sign-via-token
+// @access  Public (token-authenticated)
+const signViaToken = async (req, res) => {
+  try {
+    const { token, party } = req.body;
+    if (!token || !party) return res.status(400).json({ message: 'Token and party are required' });
+
+    const agreement = await Agreement.findById(req.params.id)
+      .populate('tenant', 'name email')
+      .populate('landlord', 'name email')
+      .populate('property', 'title');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const signingToken = agreement.signingTokens.find(
+      t => t.party === party && t.token === token && !t.used
+    );
+
+    if (!signingToken) {
+      return res.status(400).json({ message: 'Invalid or already used signing token' });
+    }
+
+    if (new Date() > signingToken.expiresAt) {
+      return res.status(400).json({ message: 'Signing link has expired. Please request a new invitation.' });
+    }
+
+    // Mark token as used
+    signingToken.used   = true;
+    signingToken.usedAt = new Date();
+
+    // Record signature
+    const sig = agreement.signatures[party];
+    sig.signed    = true;
+    sig.signedAt  = new Date();
+    sig.ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+
+    // Determine new status
+    const bothSigned = agreement.signatures.landlord.signed && agreement.signatures.tenant.signed;
+    if (bothSigned) {
+      agreement.status = 'signed';
+      agreement.auditLog.push({
+        action:    'AGREEMENT_FULLY_SIGNED',
+        timestamp: new Date(),
+        details:   'Both parties signed via secure token links. Agreement is fully executed.',
+      });
+    } else {
+      agreement.status = 'pending_signature';
+      agreement.auditLog.push({
+        action:    'PARTIAL_SIGNATURE',
+        timestamp: new Date(),
+        details:   `${party} signed via secure token link.`,
+      });
+    }
+
+    await agreement.save();
+
+    res.json({
+      message: bothSigned ? 'Agreement fully signed by all parties' : `Signature recorded for ${party}`,
+      status: agreement.status,
+      bothSigned,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get full version history for an agreement
+// @route   GET /api/agreements/:id/version-history
+// @access  Private (parties on agreement or admin)
+const getVersionHistory = async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id)
+      .populate('versionHistory.savedBy', 'name email role')
+      .populate('auditLog.actor', 'name email role');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const userId = req.user._id.toString();
+    const isTenant   = agreement.tenant?.toString()   === userId;
+    const isLandlord = agreement.landlord?.toString() === userId;
+    const isAdmin    = req.user.role === 'admin';
+
+    if (!isTenant && !isLandlord && !isAdmin) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    res.json({
+      agreementId: agreement._id,
+      currentVersion: agreement.versionHistory.length,
+      versionHistory: agreement.versionHistory.sort((a, b) => b.version - a.version),
+      auditLog: agreement.auditLog.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Save a version snapshot of the agreement
+// Internal helper — also exposed as API endpoint
+const saveVersionSnapshot = async (agreementId, userId, reason = 'Manual save') => {
+  const agreement = await Agreement.findById(agreementId).populate('clauses', 'title');
+  if (!agreement) return;
+
+  const nextVersion = (agreement.versionHistory.length || 0) + 1;
+  agreement.versionHistory.push({
+    version:   nextVersion,
+    savedAt:   new Date(),
+    savedBy:   userId,
+    reason,
+    snapshot: {
+      clauses:    (agreement.clauses || []).map(c => c.title || c.toString()),
+      financials: agreement.financials,
+      term:       agreement.term,
+      status:     agreement.status,
+    },
+  });
+  await agreement.save();
+  return nextVersion;
+};
+
+// @desc    Manually snapshot the current agreement state
+// @route   POST /api/agreements/:id/snapshot
+// @access  Private (landlord or admin)
+const snapshotAgreement = async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id);
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const isLandlord = agreement.landlord?.toString() === req.user._id.toString();
+    if (!isLandlord && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    const version = await saveVersionSnapshot(
+      req.params.id,
+      req.user._id,
+      req.body.reason || 'Manual snapshot'
+    );
+
+    res.json({ message: 'Version snapshot saved', version });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get inline PDF preview URL (pre-signed S3 or regenerate)
+// @route   GET /api/agreements/:id/preview
+// @access  Private (parties on agreement or admin)
+const getAgreementPreview = async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id)
+      .populate('property', 'title address')
+      .populate('tenant', 'name email')
+      .populate('landlord', 'name email')
+      .populate('clauses', 'title body');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const userId = req.user._id.toString();
+    const isTenant   = agreement.tenant?._id.toString()   === userId;
+    const isLandlord = agreement.landlord?._id.toString() === userId;
+    const isAdmin    = req.user.role === 'admin';
+
+    if (!isTenant && !isLandlord && !isAdmin) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    // If document already stored in S3, return signed URL
+    if (agreement.documentUrl && isS3Configured()) {
+      const { getAgreementPDFUrl } = require('../utils/s3Service');
+      const url = await getAgreementPDFUrl(agreement.documentUrl, 1800); // 30 min
+      return res.json({ url, source: 's3', expiresIn: 1800 });
+    }
+
+    // Fallback: generate fresh PDF buffer and return as base64 for inline preview
+    const pdfBuffer = await generateAgreementPDFBuffer(agreement);
+    const base64 = pdfBuffer.toString('base64');
+
+    res.json({
+      source: 'generated',
+      base64,
+      mimeType: 'application/pdf',
+      filename: `agreement-${agreement._id}.pdf`,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createAgreement,
   getAgreements,
@@ -470,4 +735,10 @@ module.exports = {
   getAvailableClauses,
   updateAgreementClauses,
   getDocumentUrl,
+  sendSigningInvites,
+  signViaToken,
+  getVersionHistory,
+  snapshotAgreement,
+  getAgreementPreview,
+  saveVersionSnapshot,
 };

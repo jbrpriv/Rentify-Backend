@@ -223,7 +223,67 @@ const assignManager = async (req, res) => {
   }
 };
 
+// @desc    Archive a property (soft delete — keeps all history)
+// @route   PUT /api/properties/:id/archive
+// @access  Private (Landlord who owns it, or Admin)
+const archiveProperty = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return res.status(404).json({ message: 'Property not found' });
+
+    const isOwner = property.landlord.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Not authorized to archive this property' });
+
+    if (property.status === 'occupied') {
+      return res.status(400).json({ message: 'Cannot archive an occupied property. The tenant must vacate first.' });
+    }
+
+    if (property.isArchived) {
+      return res.status(400).json({ message: 'Property is already archived' });
+    }
+
+    property.isArchived     = true;
+    property.archivedAt     = new Date();
+    property.archivedReason = req.body.reason || 'Archived by owner';
+    property.isListed       = false; // Unlist from browse
+    await property.save();
+
+    res.json({ message: 'Property archived successfully', property });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Restore an archived property
+// @route   PUT /api/properties/:id/restore
+// @access  Private (Landlord who owns it, or Admin)
+const restoreProperty = async (req, res) => {
+  try {
+    const property = await Property.findById(req.params.id);
+    if (!property) return res.status(404).json({ message: 'Property not found' });
+
+    const isOwner = property.landlord.toString() === req.user._id.toString();
+    const isAdmin = req.user.role === 'admin';
+    if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Not authorized' });
+
+    if (!property.isArchived) {
+      return res.status(400).json({ message: 'Property is not archived' });
+    }
+
+    property.isArchived     = false;
+    property.archivedAt     = null;
+    property.archivedReason = '';
+    await property.save();
+
+    res.json({ message: 'Property restored successfully', property });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createProperty, getProperties, getPropertyById, updateProperty, deleteProperty,
   assignManager, inviteManager, respondToInvitation, getMyInvitations,
+  archiveProperty, restoreProperty,
 };
