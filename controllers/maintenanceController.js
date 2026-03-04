@@ -59,6 +59,7 @@ const createRequest = async (req, res) => {
         {
           type: 'MAINTENANCE_RECEIVED',
           data: {
+            landlordId: property.landlord._id?.toString(),
             landlordEmail: property.landlord.email,
             landlordPhone: property.landlord.phoneNumber,
             landlordSmsOptIn: property.landlord.smsOptIn,
@@ -207,6 +208,7 @@ const updateRequest = async (req, res) => {
         {
           type: 'MAINTENANCE_UPDATE',
           data: {
+            tenantId: request.tenant._id?.toString(),
             tenantEmail: request.tenant.email,
             tenantPhone: request.tenant.phoneNumber,
             tenantName: request.tenant.name,

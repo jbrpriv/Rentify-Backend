@@ -92,6 +92,12 @@ const userSchema = mongoose.Schema(
       select: false,
     },
 
+    // Date the current paid subscription started (set by billing webhook)
+    subscriptionStartDate: {
+      type: Date,
+      default: null,
+    },
+
     // ─── Push Notifications ────────────────────────────────────────
     fcmToken: {
       type: String,

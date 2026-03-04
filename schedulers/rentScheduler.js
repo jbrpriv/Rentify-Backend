@@ -77,7 +77,8 @@ const startRentScheduler = () => {
       const activeAgreements = await Agreement.find({
         status: 'active',
         'rentSchedule.0': { $exists: true },
-      }).populate('tenant', 'name email phoneNumber smsOptIn');
+      }).populate('tenant', 'name email phoneNumber smsOptIn')
+        .populate('property', 'title');
 
       let feeCount = 0;
 
@@ -138,6 +139,28 @@ const startRentScheduler = () => {
               timestamp: new Date(),
               details: `Late fee of Rs. ${lateFeeAmount} applied to ${entry.dueDate} rent entry. ${daysPastDue} days past due.`,
             });
+
+            // Notify tenant
+            const t = agreement.tenant;
+            if (t) {
+              await notificationQueue.add(
+                `late-fee-${agreement._id}-${entry.dueDate}`,
+                {
+                  type: 'LATE_FEE_APPLIED',
+                  data: {
+                    tenantId:       t._id?.toString(),
+                    tenantEmail:    t.email,
+                    tenantPhone:    t.phoneNumber,
+                    tenantName:     t.name,
+                    tenantSmsOptIn: t.smsOptIn,
+                    propertyTitle:  agreement.property?.title || 'your property',
+                    feeAmount:      lateFeeAmount,
+                    dueDate:        entry.dueDate,
+                  },
+                },
+                { jobId: `late-fee-${agreement._id}-${dueDate.getMonth()}` }
+              );
+            }
 
             console.log(`💸 Late fee applied for agreement ${agreement._id}, due ${entry.dueDate}`);
           }

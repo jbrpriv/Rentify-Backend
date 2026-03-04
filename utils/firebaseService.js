@@ -37,6 +37,7 @@ const pushTemplates = {
   agreementAction:    (action)           => ({ title: '📄 Agreement Update',     body: action }),
   disputeUpdate:      (title)            => ({ title: '⚖️ Dispute Update',       body: `Your dispute "${title}" has been updated` }),
   leaseExpiring:      (property, days)   => ({ title: '📅 Lease Expiring Soon',  body: `Your lease at ${property} expires in ${days} days` }),
+  lateFeeApplied:     (fee, property)    => ({ title: '💸 Late Fee Applied',     body: `A late fee of Rs. ${fee} has been added for ${property}` }),
 };
 
 /**

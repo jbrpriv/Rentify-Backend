@@ -287,6 +287,40 @@ const templates = {
     `)
     }),
 
+    // Late fee applied to tenant's account
+    lateFeeApplied: (tenantName, propertyTitle, feeAmount, dueDate) => ({
+        subject: `⚠️ Late Fee Applied - ${propertyTitle}`,
+        html: baseTemplate(`
+      <h2 style="color:#d97706;">Hello ${tenantName},</h2>
+      <p>A late fee has been applied to your account because your rent payment is overdue.</p>
+      <div class="detail-box" style="border-left: 4px solid #d97706;">
+        <strong>Property:</strong> ${propertyTitle}<br/>
+        <strong>Late Fee Amount:</strong> Rs. ${Number(feeAmount).toLocaleString()}<br/>
+        <strong>Original Due Date:</strong> ${new Date(dueDate).toDateString()}
+      </div>
+      <p>Please make payment as soon as possible to avoid further charges.</p>
+      <a href="${process.env.CLIENT_URL}/dashboard/payments" class="button" style="background:#d97706;">Pay Now</a>
+    `)
+    }),
+
+    // Payment receipt confirmation
+    paymentReceipt: (tenantName, propertyTitle, amount, receiptNumber, month) => ({
+        subject: `Payment Receipt #${receiptNumber} - ${propertyTitle}`,
+        html: baseTemplate(`
+      <h2>Hello ${tenantName},</h2>
+      <p>Your payment has been received. Please keep this receipt for your records.</p>
+      <div class="detail-box">
+        <strong>Receipt Number:</strong> ${receiptNumber}<br/>
+        <strong>Property:</strong> ${propertyTitle}<br/>
+        <strong>Period:</strong> ${month}<br/>
+        <strong>Amount Paid:</strong> Rs. ${Number(amount).toLocaleString()}<br/>
+        <strong>Date:</strong> ${new Date().toDateString()}
+      </div>
+      <p>A PDF copy of your receipt is available in your dashboard.</p>
+      <a href="${process.env.CLIENT_URL}/dashboard/payments" class="button">View Receipts</a>
+    `)
+    }),
+
     // Sent to tenant when landlord proposes a lease renewal
     renewalProposed: (tenantName, propertyTitle, newEndDate, newRentAmount) => ({
         subject: `Lease Renewal Proposed - ${propertyTitle}`,

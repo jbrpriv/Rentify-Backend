@@ -59,6 +59,9 @@ const notificationWorker = new Worker(
           );
         }
 
+        // Push notification
+        await pushToUser(tenant._id, 'rentDueReminder', financials.rentAmount, property.title);
+
         // Log to audit trail
         agreement.auditLog.push({
           action: 'REMINDER_SENT',
@@ -98,6 +101,9 @@ const notificationWorker = new Worker(
           );
         }
 
+        // Push notification
+        await pushToUser(tenant._id, 'rentOverdue', financials.rentAmount, property.title);
+
         agreement.auditLog.push({
           action: 'OVERDUE_NOTICE_SENT',
           timestamp: new Date(),
@@ -118,6 +124,7 @@ const notificationWorker = new Worker(
         if (!agreement) return;
 
         const expiryDate = new Date(agreement.term.endDate).toDateString();
+        const daysLeft = Math.ceil((new Date(agreement.term.endDate) - new Date()) / (1000 * 60 * 60 * 24));
 
         // Notify tenant
         await sendEmail(
@@ -136,6 +143,7 @@ const notificationWorker = new Worker(
             expiryDate
           );
         }
+        await pushToUser(agreement.tenant._id, 'leaseExpiring', agreement.property.title, daysLeft);
 
         // Notify landlord
         await sendEmail(
@@ -154,41 +162,47 @@ const notificationWorker = new Worker(
             expiryDate
           );
         }
+        await pushToUser(agreement.landlord._id, 'leaseExpiring', agreement.property.title, daysLeft);
         break;
       }
 
       case 'APPLICATION_ACCEPTED': {
-        const { tenantEmail, tenantPhone, tenantName, propertyTitle, tenantSmsOptIn } = data;
+        const { tenantEmail, tenantPhone, tenantName, propertyTitle, tenantSmsOptIn, tenantId } = data;
 
         await sendEmail(tenantEmail, 'applicationAccepted', tenantName, propertyTitle);
 
         if (tenantSmsOptIn && tenantPhone) {
           await sendSMS(tenantPhone, 'applicationAccepted', propertyTitle);
         }
+
+        // Push if we have tenant userId
+        if (tenantId) await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'accepted');
         break;
       }
 
       case 'APPLICATION_REJECTED': {
-        const { tenantEmail, tenantPhone, tenantName, propertyTitle, tenantSmsOptIn } = data;
+        const { tenantEmail, tenantPhone, tenantName, propertyTitle, tenantSmsOptIn, tenantId } = data;
 
         await sendEmail(tenantEmail, 'applicationRejected', tenantName, propertyTitle);
 
         if (tenantSmsOptIn && tenantPhone) {
           await sendSMS(tenantPhone, 'applicationRejected', propertyTitle);
         }
+
+        // Push if we have tenant userId
+        if (tenantId) await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'rejected');
         break;
       }
 
       case 'MAINTENANCE_RECEIVED': {
         const {
           landlordEmail, landlordPhone, landlordSmsOptIn,
-          landlordName, tenantName, propertyTitle, requestTitle,
+          landlordName, tenantName, propertyTitle, requestTitle, landlordId,
         } = data;
 
         await sendEmail(
           landlordEmail,
           'newMaintenanceRequest',
-          // N1 fix: use real landlord name from payload instead of hardcoded fallback
           landlordName || 'Landlord',
           tenantName,
           propertyTitle,
@@ -205,16 +219,37 @@ const notificationWorker = new Worker(
             tenantName
           );
         }
+
+        // Push if we have landlord userId
+        if (landlordId) await pushToUser(landlordId, 'maintenanceUpdate', requestTitle, 'new request received');
         break;
       }
 
       case 'MAINTENANCE_UPDATE': {
-        const { tenantEmail, tenantPhone, tenantName, requestTitle, newStatus, tenantSmsOptIn } = data;
+        const { tenantEmail, tenantPhone, tenantName, requestTitle, newStatus, tenantSmsOptIn, tenantId } = data;
+
+        // Email notification for status change
+        await sendEmail(tenantEmail, 'maintenanceUpdate', tenantName, requestTitle, newStatus);
 
         if (tenantSmsOptIn && tenantPhone) {
           await sendSMS(tenantPhone, 'maintenanceUpdate', requestTitle, newStatus);
         }
-        // Email for maintenance updates can be added to emailService templates later
+
+        // Push if we have tenant userId
+        if (tenantId) await pushToUser(tenantId, 'maintenanceUpdate', requestTitle, newStatus);
+        break;
+      }
+
+      case 'LATE_FEE_APPLIED': {
+        const { tenantEmail, tenantPhone, tenantName, propertyTitle, feeAmount, dueDate, tenantSmsOptIn, tenantId } = data;
+
+        await sendEmail(tenantEmail, 'lateFeeApplied', tenantName, propertyTitle, feeAmount, dueDate);
+
+        if (tenantSmsOptIn && tenantPhone) {
+          await sendSMS(tenantPhone, 'lateFeeApplied', propertyTitle, feeAmount);
+        }
+
+        if (tenantId) await pushToUser(tenantId, 'lateFeeApplied', feeAmount, propertyTitle);
         break;
       }
 

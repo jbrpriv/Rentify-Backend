@@ -108,4 +108,42 @@ function isS3Configured() {
   );
 }
 
-module.exports = { uploadAgreementPDF, getAgreementPDFUrl, isS3Configured };
+/**
+ * Upload a payment receipt PDF to S3.
+ * @param {Buffer} pdfBuffer
+ * @param {string} paymentId - MongoDB ObjectId string
+ * @returns {Promise<string>} - The S3 object key
+ */
+async function uploadReceiptPDF(pdfBuffer, paymentId) {
+  const client = _getClient();
+  const year = new Date().getFullYear();
+  const key  = `receipts/${year}/${paymentId}/receipt.pdf`;
+
+  const command = new PutObjectCommand({
+    Bucket:      BUCKET,
+    Key:         key,
+    Body:        pdfBuffer,
+    ContentType: 'application/pdf',
+    Tagging:     'Type=PaymentReceipt',
+    ServerSideEncryption: 'AES256',
+    Metadata: { paymentId, uploadedAt: new Date().toISOString() },
+  });
+
+  await client.send(command);
+  console.log(`🧾 Receipt PDF uploaded to S3: s3://${BUCKET}/${key}`);
+  return key;
+}
+
+/**
+ * Generate a pre-signed URL for a receipt PDF.
+ * @param {string} s3Key
+ * @param {number} expiresInSeconds
+ * @returns {Promise<string>}
+ */
+async function getReceiptPDFUrl(s3Key, expiresInSeconds = 3600) {
+  const client = _getClient();
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: s3Key });
+  return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
+module.exports = { uploadAgreementPDF, getAgreementPDFUrl, uploadReceiptPDF, getReceiptPDFUrl, isS3Configured };

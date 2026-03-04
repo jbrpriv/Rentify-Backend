@@ -3,6 +3,8 @@ const Agreement = require('../models/Agreement');
 const Payment = require('../models/Payment');
 const { sendEmail } = require('../utils/emailService');
 const { sendSMS } = require('../utils/smsService');
+const { generateReceiptPDFBuffer } = require('../utils/pdfGenerator');
+const { uploadReceiptPDF, isS3Configured } = require('../utils/s3Service');
 
 // @desc    Create Stripe Checkout Session for Deposit + 1st Month Rent
 // @route   POST /api/payments/create-checkout-session
@@ -115,7 +117,7 @@ const handleStripeWebhook = async (req, res) => {
     }
 
     // Save a standalone Payment record for this initial payment
-    await Payment.create({
+    const initialPayment = await Payment.create({
       agreement: agreementId,
       tenant: agreement.tenant._id,
       landlord: agreement.landlord._id,
@@ -128,6 +130,17 @@ const handleStripeWebhook = async (req, res) => {
       stripePaymentIntent: session.payment_intent,
       stripeSessionId: session.id,
     });
+
+    // Generate + upload receipt PDF asynchronously (non-blocking)
+    if (isS3Configured()) {
+      generateReceiptPDFBuffer(
+        initialPayment,
+        { name: agreement.tenant.name, email: agreement.tenant.email },
+        agreement.property
+      ).then((buf) => uploadReceiptPDF(buf, initialPayment._id.toString()))
+        .then((key) => Payment.findByIdAndUpdate(initialPayment._id, { receiptUrl: key }))
+        .catch((err) => console.error('Receipt PDF upload failed:', err.message));
+    }
 
     // Activate the agreement
     await Agreement.findByIdAndUpdate(agreementId, {
@@ -203,19 +216,32 @@ const handleStripeWebhook = async (req, res) => {
       entry.stripePaymentIntent = session.payment_intent;
 
       // Save a standalone Payment record
-      await Payment.create({
+      const monthlyPayment = await Payment.create({
         agreement: agreementId,
         tenant:    agreement.tenant._id,
         landlord:  agreement.landlord._id,
         property:  agreement.property._id,
         amount:    session.amount_total / 100,
-        type:      'monthly',
+        type:      'rent',
         status:    'paid',
         paidAt:    new Date(),
         dueDate:   entry.dueDate,
+        lateFeeIncluded: (entry.lateFeeAmount || 0) > 0,
+        lateFeeAmount:   entry.lateFeeAmount || 0,
         stripePaymentIntent: session.payment_intent,
         stripeSessionId: session.id,
       });
+
+      // Generate + upload receipt PDF asynchronously (non-blocking)
+      if (isS3Configured()) {
+        generateReceiptPDFBuffer(
+          monthlyPayment,
+          { name: agreement.tenant.name, email: agreement.tenant.email },
+          agreement.property
+        ).then((buf) => uploadReceiptPDF(buf, monthlyPayment._id.toString()))
+          .then((key) => Payment.findByIdAndUpdate(monthlyPayment._id, { receiptUrl: key }))
+          .catch((err) => console.error('Receipt PDF upload failed:', err.message));
+      }
 
       agreement.auditLog.push({
         action:  'RENT_PAID',
