@@ -29,6 +29,7 @@ const uploadRoutes      = require('./routes/uploadRoutes');
 const adminRoutes       = require('./routes/adminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const offerRoutes = require('./routes/offerRoutes');
+const agreementTemplateRoutes = require('./routes/agreementTemplateRoutes');
 const billingRoutes       = require('./routes/billingRoutes');
 const dataDeletionRoutes  = require('./routes/dataDeletionRoutes');
 const { handleBillingWebhook } = require('./controllers/billingController');
@@ -113,6 +114,7 @@ app.use('/api/upload',       uploadLimiter,  uploadRoutes);
 app.use('/api/admin',        generalLimiter, adminRoutes);
 app.use('/api/notifications', generalLimiter, notificationRoutes);
 app.use('/api/offers',       offerLimiter, offerRoutes);
+app.use('/api/agreement-templates', generalLimiter, agreementTemplateRoutes);
 app.use('/api/billing',       generalLimiter, billingRoutes);
 app.use('/api/data-deletion', generalLimiter, dataDeletionRoutes);
 

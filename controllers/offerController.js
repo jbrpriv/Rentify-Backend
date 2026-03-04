@@ -203,6 +203,30 @@ const acceptOffer = async (req, res) => {
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + durationMonths);
 
+    // ── Resolve template clauses if a templateId was provided ───────────────
+    let clauseSet = [];
+    const { templateId } = req.body;
+    if (templateId) {
+      const tmpl = await AgreementTemplate.findById(templateId).populate('clauseIds');
+      if (!tmpl) return res.status(404).json({ message: 'Agreement template not found' });
+      if (tmpl.landlord.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'That template does not belong to you' });
+      }
+      if (tmpl.status !== 'approved') {
+        return res.status(400).json({ message: 'Template must be approved by admin before use' });
+      }
+      clauseSet = (tmpl.clauseIds || []).map((c) => ({
+        clauseId: c._id,
+        title:    c.title,
+        body:     c.body,
+      }));
+      // Bump usage count on each clause
+      const approvedIds = tmpl.clauseIds.filter(c => c.isApproved).map(c => c._id);
+      if (approvedIds.length > 0) {
+        await Clause.updateMany({ _id: { $in: approvedIds } }, { $inc: { usageCount: 1 } });
+      }
+    }
+
     const agreement = await Agreement.create({
       landlord:   offer.landlord._id,
       tenant:     offer.tenant._id,
@@ -218,10 +242,11 @@ const acceptOffer = async (req, res) => {
         lateFeeAmount: offer.property.financials?.lateFeeAmount || 0,
         lateFeeGracePeriodDays: offer.property.financials?.lateFeeGracePeriodDays || 5,
       },
+      clauseSet,
       auditLog: [{
         action:  'CREATED_FROM_OFFER',
         actor:   req.user._id,
-        details: `Agreement drafted from accepted offer (round ${agreed.round})`,
+        details: `Agreement drafted from accepted offer (round ${agreed.round})${templateId ? ` using template ${templateId}` : ''}`,
       }],
     });
 
