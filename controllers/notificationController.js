@@ -1,68 +1,302 @@
-const Message = require('../models/Message');
-const Application = require('../models/Application');
-const MaintenanceRequest = require('../models/MaintenanceRequest');
-const Agreement = require('../models/Agreement');
-const Property = require('../models/Property');
+const { Worker } = require('bullmq');
+const redisConnection = require('../config/redis');
+const { sendEmail } = require('../utils/emailService');
+const { sendSMS } = require('../utils/smsService');
+const Agreement      = require('../models/Agreement');
+const User           = require('../models/User');
+const { sendPush }   = require('../utils/firebaseService');
 
-// @desc    Get role-based notification badge counts for the dashboard nav
-// @route   GET /api/notifications/counts
-// @access  Private
-const getNotificationCounts = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    const role = req.user.role;
-    const counts = {};
+const notificationWorker = new Worker(
+  'notifications',
+  async (job) => {
+    const { type, data } = job.data;
+    console.log(`Processing job [${type}] - Job ID: ${job.id}`);
 
-    // ── Messages (all roles) ────────────────────────────────────────
-    counts.messages = await Message.countDocuments({ receiver: userId, isRead: false });
+    // Helper: send push if user has FCM token
+    const pushToUser = async (userId, template, ...args) => {
+      try {
+        const u = await User.findById(userId).select('fcmToken');
+        if (u?.fcmToken) await sendPush(u.fcmToken, template, ...args);
+      } catch {}
+    };
 
-    if (role === 'landlord') {
-      // Pending applications waiting for landlord review
-      counts.applications = await Application.countDocuments({ landlord: userId, status: 'pending' });
+    switch (type) {
 
-      // Open/in-progress maintenance requests on landlord's properties
-      counts.maintenance = await MaintenanceRequest.countDocuments({
-        landlord: userId,
-        status: { $in: ['open', 'in_progress'] },
-      });
+      case 'RENT_DUE_REMINDER': {
+        const { agreementId, dueDate } = data;
 
-      // Agreements sent to tenant but not yet fully signed
-      counts.agreements = await Agreement.countDocuments({
-        landlord: userId,
-        status: 'sent',
-        'signatures.landlord.signed': true,
-        'signatures.tenant.signed': false,
-      });
+        const agreement = await Agreement.findById(agreementId)
+          .populate('tenant', 'name email phoneNumber smsOptIn')
+          .populate('property', 'title');
 
-    } else if (role === 'tenant') {
-      // Maintenance requests submitted by this tenant that are still open
-      counts.maintenance = await MaintenanceRequest.countDocuments({
-        tenant: userId,
-        status: { $in: ['open', 'in_progress'] },
-      });
+        if (!agreement) throw new Error(`Agreement ${agreementId} not found`);
 
-    } else if (role === 'property_manager') {
-      // Maintenance assigned to this PM that are open/in-progress
-      counts.maintenance = await MaintenanceRequest.countDocuments({
-        assignedTo: userId,
-        status: { $in: ['open', 'in_progress'] },
-      });
+        if (agreement.status !== 'active') {
+          console.log(`Skipping reminder — agreement ${agreementId} is ${agreement.status}`);
+          return;
+        }
 
-    } else if (role === 'law_reviewer') {
-      // Agreements pending legal review (active agreements without terminated/expired)
-      counts.agreements = await Agreement.countDocuments({
-        status: { $in: ['sent', 'signed', 'active'] },
-      });
+        const { tenant, property, financials } = agreement;
 
-    } else if (role === 'admin') {
-      // Pending applications across all landlords
-      counts.applications = await Application.countDocuments({ status: 'pending' });
+        // Always send email
+        await sendEmail(
+          tenant.email,
+          'rentDueReminder',
+          tenant.name,
+          property.title,
+          financials.rentAmount,
+          dueDate
+        );
+
+        // Send SMS only if tenant has opted in
+        if (tenant.smsOptIn && tenant.phoneNumber) {
+          await sendSMS(
+            tenant.phoneNumber,
+            'rentDueReminder',
+            property.title,
+            financials.rentAmount,
+            dueDate
+          );
+        }
+
+        // Push notification
+        await pushToUser(tenant._id, 'rentDueReminder', financials.rentAmount, property.title);
+
+        // Log to audit trail
+        agreement.auditLog.push({
+          action: 'REMINDER_SENT',
+          timestamp: new Date(),
+          details: `Rent due reminder sent for ${dueDate}`,
+        });
+        await agreement.save();
+        break;
+      }
+
+      case 'RENT_OVERDUE': {
+        const { agreementId } = data;
+
+        const agreement = await Agreement.findById(agreementId)
+          .populate('tenant', 'name email phoneNumber smsOptIn')
+          .populate('property', 'title');
+
+        if (!agreement || agreement.status !== 'active') return;
+
+        const { tenant, property, financials } = agreement;
+
+        await sendEmail(
+          tenant.email,
+          'rentOverdue',
+          tenant.name,
+          property.title,
+          financials.rentAmount,
+          new Date()
+        );
+
+        if (tenant.smsOptIn && tenant.phoneNumber) {
+          await sendSMS(
+            tenant.phoneNumber,
+            'rentOverdue',
+            property.title,
+            financials.rentAmount
+          );
+        }
+
+        // Push notification
+        await pushToUser(tenant._id, 'rentOverdue', financials.rentAmount, property.title);
+
+        agreement.auditLog.push({
+          action: 'OVERDUE_NOTICE_SENT',
+          timestamp: new Date(),
+          details: 'Overdue rent notice sent to tenant.',
+        });
+        await agreement.save();
+        break;
+      }
+
+      case 'AGREEMENT_EXPIRY_WARNING': {
+        const { agreementId } = data;
+
+        const agreement = await Agreement.findById(agreementId)
+          .populate('tenant', 'name email phoneNumber smsOptIn')
+          .populate('landlord', 'name email phoneNumber smsOptIn')
+          .populate('property', 'title');
+
+        if (!agreement) return;
+
+        const expiryDate = new Date(agreement.term.endDate).toDateString();
+        const daysLeft = Math.ceil((new Date(agreement.term.endDate) - new Date()) / (1000 * 60 * 60 * 24));
+
+        // Notify tenant
+        await sendEmail(
+          agreement.tenant.email,
+          'expiryWarning',
+          agreement.tenant.name,
+          agreement.property.title,
+          expiryDate,
+          'tenant'
+        );
+        if (agreement.tenant.smsOptIn && agreement.tenant.phoneNumber) {
+          await sendSMS(
+            agreement.tenant.phoneNumber,
+            'expiryWarning',
+            agreement.property.title,
+            expiryDate
+          );
+        }
+        await pushToUser(agreement.tenant._id, 'leaseExpiring', agreement.property.title, daysLeft);
+
+        // Notify landlord
+        await sendEmail(
+          agreement.landlord.email,
+          'expiryWarning',
+          agreement.landlord.name,
+          agreement.property.title,
+          expiryDate,
+          'landlord'
+        );
+        if (agreement.landlord.smsOptIn && agreement.landlord.phoneNumber) {
+          await sendSMS(
+            agreement.landlord.phoneNumber,
+            'expiryWarning',
+            agreement.property.title,
+            expiryDate
+          );
+        }
+        await pushToUser(agreement.landlord._id, 'leaseExpiring', agreement.property.title, daysLeft);
+        break;
+      }
+
+      case 'APPLICATION_ACCEPTED': {
+        const { tenantEmail, tenantPhone, tenantName, propertyTitle, tenantSmsOptIn, tenantId } = data;
+
+        await sendEmail(tenantEmail, 'applicationAccepted', tenantName, propertyTitle);
+
+        if (tenantSmsOptIn && tenantPhone) {
+          await sendSMS(tenantPhone, 'applicationAccepted', propertyTitle);
+        }
+
+        // Push if we have tenant userId
+        if (tenantId) await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'accepted');
+        break;
+      }
+
+      case 'APPLICATION_REJECTED': {
+        const { tenantEmail, tenantPhone, tenantName, propertyTitle, tenantSmsOptIn, tenantId } = data;
+
+        await sendEmail(tenantEmail, 'applicationRejected', tenantName, propertyTitle);
+
+        if (tenantSmsOptIn && tenantPhone) {
+          await sendSMS(tenantPhone, 'applicationRejected', propertyTitle);
+        }
+
+        // Push if we have tenant userId
+        if (tenantId) await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'rejected');
+        break;
+      }
+
+      case 'MAINTENANCE_RECEIVED': {
+        const {
+          landlordEmail, landlordPhone, landlordSmsOptIn,
+          landlordName, tenantName, propertyTitle, requestTitle, landlordId,
+        } = data;
+
+        await sendEmail(
+          landlordEmail,
+          'newMaintenanceRequest',
+          landlordName || 'Landlord',
+          tenantName,
+          propertyTitle,
+          requestTitle,
+          'medium'
+        );
+
+        if (landlordSmsOptIn && landlordPhone) {
+          await sendSMS(
+            landlordPhone,
+            'maintenanceReceived',
+            propertyTitle,
+            requestTitle,
+            tenantName
+          );
+        }
+
+        // Push if we have landlord userId
+        if (landlordId) await pushToUser(landlordId, 'maintenanceUpdate', requestTitle, 'new request received');
+        break;
+      }
+
+      case 'MAINTENANCE_UPDATE': {
+        const { tenantEmail, tenantPhone, tenantName, requestTitle, newStatus, tenantSmsOptIn, tenantId } = data;
+
+        // Email notification for status change
+        await sendEmail(tenantEmail, 'maintenanceUpdate', tenantName, requestTitle, newStatus);
+
+        if (tenantSmsOptIn && tenantPhone) {
+          await sendSMS(tenantPhone, 'maintenanceUpdate', requestTitle, newStatus);
+        }
+
+        // Push if we have tenant userId
+        if (tenantId) await pushToUser(tenantId, 'maintenanceUpdate', requestTitle, newStatus);
+        break;
+      }
+
+      case 'LATE_FEE_APPLIED': {
+        const { tenantEmail, tenantPhone, tenantName, propertyTitle, feeAmount, dueDate, tenantSmsOptIn, tenantId } = data;
+
+        await sendEmail(tenantEmail, 'lateFeeApplied', tenantName, propertyTitle, feeAmount, dueDate);
+
+        if (tenantSmsOptIn && tenantPhone) {
+          await sendSMS(tenantPhone, 'lateFeeApplied', propertyTitle, feeAmount);
+        }
+
+        if (tenantId) await pushToUser(tenantId, 'lateFeeApplied', feeAmount, propertyTitle);
+        break;
+      }
+
+      case 'NEW_MESSAGE_OFFLINE': {
+        // M9: Notify a user who is offline that they received a new message
+        const {
+          receiverEmail, receiverName, receiverPhone,
+          receiverSmsOptIn, senderName, preview, propertyTitle,
+        } = data;
+
+        await sendEmail(
+          receiverEmail,
+          'newMessageOffline',
+          receiverName,
+          senderName,
+          preview,
+          propertyTitle
+        );
+
+        if (receiverSmsOptIn && receiverPhone) {
+          await sendSMS(
+            receiverPhone,
+            'newMessageOffline',
+            senderName,
+            propertyTitle
+          );
+        }
+        break;
+      }
+
+      default:
+        console.warn(`Unknown job type: ${type}`);
     }
-
-    res.json(counts);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+  },
+  {
+    connection: redisConnection,
+    concurrency: 5,
   }
-};
+);
 
-module.exports = { getNotificationCounts };
+// ─── Worker event listeners ───────────────────────────────────────────────────
+notificationWorker.on('completed', (job) => {
+  console.log(`✅ Job completed [${job.data.type}] - ID: ${job.id}`);
+});
+
+notificationWorker.on('failed', (job, err) => {
+  console.error(`❌ Job failed [${job.data.type}] - ID: ${job.id} - Error: ${err.message}`);
+});
+
+module.exports = notificationWorker;

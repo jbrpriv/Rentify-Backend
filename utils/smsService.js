@@ -50,6 +50,9 @@ const smsTemplates = {
 
   maintenanceReceived: (propertyTitle, tenantName) =>
     `RentifyPro: New maintenance request from ${tenantName} for ${propertyTitle}. Check your dashboard.`,
+
+  newMessageOffline: (senderName, propertyTitle) =>
+    `RentifyPro: New message from ${senderName}${propertyTitle ? ` about ${propertyTitle}` : ''}. View it: ${process.env.CLIENT_URL}/dashboard/messages`,
 };
 
 // ─── Core Send Function ───────────────────────────────────────────────────────

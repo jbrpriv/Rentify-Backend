@@ -1,4 +1,5 @@
 const Message = require('../models/Message');
+const notificationQueue = require('../queues/notificationQueue');
 const Property = require('../models/Property');
 const User = require('../models/User');
 
@@ -52,10 +53,32 @@ const sendMessage = async (req, res) => {
     // Emit real-time event to receiver if online
     const io = getIO();
     const onlineUsers = getOnlineUsers();
-    if (io) {
-      const receiverSocketId = onlineUsers.get(receiverId.toString());
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit('new_message', populated);
+    const receiverIsOnline = !!onlineUsers.get(receiverId.toString());
+    if (io && receiverIsOnline) {
+      io.to(onlineUsers.get(receiverId.toString())).emit('new_message', populated);
+    }
+
+    // M9: Queue email + SMS notification for offline receivers
+    if (!receiverIsOnline) {
+      const fullReceiver = await User.findById(receiverId)
+        .select('name email phoneNumber smsOptIn');
+      if (fullReceiver) {
+        await notificationQueue.add(
+          `new-message-${message._id}`,
+          {
+            type: 'NEW_MESSAGE_OFFLINE',
+            data: {
+              receiverEmail:    fullReceiver.email,
+              receiverName:     fullReceiver.name,
+              receiverPhone:    fullReceiver.phoneNumber,
+              receiverSmsOptIn: fullReceiver.smsOptIn,
+              senderName:       req.user.name,
+              preview:          content.trim().slice(0, 100),
+              propertyTitle:    populated.property?.title || '',
+            },
+          },
+          { jobId: `msg-offline-${message._id}` }
+        );
       }
     }
 

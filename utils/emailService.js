@@ -370,4 +370,31 @@ const sendEmail = async (to, templateName, ...args) => {
   }
 };
 
+  // ── New Message (Offline recipient) ─────────────────────────────────────────
+  newMessageOffline: (recipientName, senderName, preview, propertyTitle) => ({
+    subject: `New message from ${senderName}`,
+    html: `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#F8FBFC;border-radius:12px;overflow:hidden">
+        <div style="background:linear-gradient(135deg,#0B2D72,#0992C2);padding:28px 32px">
+          <h2 style="color:white;margin:0;font-size:20px">New Message</h2>
+        </div>
+        <div style="padding:28px 32px">
+          <p style="color:#374151">Hi <strong>${recipientName}</strong>,</p>
+          <p style="color:#374151">You have a new message from <strong>${senderName}</strong>${propertyTitle ? ` regarding <em>${propertyTitle}</em>` : ''}.</p>
+          <div style="background:#EFF6FF;border-left:4px solid #3B82F6;border-radius:6px;padding:14px 18px;margin:20px 0">
+            <p style="color:#1E40AF;margin:0;font-style:italic">"${preview}${preview.length >= 100 ? '…' : ''}"</p>
+          </div>
+          <a href="${process.env.CLIENT_URL}/dashboard/messages"
+             style="display:inline-block;background:#0992C2;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px">
+            View Message →
+          </a>
+        </div>
+        <div style="padding:16px 32px;border-top:1px solid #E5E7EB;text-align:center">
+          <p style="color:#9CA3AF;font-size:12px;margin:0">RentifyPro · You're receiving this because you were offline when the message was sent.</p>
+        </div>
+      </div>
+    `,
+  }),
+
+
 module.exports = { sendEmail };
