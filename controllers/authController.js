@@ -364,6 +364,33 @@ const registerFCMToken = async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
+// ─── OAUTH ABANDON ───────────────────────────────────────────────────────────
+// Called when a Google/Facebook user closes or cancels the complete-profile /
+// phone-verification flow. Deletes the incomplete account so the next sign-in
+// starts fresh rather than hitting a half-created record.
+const abandonOAuthAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // Safety: only wipe accounts that are still unverified at the phone level
+    // and were created via OAuth. Never delete a fully set-up account.
+    const isOAuth    = Array.isArray(user.authProviders) &&
+                       user.authProviders.some(p => p !== 'password');
+    const incomplete = !user.isPhoneVerified;
+
+    if (!isOAuth || !incomplete) {
+      return res.status(400).json({ message: 'Account is already complete — cannot abandon.' });
+    }
+
+    await User.findByIdAndDelete(user._id);
+    res.clearCookie('refreshToken');
+    res.json({ message: 'Incomplete account removed.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   registerUser, loginUser, refreshToken, logoutUser,
   verifyEmail, resendVerification,
@@ -371,4 +398,5 @@ module.exports = {
   sendPhoneOTP, verifyPhoneOTP,
   setup2FA, verify2FA, disable2FA, send2FADisableOTP, validate2FALogin,
   registerFCMToken, facebookComplete,
+  abandonOAuthAccount,
 };

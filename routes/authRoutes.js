@@ -12,6 +12,7 @@ const {
   sendPhoneOTP, verifyPhoneOTP,
   setup2FA, verify2FA, disable2FA, send2FADisableOTP, validate2FALogin,
   registerFCMToken, facebookComplete,
+  abandonOAuthAccount,
 } = require('../controllers/authController');
 
 // ─── Register ─────────────────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ router.post('/2fa/validate', validate2FALogin);
 
 router.post('/fcm-token', protect, registerFCMToken);
 router.post('/facebook/complete', facebookComplete); // no auth — creates the account
+router.delete('/oauth/abandon', protect, abandonOAuthAccount); // wipe incomplete OAuth account
 
 // ─── Generic OAuth callback handler ──────────────────────────────────────────
 /**
