@@ -124,6 +124,12 @@ function makeOAuthCallback(providerName) {
           maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
         });
 
+        // A user is "new" only if they still have the 0000000000 placeholder —
+        // meaning they've never completed their profile setup at all.
+        // A returning user who set a phone but didn't verify it goes to dashboard;
+        // the phone verification prompt is handled by the login flow separately.
+        const isNewUser = user.phoneNumber === '0000000000';
+
         const params = new URLSearchParams({
           token:           accessToken,
           name:            user.name,
@@ -131,7 +137,7 @@ function makeOAuthCallback(providerName) {
           id:              user._id.toString(),
           email:           user.email,
           isPhoneVerified: String(user.isPhoneVerified),
-          isNewUser:       String(!!user._isNewUser),
+          isNewUser:       String(isNewUser),
           provider:        providerName,
         });
 

@@ -76,7 +76,6 @@ async function _oauthUpsert(profile, email, provider) {
     await user.save();
   }
 
-  user._isNewUser = isNewUser; // transient flag, not persisted
   return user;
 }
 
