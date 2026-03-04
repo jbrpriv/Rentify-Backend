@@ -29,7 +29,10 @@ const uploadRoutes      = require('./routes/uploadRoutes');
 const adminRoutes       = require('./routes/adminRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const offerRoutes = require('./routes/offerRoutes');
-const { loginLimiter }  = require('./middlewares/rateLimiter');
+const billingRoutes       = require('./routes/billingRoutes');
+const dataDeletionRoutes  = require('./routes/dataDeletionRoutes');
+const { handleBillingWebhook } = require('./controllers/billingController');
+const { loginLimiter, propertyLimiter, uploadLimiter, messageLimiter, offerLimiter, generalLimiter }  = require('./middlewares/rateLimiter');
 
 // ─── Payment Webhook ──────────────────────────────────────────────────────────
 // MUST be registered BEFORE express.json() so Stripe gets the raw body
@@ -64,8 +67,8 @@ io.on('connection', (socket) => {
 });
 
 // Export io so controllers can emit events
-module.exports.io = io;
-module.exports.onlineUsers = onlineUsers;
+// M12 fix: single consolidated export — avoids fragile property-by-property assignment
+module.exports = { io, onlineUsers };
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 app.use(cors({
@@ -81,6 +84,9 @@ const stripeWebhookMiddleware = [express.raw({ type: 'application/json' }), hand
 app.post('/api/payments/webhook', ...stripeWebhookMiddleware);
 app.post('/api/webhooks',         ...stripeWebhookMiddleware);
 
+// Billing webhook (separate secret)
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleBillingWebhook);
+
 // ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -91,19 +97,21 @@ app.use(passport.initialize());
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use('/api/auth',         loginLimiter, authRoutes);
-app.use('/api/users',        userRoutes);
-app.use('/api/properties',   propertyRoutes);
-app.use('/api/agreements',   agreementRoutes);
-app.use('/api/applications', applicationRoutes);
-app.use('/api/payments',     paymentRoutes);
-app.use('/api/maintenance',  maintenanceRoutes);
-app.use('/api/messages',     messageRoutes);
-app.use('/api/listings',     listingRoutes);
-app.use('/api/disputes',     disputeRoutes);
-app.use('/api/upload',       uploadRoutes);
-app.use('/api/admin',        adminRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/offers',offerRoutes)
+app.use('/api/users',        generalLimiter, userRoutes);
+app.use('/api/properties',   propertyLimiter, propertyRoutes);
+app.use('/api/agreements',   generalLimiter, agreementRoutes);
+app.use('/api/applications', generalLimiter, applicationRoutes);
+app.use('/api/payments',     generalLimiter, paymentRoutes);
+app.use('/api/maintenance',  generalLimiter, maintenanceRoutes);
+app.use('/api/messages',     messageLimiter, messageRoutes);
+app.use('/api/listings',     generalLimiter, listingRoutes);
+app.use('/api/disputes',     generalLimiter, disputeRoutes);
+app.use('/api/upload',       uploadLimiter,  uploadRoutes);
+app.use('/api/admin',        generalLimiter, adminRoutes);
+app.use('/api/notifications', generalLimiter, notificationRoutes);
+app.use('/api/offers',       offerLimiter, offerRoutes);
+app.use('/api/billing',       generalLimiter, billingRoutes);
+app.use('/api/data-deletion', generalLimiter, dataDeletionRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
@@ -132,5 +140,5 @@ connectDB().then(() => {
   });
 });
 
-// M9 fix: preserve io/onlineUsers exports — do not overwrite with app
+// M12 fix: preserve io/onlineUsers exports — consolidated at top
 module.exports.app = app;

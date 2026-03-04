@@ -3,12 +3,16 @@ const router = express.Router();
 const { protect } = require('../middlewares/authMiddleware');
 const {
   createCheckoutSession,
+  createRentCheckoutSession,
   getRentSchedule,
   getPaymentHistory,
 } = require('../controllers/paymentController');
 
-// Create Stripe checkout session
+// Create Stripe checkout session for initial deposit + 1st month rent
 router.post('/create-checkout-session', protect, createCheckoutSession);
+
+// Create Stripe checkout session for a specific monthly rent payment (C5)
+router.post('/pay-rent', protect, createRentCheckoutSession);
 
 // Get rent schedule for an agreement
 router.get('/schedule/:agreementId', protect, getRentSchedule);

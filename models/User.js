@@ -85,6 +85,13 @@ const userSchema = mongoose.Schema(
       default: 'free',
     },
 
+    // Stripe Customer ID for billing portal access
+    stripeCustomerId: {
+      type: String,
+      default: null,
+      select: false,
+    },
+
     // ─── Push Notifications ────────────────────────────────────────
     fcmToken: {
       type: String,

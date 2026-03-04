@@ -1,8 +1,10 @@
 const Agreement = require('../models/Agreement');
 const Property = require('../models/Property');
 const User = require('../models/User');
-const { generateAgreementPDF } = require('../utils/pdfGenerator');
+const Clause = require('../models/Clause');
+const { generateAgreementPDF, generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
 const { sendEmail } = require('../utils/emailService');
+const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
 
 // @desc    Create a new rental agreement
 // @route   POST /api/agreements
@@ -142,6 +144,23 @@ const signAgreement = async (req, res) => {
         ipAddress: req.ip,
         details: 'Both parties signed. Awaiting security deposit payment to activate.',
       });
+
+      // ─── S3 Document Vault (H3) ────────────────────────────────────────────
+      // Upload a permanent signed copy to S3 now that both parties have signed.
+      // Done asynchronously — we don't block the HTTP response.
+      if (isS3Configured()) {
+        generateAgreementPDFBuffer(agreement, agreement.landlord, agreement.tenant, agreement.property)
+          .then((pdfBuffer) => uploadAgreementPDF(pdfBuffer, agreement._id.toString()))
+          .then((s3Key) => {
+            return Agreement.findByIdAndUpdate(agreement._id, {
+              documentUrl: s3Key,
+              documentVersion: (agreement.documentVersion || 1) + 1,
+            });
+          })
+          .catch((err) => {
+            console.error('S3 upload failed for agreement', agreement._id, err.message);
+          });
+      }
     } else {
       agreement.auditLog.push({
         action: isLandlord ? 'SIGNED_LANDLORD' : 'SIGNED_TENANT',
@@ -272,8 +291,7 @@ const proposeRenewal = async (req, res) => {
 
     await agreement.save();
 
-    // Notify tenant
-    const { sendEmail } = require('../utils/emailService');
+    // Notify tenant (using top-level sendEmail import)
     await sendEmail(
       agreement.tenant.email,
       'renewalProposed',
@@ -316,10 +334,17 @@ const respondToRenewal = async (req, res) => {
       agreement.status               = 'active';
       agreement.renewalProposal.status = 'accepted';
 
+      // M1 fix: Recompute durationMonths to reflect extended lease
+      const newStart = new Date(agreement.term.startDate);
+      const newEnd   = new Date(agreement.term.endDate);
+      agreement.term.durationMonths =
+        (newEnd.getFullYear() - newStart.getFullYear()) * 12 +
+        (newEnd.getMonth() - newStart.getMonth());
+
       agreement.auditLog.push({
         action: 'RENEWAL_ACCEPTED',
         actor:  req.user._id,
-        details: `Tenant accepted renewal until ${agreement.term.endDate}`,
+        details: `Tenant accepted renewal until ${agreement.term.endDate}. Duration updated to ${agreement.term.durationMonths} months.`,
       });
     } else {
       agreement.renewalProposal.status = 'rejected';
@@ -337,4 +362,112 @@ const respondToRenewal = async (req, res) => {
   }
 };
 
-module.exports = { createAgreement, getAgreements, downloadAgreementPDF, signAgreement, proposeRenewal, respondToRenewal };
+// @desc    Get approved clauses (for agreement builder clause picker)
+// @route   GET /api/agreements/clauses
+// @access  Private (Landlord, PM, Admin)
+const getAvailableClauses = async (req, res) => {
+  try {
+    const { category, jurisdiction } = req.query;
+    const filter = { isApproved: true, isArchived: false };
+    if (category)     filter.category     = category;
+    if (jurisdiction) filter.jurisdiction = jurisdiction;
+
+    const clauses = await Clause.find(filter)
+      .select('title body category jurisdiction isDefault usageCount')
+      .sort({ isDefault: -1, usageCount: -1 });
+
+    res.json(clauses);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Add / replace clauseSet on a draft agreement
+// @route   PUT /api/agreements/:id/clauses
+// @access  Private (Landlord who owns the agreement)
+const updateAgreementClauses = async (req, res) => {
+  try {
+    const { clauseIds } = req.body; // Array of Clause ObjectId strings
+
+    if (!Array.isArray(clauseIds)) {
+      return res.status(400).json({ message: 'clauseIds must be an array' });
+    }
+
+    const agreement = await Agreement.findById(req.params.id);
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    if (agreement.landlord.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the landlord can update clauses' });
+    }
+    if (!['draft', 'sent'].includes(agreement.status)) {
+      return res.status(400).json({ message: 'Clauses can only be updated on draft or sent agreements' });
+    }
+
+    // Fetch clause documents and snapshot title + body into the agreement
+    const clauses = await Clause.find({ _id: { $in: clauseIds }, isApproved: true, isArchived: false });
+
+    agreement.clauseSet = clauses.map((c) => ({
+      clauseId: c._id,
+      title:    c.title,
+      body:     c.body,
+    }));
+
+    // Increment usage count on selected clauses
+    await Clause.updateMany({ _id: { $in: clauseIds } }, { $inc: { usageCount: 1 } });
+
+    agreement.auditLog.push({
+      action:    'CLAUSES_UPDATED',
+      actor:     req.user._id,
+      ipAddress: req.ip,
+      details:   `${clauses.length} clause(s) attached to agreement`,
+    });
+
+    await agreement.save();
+    res.json({ message: 'Clause set updated', clauseSet: agreement.clauseSet });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get signed agreement document URL (pre-signed S3 link)
+// @route   GET /api/agreements/:id/document-url
+// @access  Private (Tenant, Landlord, Admin)
+const getDocumentUrl = async (req, res) => {
+  try {
+    const { getAgreementPDFUrl, isS3Configured: checkS3 } = require('../utils/s3Service');
+
+    const agreement = await Agreement.findById(req.params.id);
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const userId = req.user._id.toString();
+    const isParty = agreement.landlord.toString() === userId || agreement.tenant.toString() === userId;
+    if (!isParty && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    if (!agreement.documentUrl) {
+      return res.status(404).json({ message: 'No stored document found. Please download the PDF directly.' });
+    }
+
+    if (!checkS3()) {
+      return res.status(503).json({ message: 'Document vault not configured on this server.' });
+    }
+
+    const url = await getAgreementPDFUrl(agreement.documentUrl);
+    res.json({ url, expiresIn: 3600 });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = {
+  createAgreement,
+  getAgreements,
+  downloadAgreementPDF,
+  signAgreement,
+  proposeRenewal,
+  respondToRenewal,
+  getAvailableClauses,
+  updateAgreementClauses,
+  getDocumentUrl,
+};

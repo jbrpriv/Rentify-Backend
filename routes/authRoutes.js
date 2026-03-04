@@ -3,6 +3,7 @@ const router = express.Router();
 const passport = require('../config/passport');
 const { body } = require('express-validator');
 const { protect } = require('../middlewares/authMiddleware');
+const { verifyRecaptcha } = require('../middlewares/recaptchaMiddleware');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const {
   registerUser, loginUser, refreshToken, logoutUser,
@@ -21,6 +22,7 @@ router.post('/register',
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('phoneNumber').trim().notEmpty().withMessage('Phone number is required'),
   ],
+  verifyRecaptcha,
   registerUser
 );
 
@@ -30,6 +32,7 @@ router.post('/login',
     body('email').isEmail().withMessage('Please enter a valid email address'),
     body('password').notEmpty().withMessage('Password is required'),
   ],
+  verifyRecaptcha,
   loginUser
 );
 
@@ -95,5 +98,48 @@ router.get('/google/callback', (req, res, next) => {
 });
 
 router.post('/fcm-token', protect, registerFCMToken);
+
+// ─── Facebook OAuth ───────────────────────────────────────────────────────────
+// Only registers routes when the strategy is configured (credentials present).
+if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET) {
+  router.get('/facebook', passport.authenticate('facebook', { scope: ['email', 'public_profile'] }));
+
+  router.get('/facebook/callback', (req, res, next) => {
+    passport.authenticate('facebook', { session: false }, async (err, user) => {
+      if (err) {
+        console.error('Facebook OAuth error:', err.message);
+        return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_error&provider=facebook`);
+      }
+      if (!user) {
+        return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_failed&provider=facebook`);
+      }
+      try {
+        const accessToken  = generateAccessToken(user._id);
+        const refreshTokenValue = generateRefreshToken(user._id);
+
+        res.cookie('refreshToken', refreshTokenValue, {
+          httpOnly: true,
+          secure:   process.env.NODE_ENV === 'production',
+          sameSite: 'strict',
+          maxAge:   30 * 24 * 60 * 60 * 1000,
+        });
+
+        const profileComplete = user.isPhoneVerified && user.phoneNumber !== '0000000000';
+        return res.redirect(
+          `${process.env.CLIENT_URL}/auth/google/success` +
+          `?token=${accessToken}` +
+          `&name=${encodeURIComponent(user.name)}` +
+          `&role=${user.role}` +
+          `&id=${user._id}` +
+          `&email=${encodeURIComponent(user.email)}` +
+          `&isPhoneVerified=${user.isPhoneVerified}` +
+          `&profileComplete=${profileComplete}`
+        );
+      } catch (callbackErr) {
+        return next(callbackErr);
+      }
+    })(req, res, next);
+  });
+}
 
 module.exports = router;

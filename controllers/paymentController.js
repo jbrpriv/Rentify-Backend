@@ -41,7 +41,7 @@ const createCheckoutSession = async (req, res) => {
       line_items: [
         {
           price_data: {
-            currency: 'pkr',
+            currency: process.env.STRIPE_CURRENCY || 'pkr',
             product_data: {
               name: `Security Deposit + 1st Month Rent`,
               description: `Property: ${agreement.property.title}`,
@@ -176,6 +176,65 @@ const handleStripeWebhook = async (req, res) => {
     }
 
     console.log(`💰 Payment confirmed & Lease ACTIVATED: ${agreementId}`);
+  }
+
+  // ─── Monthly rent payment completed ───────────────────────────────────────
+  if (event.type === 'checkout.session.completed' &&
+      event.data.object?.metadata?.paymentType === 'monthly_rent') {
+    const session = event.data.object;
+    const { agreementId, scheduleIndex, month } = session.metadata;
+
+    const agreement = await Agreement.findById(agreementId)
+      .populate('tenant', 'name email phoneNumber smsOptIn')
+      .populate('landlord', 'name email')
+      .populate('property', 'title');
+
+    if (!agreement) {
+      console.error(`Webhook: Agreement ${agreementId} not found for monthly rent`);
+      return res.json({ received: true });
+    }
+
+    const idx = parseInt(scheduleIndex, 10);
+    const entry = agreement.rentSchedule?.[idx];
+    if (entry && entry.status !== 'paid') {
+      entry.status      = 'paid';
+      entry.paidDate    = new Date();
+      entry.paidAmount  = session.amount_total / 100;
+      entry.stripePaymentIntent = session.payment_intent;
+
+      // Save a standalone Payment record
+      await Payment.create({
+        agreement: agreementId,
+        tenant:    agreement.tenant._id,
+        landlord:  agreement.landlord._id,
+        property:  agreement.property._id,
+        amount:    session.amount_total / 100,
+        type:      'monthly',
+        status:    'paid',
+        paidAt:    new Date(),
+        dueDate:   entry.dueDate,
+        stripePaymentIntent: session.payment_intent,
+        stripeSessionId: session.id,
+      });
+
+      agreement.auditLog.push({
+        action:  'RENT_PAID',
+        details: `Monthly rent paid for ${month}. Amount: ${session.amount_total / 100}`,
+        timestamp: new Date(),
+      });
+
+      await agreement.save();
+
+      // Notify tenant
+      sendEmail(
+        agreement.tenant.email,
+        'paymentConfirmed',
+        agreement.tenant.name,
+        agreement.property.title,
+        session.amount_total / 100
+      );
+      console.log(`💰 Monthly rent paid for agreement ${agreementId}, month ${month}`);
+    }
   }
 
   if (event.type === 'payment_intent.payment_failed') {
@@ -322,8 +381,82 @@ const getPaymentHistory = async (req, res) => {
   }
 };
 
+// @desc    Create Stripe Checkout Session for a specific monthly rent payment
+// @route   POST /api/payments/pay-rent
+// @access  Private (Tenant)
+const createRentCheckoutSession = async (req, res) => {
+  try {
+    const { agreementId, scheduleIndex } = req.body;
+
+    if (scheduleIndex === undefined) {
+      return res.status(400).json({ message: 'scheduleIndex is required' });
+    }
+
+    const agreement = await Agreement.findById(agreementId)
+      .populate('property', 'title')
+      .populate('tenant', 'name email')
+      .populate('landlord', 'name');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    if (agreement.tenant._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    if (agreement.status !== 'active') {
+      return res.status(400).json({ message: 'Agreement must be active to pay rent' });
+    }
+
+    const entry = agreement.rentSchedule?.[scheduleIndex];
+    if (!entry) {
+      return res.status(404).json({ message: 'Rent schedule entry not found' });
+    }
+
+    if (entry.status === 'paid') {
+      return res.status(400).json({ message: 'This month\'s rent has already been paid' });
+    }
+
+    // Calculate total including any late fee already applied
+    const totalAmount = entry.amount + (entry.lateFeeAmount || 0);
+    const currency = process.env.STRIPE_CURRENCY || 'pkr';
+
+    const month = new Date(entry.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency,
+            product_data: {
+              name: `Monthly Rent — ${month}`,
+              description: `Property: ${agreement.property.title}${entry.lateFeeAmount ? ` (incl. Rs. ${entry.lateFeeAmount} late fee)` : ''}`,
+            },
+            unit_amount: Math.round(totalAmount * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      success_url: `${process.env.CLIENT_URL}/dashboard/payments?success=true&month=${encodeURIComponent(month)}`,
+      cancel_url:  `${process.env.CLIENT_URL}/dashboard/payments?canceled=true`,
+      metadata: {
+        agreementId: agreement._id.toString(),
+        scheduleIndex: String(scheduleIndex),
+        paymentType: 'monthly_rent',
+        month,
+      },
+    });
+
+    res.json({ url: session.url });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createCheckoutSession,
+  createRentCheckoutSession,
   handleStripeWebhook,
   getRentSchedule,
   getPaymentHistory,

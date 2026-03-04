@@ -88,11 +88,13 @@ const paymentSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// Auto-generate receipt number before saving a paid payment
-paymentSchema.pre('save', async function () {
+// Auto-generate receipt number before saving a paid payment (H7 fix: UUID-based, no race condition)
+paymentSchema.pre('save', function () {
   if (this.isNew && this.status === 'paid' && !this.receiptNumber) {
-    const count = await mongoose.model('Payment').countDocuments();
-    this.receiptNumber = `RCP-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    // Use timestamp + random hex suffix — globally unique without a DB round-trip
+    const ts   = Date.now().toString(36).toUpperCase();
+    const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
+    this.receiptNumber = `RCP-${new Date().getFullYear()}-${ts}-${rand}`;
   }
 });
 
