@@ -14,6 +14,30 @@ const {
   registerFCMToken, facebookComplete,
   abandonOAuthAccount,
 } = require('../controllers/authController');
+const User = require('../models/User');
+
+// Runs BEFORE reCAPTCHA on the login route.
+// If the email belongs to an OAuth-only account (no password provider) we
+// return OAUTH_ACCOUNT immediately — no point burning a reCAPTCHA token or
+// letting it time out while the user waits.
+const checkOAuthBeforeRecaptcha = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    if (!email) return next();
+    const user = await User.findOne({ email }).select('authProviders');
+    if (
+      user &&
+      Array.isArray(user.authProviders) &&
+      !user.authProviders.includes('password')
+    ) {
+      const provider = user.authProviders.find(p => p !== 'password') || 'social';
+      return res.status(401).json({ message: 'OAUTH_ACCOUNT', provider });
+    }
+    next();
+  } catch {
+    next(); // any DB error — let loginUser handle it normally
+  }
+};
 
 // ─── Register ─────────────────────────────────────────────────────────────────
 router.post('/register',
@@ -33,6 +57,7 @@ router.post('/login',
     body('email').isEmail().withMessage('Please enter a valid email address'),
     body('password').notEmpty().withMessage('Password is required'),
   ],
+  checkOAuthBeforeRecaptcha, // must run before verifyRecaptcha so OAuth users get a clear message
   verifyRecaptcha,
   loginUser
 );
