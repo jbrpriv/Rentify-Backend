@@ -86,8 +86,18 @@ function _verifyToken(token, secretKey, remoteIp) {
           if (parsed.success) {
             resolve(parsed.score ?? 1.0);
           } else {
-            console.warn('reCAPTCHA failure codes:', parsed['error-codes']);
-            resolve(null);
+            const codes = parsed['error-codes'] || [];
+            console.warn('reCAPTCHA failure codes:', codes);
+
+            // 'timeout-or-duplicate' means the token expired (user took too long)
+            // or was already consumed by a previous attempt (user retried after a
+            // wrong password). Both cases are characteristic of real users, not
+            // bots. Fail open so legitimate users aren't blocked on retry.
+            if (codes.includes('timeout-or-duplicate')) {
+              resolve(1.0); // treat as trusted, let loginUser decide
+            } else {
+              resolve(null); // genuinely invalid token — block
+            }
           }
         } catch (e) {
           reject(e);
