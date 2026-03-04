@@ -17,30 +17,27 @@ const {
   kickTenantFromProperty,
 } = require('../controllers/adminController');
 
-// All admin routes require authentication + admin role
-router.use(protect, isAdmin);
-
 // ─── Platform Stats ───────────────────────────────────────────────────────────
-router.get('/stats', getStats);
+router.get('/stats', protect, isAdmin, getStats);
 
 // ─── User Management ──────────────────────────────────────────────────────────
-router.get('/users', getUsers);
-router.get('/users/:id', getUserById);
-router.put('/users/:id/ban', toggleUserBan);
-router.put('/users/:id/role', changeUserRole);
+router.get('/users', protect, isAdmin, getUsers);
+router.get('/users/:id', protect, isAdmin, getUserById);
+router.put('/users/:id/ban', protect, isAdmin, toggleUserBan);
+router.put('/users/:id/role', protect, isAdmin, changeUserRole);
 
 // ─── Agreements Monitor ───────────────────────────────────────────────────────
-router.get('/agreements', getAllAgreements);
+router.get('/agreements', protect, isAdmin, getAllAgreements);
 
 // ─── Property Management ─────────────────────────────────────────────────────
-router.get('/properties', getAllProperties);
-router.post('/properties/:id/kick-tenant', kickTenantFromProperty);
+router.get('/properties', protect, isAdmin, getAllProperties);
+router.post('/properties/:id/kick-tenant', protect, isAdmin, kickTenantFromProperty);
 
 // ─── Audit Logs ───────────────────────────────────────────────────────────────
-router.get('/audit-logs', getAuditLogs);
+router.get('/audit-logs', protect, isAdmin, getAuditLogs);
 
 // ─── Clause / Template Management (Admin + Law Reviewer) ─────────────────────
-// Override isAdmin for clause routes to also allow law_reviewer
+// isLawReviewer allows both admin and law_reviewer roles
 router.get('/clauses', protect, isLawReviewer, getClauses);
 router.post('/clauses', protect, isLawReviewer, createClause);
 router.put('/clauses/:id/approve', protect, isLawReviewer, reviewClause);
