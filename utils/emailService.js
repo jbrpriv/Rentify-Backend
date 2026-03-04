@@ -271,7 +271,7 @@ const templates = {
       <h2>Hello ${userName},</h2>
       <p>Your one-time verification code is:</p>
       <div class="detail-box" style="text-align:center;font-size:32px;font-weight:bold;letter-spacing:8px;color:#2563eb;">${otpCode}</div>
-      <p>This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+      <p>This code expires in <strong>24 hours</strong>. Do not share it with anyone.</p>
     `)
     }),
 

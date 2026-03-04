@@ -62,6 +62,7 @@ const createRequest = async (req, res) => {
             landlordEmail: property.landlord.email,
             landlordPhone: property.landlord.phoneNumber,
             landlordSmsOptIn: property.landlord.smsOptIn,
+            landlordName: property.landlord.name,  // N1 fix: pass real name so email says "Hello John" not "Hello Landlord"
             tenantName: req.user.name,
             propertyTitle: property.title,
             requestTitle: title,

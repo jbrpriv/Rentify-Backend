@@ -1,6 +1,7 @@
 const Offer     = require('../models/Offer');
 const Property  = require('../models/Property');
 const Agreement = require('../models/Agreement');
+const { sendEmail } = require('../utils/emailService'); // N12 fix: needed to notify tenant on offer acceptance
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -228,6 +229,19 @@ const acceptOffer = async (req, res) => {
     offer.status    = 'accepted';
     offer.agreement = agreement._id;
     await offer.save();
+
+    // N12 fix: notify the tenant that their offer was accepted and an agreement is ready
+    try {
+      await sendEmail(
+        offer.tenant.email,
+        'applicationAccepted',
+        offer.tenant.name,
+        offer.property.title
+      );
+    } catch (emailErr) {
+      // Non-fatal — log but don't fail the request if the email bounce
+      console.error('acceptOffer: failed to send tenant notification email:', emailErr.message);
+    }
 
     // ── Auto-decline all other pending/countered offers for the same property ─
     await Offer.updateMany(

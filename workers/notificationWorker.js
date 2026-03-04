@@ -182,14 +182,14 @@ const notificationWorker = new Worker(
       case 'MAINTENANCE_RECEIVED': {
         const {
           landlordEmail, landlordPhone, landlordSmsOptIn,
-          tenantName, propertyTitle, requestTitle,
+          landlordName, tenantName, propertyTitle, requestTitle,
         } = data;
 
         await sendEmail(
           landlordEmail,
           'newMaintenanceRequest',
-          // recipientName not available — use a generic fallback
-          'Landlord',
+          // N1 fix: use real landlord name from payload instead of hardcoded fallback
+          landlordName || 'Landlord',
           tenantName,
           propertyTitle,
           requestTitle,

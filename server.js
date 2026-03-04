@@ -66,9 +66,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Export io so controllers can emit events
-// M12 fix: single consolidated export — avoids fragile property-by-property assignment
-module.exports = { io, onlineUsers };
+// io and onlineUsers are exported below alongside app in the consolidated module.exports
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 app.use(cors({
@@ -140,5 +138,5 @@ connectDB().then(() => {
   });
 });
 
-// M12 fix: preserve io/onlineUsers exports — consolidated at top
-module.exports.app = app;
+// N10 fix: single consolidated export — prevents any future module.exports = x from wiping io/onlineUsers
+module.exports = { app, io, onlineUsers };

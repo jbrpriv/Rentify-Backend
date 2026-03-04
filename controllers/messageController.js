@@ -87,16 +87,20 @@ const getConversation = async (req, res) => {
       .populate('receiver', 'name profilePhoto role')
       .sort('createdAt');
 
-    // Mark received messages as read
-    await Message.updateMany(
-      {
-        property: propertyFilter,
-        sender: otherUserId,
-        receiver: userId,
-        isRead: false,
-      },
-      { isRead: true, readAt: new Date() }
-    );
+    // N14 fix: only mark as read when the client explicitly requests it via ?markRead=true.
+    // Without this guard, background polling calls (e.g. every 30s) would silently
+    // clear the unread badge even though the user never actually viewed the conversation.
+    if (req.query.markRead === 'true') {
+      await Message.updateMany(
+        {
+          property: propertyFilter,
+          sender: otherUserId,
+          receiver: userId,
+          isRead: false,
+        },
+        { isRead: true, readAt: new Date() }
+      );
+    }
 
     res.json(messages);
   } catch (error) {

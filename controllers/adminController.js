@@ -238,28 +238,44 @@ const getAuditLogs = async (req, res) => {
     const { page = 1, limit = 50, action } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    // Unwind agreement audit logs and sort by timestamp
-    const matchStage = action ? { 'auditLog.action': action } : {};
-
-    const logs = await Agreement.aggregate([
+    // N9 fix: use $facet to return both paginated results AND total count in one query
+    const facetResult = await Agreement.aggregate([
       { $unwind: '$auditLog' },
       ...(action ? [{ $match: { 'auditLog.action': action } }] : []),
       { $sort: { 'auditLog.timestamp': -1 } },
-      { $skip: skip },
-      { $limit: Number(limit) },
       {
-        $project: {
-          action: '$auditLog.action',
-          actor: '$auditLog.actor',
-          timestamp: '$auditLog.timestamp',
-          ipAddress: '$auditLog.ipAddress',
-          details: '$auditLog.details',
-          agreementId: '$_id',
+        $facet: {
+          logs: [
+            { $skip: skip },
+            { $limit: Number(limit) },
+            {
+              $project: {
+                action:      '$auditLog.action',
+                actor:       '$auditLog.actor',
+                timestamp:   '$auditLog.timestamp',
+                ipAddress:   '$auditLog.ipAddress',
+                details:     '$auditLog.details',
+                agreementId: '$_id',
+              },
+            },
+          ],
+          totalCount: [{ $count: 'count' }],
         },
       },
     ]);
 
-    res.json(logs);
+    const logs  = facetResult[0]?.logs || [];
+    const total = facetResult[0]?.totalCount[0]?.count || 0;
+
+    res.json({
+      logs,
+      pagination: {
+        total,
+        page:       Number(page),
+        limit:      Number(limit),
+        totalPages: Math.ceil(total / Number(limit)),
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
