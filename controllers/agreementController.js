@@ -636,7 +636,7 @@ const getVersionHistory = async (req, res) => {
 // @desc    Save a version snapshot of the agreement
 // Internal helper — also exposed as API endpoint
 const saveVersionSnapshot = async (agreementId, userId, reason = 'Manual save') => {
-  const agreement = await Agreement.findById(agreementId).populate('clauses', 'title');
+  const agreement = await Agreement.findById(agreementId);
   if (!agreement) return;
 
   const nextVersion = (agreement.versionHistory.length || 0) + 1;
@@ -646,7 +646,7 @@ const saveVersionSnapshot = async (agreementId, userId, reason = 'Manual save') 
     savedBy:   userId,
     reason,
     snapshot: {
-      clauses:    (agreement.clauses || []).map(c => c.title || c.toString()),
+      clauses:    (agreement.clauseSet || []).map(c => c.title || c.clauseId?.toString() || ''),
       financials: agreement.financials,
       term:       agreement.term,
       status:     agreement.status,
@@ -689,8 +689,7 @@ const getAgreementPreview = async (req, res) => {
     const agreement = await Agreement.findById(req.params.id)
       .populate('property', 'title address')
       .populate('tenant', 'name email')
-      .populate('landlord', 'name email')
-      .populate('clauses', 'title body');
+      .populate('landlord', 'name email');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
