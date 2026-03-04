@@ -13,6 +13,7 @@ const rentScheduleEntrySchema = new mongoose.Schema({
   lateFeeApplied: { type: Boolean, default: false },
   lateFeeAmount: { type: Number, default: 0 },
   stripePaymentIntent: { type: String, default: null },
+  checkoutUrl:         { type: String, default: null }, // Pre-generated Stripe URL for this month
 }, { _id: false });
 
 const agreementSchema = mongoose.Schema(

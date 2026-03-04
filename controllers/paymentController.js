@@ -214,6 +214,7 @@ const handleStripeWebhook = async (req, res) => {
       entry.paidDate    = new Date();
       entry.paidAmount  = session.amount_total / 100;
       entry.stripePaymentIntent = session.payment_intent;
+      entry.checkoutUrl = null; // Clear stale URL — this session is consumed
 
       // Save a standalone Payment record
       const monthlyPayment = await Payment.create({
@@ -480,10 +481,91 @@ const createRentCheckoutSession = async (req, res) => {
   }
 };
 
+// @desc    Get the pre-generated Stripe checkout URL for the next unpaid month.
+//          If the scheduler hasn't run yet (or the URL expired), falls back to
+//          creating a fresh session on-demand so the tenant is never blocked.
+// @route   GET /api/payments/active-checkout/:agreementId
+// @access  Private (Tenant)
+const getActiveCheckoutUrl = async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.agreementId)
+      .populate('property', 'title')
+      .populate('tenant', 'name email');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    if (agreement.tenant._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    if (agreement.status !== 'active') {
+      return res.status(400).json({ message: 'Agreement is not active' });
+    }
+
+    // Find the first unpaid schedule entry
+    const idx   = agreement.rentSchedule.findIndex(e => e.status !== 'paid');
+    const entry = agreement.rentSchedule[idx];
+
+    if (!entry) {
+      return res.status(200).json({ message: 'All rent payments are up to date', url: null });
+    }
+
+    // Return cached URL if present (scheduler already created it)
+    if (entry.checkoutUrl) {
+      return res.json({ url: entry.checkoutUrl, scheduleIndex: idx });
+    }
+
+    // Fallback: create on-demand (same logic as createRentCheckoutSession)
+    const totalAmount = entry.amount + (entry.lateFeeAmount || 0);
+    const currency    = process.env.STRIPE_CURRENCY || 'pkr';
+    const month       = new Date(entry.dueDate).toLocaleString('default', {
+      month: 'long', year: 'numeric',
+    });
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency,
+            product_data: {
+              name: `Monthly Rent — ${month}`,
+              description: `Property: ${agreement.property?.title || 'N/A'}${
+                entry.lateFeeAmount ? ` (incl. Rs. ${entry.lateFeeAmount} late fee)` : ''
+              }`,
+            },
+            unit_amount: Math.round(totalAmount * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      success_url: `${process.env.CLIENT_URL}/dashboard/payments?success=true&month=${encodeURIComponent(month)}`,
+      cancel_url:  `${process.env.CLIENT_URL}/dashboard/payments?canceled=true`,
+      customer_email: agreement.tenant?.email,
+      metadata: {
+        agreementId:   agreement._id.toString(),
+        scheduleIndex: String(idx),
+        paymentType:   'monthly_rent',
+        month,
+      },
+    });
+
+    // Cache it so subsequent calls are instant
+    agreement.rentSchedule[idx].checkoutUrl = session.url;
+    await agreement.save();
+
+    res.json({ url: session.url, scheduleIndex: idx });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createCheckoutSession,
   createRentCheckoutSession,
   handleStripeWebhook,
   getRentSchedule,
   getPaymentHistory,
+  getActiveCheckoutUrl,
 };
