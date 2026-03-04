@@ -38,6 +38,44 @@ router.delete('/property-images', protect, async (req, res) => {
   }
 });
 
+// @desc    Get tenant's uploaded documents
+// @route   GET /api/upload/tenant-documents
+// @access  Private (Tenant)
+router.get('/tenant-documents', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'tenant') {
+      return res.status(403).json({ message: 'Only tenants can access personal documents' });
+    }
+    const User = require('../models/User');
+    const user = await User.findById(req.user._id).select('documents');
+    res.json({ documents: user.documents || [] });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Delete a tenant document
+// @route   DELETE /api/upload/tenant-documents/:index
+// @access  Private (Tenant)
+router.delete('/tenant-documents/:index', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'tenant') {
+      return res.status(403).json({ message: 'Only tenants can delete personal documents' });
+    }
+    const User = require('../models/User');
+    const user = await User.findById(req.user._id).select('documents');
+    const idx = parseInt(req.params.index);
+    if (isNaN(idx) || idx < 0 || idx >= user.documents.length) {
+      return res.status(400).json({ message: 'Invalid document index' });
+    }
+    user.documents.splice(idx, 1);
+    await user.save();
+    res.json({ message: 'Document deleted', documents: user.documents });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 // @desc    Upload tenant documents (ID, income proof, references, etc.)
 // @route   POST /api/upload/tenant-documents
 // @access  Private (Tenant)
@@ -66,6 +104,12 @@ router.post('/tenant-documents', protect, upload.array('documents', 5), async (r
       originalName: file.originalname,
       uploadedAt:   new Date().toISOString(),
     }));
+
+    // Persist to User document vault
+    const User = require('../models/User');
+    await User.findByIdAndUpdate(req.user._id, {
+      $push: { documents: { $each: uploaded } },
+    });
 
     res.status(201).json({
       message: `${uploaded.length} document(s) uploaded successfully`,

@@ -255,6 +255,78 @@ const startRentScheduler = () => {
   });
 
   console.log('✅ Rent scheduler started (reminders @8AM, late fees @9AM, expiry @midnight, retention @Sunday)');
+
+  // ─── Daily 10AM: Rent Escalation ─────────────────────────────────────────
+  cron.schedule('0 10 * * *', async () => {
+    console.log('📈 Running daily rent escalation check...');
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Find active agreements with escalation enabled and due today or overdue
+      const agreements = await Agreement.find({
+        status: 'active',
+        'rentEscalation.enabled': true,
+        'rentEscalation.nextScheduledAt': { $lte: today },
+      }).populate('tenant', 'name email phoneNumber smsOptIn')
+        .populate('landlord', 'name email');
+
+      for (const agreement of agreements) {
+        const pct = agreement.rentEscalation.percentage || 0;
+        if (pct <= 0) continue;
+
+        const oldRent = agreement.financials.rentAmount;
+        const increase = Math.round(oldRent * (pct / 100));
+        const newRent  = oldRent + increase;
+
+        // Apply new rent amount
+        agreement.financials.rentAmount = newRent;
+
+        // Update future unpaid rent schedule entries
+        agreement.rentSchedule = agreement.rentSchedule.map(entry => {
+          if (entry.status === 'pending' && new Date(entry.dueDate) > today) {
+            return { ...entry.toObject(), amount: newRent };
+          }
+          return entry;
+        });
+
+        // Schedule next escalation (1 year from now)
+        const nextDate = new Date(today);
+        nextDate.setFullYear(nextDate.getFullYear() + 1);
+        agreement.rentEscalation.lastAppliedAt   = today;
+        agreement.rentEscalation.nextScheduledAt = nextDate;
+
+        agreement.auditLog.push({
+          action:    'RENT_ESCALATED',
+          timestamp: new Date(),
+          details:   `Rent increased by ${pct}% from Rs. ${oldRent.toLocaleString()} to Rs. ${newRent.toLocaleString()}. Next escalation: ${nextDate.toDateString()}.`,
+        });
+
+        await agreement.save();
+
+        // Notify tenant
+        await notificationQueue.add(
+          `escalation-${agreement._id}-${today.getFullYear()}`,
+          {
+            type: 'RENT_ESCALATED',
+            data: {
+              agreementId: agreement._id.toString(),
+              tenantEmail: agreement.tenant?.email,
+              tenantName:  agreement.tenant?.name,
+              oldRent,
+              newRent,
+              percentage:  pct,
+            },
+          },
+          { jobId: `escalation-${agreement._id}-${today.getFullYear()}` }
+        );
+
+        console.log(`📈 Rent escalated for agreement ${agreement._id}: Rs. ${oldRent} → Rs. ${newRent}`);
+      }
+    } catch (error) {
+      console.error('Scheduler error (escalation):', error.message);
+    }
+  });
 };
 
 module.exports = { startRentScheduler };

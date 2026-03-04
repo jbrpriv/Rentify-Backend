@@ -240,6 +240,54 @@ const notificationWorker = new Worker(
         break;
       }
 
+      case 'RENT_ESCALATED': {
+        const { agreementId, tenantEmail, tenantName, oldRent, newRent, percentage } = data;
+
+        const agreement = await Agreement.findById(agreementId)
+          .populate('tenant', 'name email phoneNumber smsOptIn')
+          .populate('landlord', 'name email')
+          .populate('property', 'title');
+
+        const tenant   = agreement?.tenant;
+        const landlord = agreement?.landlord;
+
+        if (tenant) {
+          await sendEmail(
+            tenant.email || tenantEmail,
+            'rentEscalated',
+            tenant.name || tenantName,
+            agreement?.property?.title,
+            oldRent,
+            newRent,
+            percentage
+          );
+          if (tenant.smsOptIn && tenant.phoneNumber) {
+            await sendSMS(
+              tenant.phoneNumber,
+              'rentEscalated',
+              agreement?.property?.title,
+              oldRent,
+              newRent
+            );
+          }
+          await pushToUser(tenant._id, 'rentEscalated', newRent, agreement?.property?.title);
+        }
+
+        // Notify landlord too
+        if (landlord) {
+          await sendEmail(
+            landlord.email,
+            'rentEscalatedLandlord',
+            landlord.name,
+            agreement?.property?.title,
+            oldRent,
+            newRent,
+            percentage
+          );
+        }
+        break;
+      }
+
       case 'LATE_FEE_APPLIED': {
         const { tenantEmail, tenantPhone, tenantName, propertyTitle, feeAmount, dueDate, tenantSmsOptIn, tenantId } = data;
 

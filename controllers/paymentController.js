@@ -603,7 +603,6 @@ const handleStripeWebhook = async (req, res) => {
     const paymentIntent = event.data.object;
     console.error(`❌ Payment failed: ${paymentIntent.id}`);
 
-    // Find the agreement linked to this payment intent via the checkout session metadata
     const sessions = await stripe.checkout.sessions.list({
       payment_intent: paymentIntent.id,
       limit: 1,
@@ -618,20 +617,67 @@ const handleStripeWebhook = async (req, res) => {
         const { tenant } = failedAgreement;
 
         // Notify tenant by email
-        sendEmail(
-          tenant.email,
-          'paymentFailed',
-          tenant.name,
-          session.metadata.agreementId
-        );
+        sendEmail(tenant.email, 'paymentFailed', tenant.name, session.metadata.agreementId);
 
         // Notify tenant by SMS if opted in
         if (tenant.smsOptIn && tenant.phoneNumber) {
-          sendSMS(
-            tenant.phoneNumber,
-            'paymentFailed',
-            session.metadata.agreementId
-          );
+          sendSMS(tenant.phoneNumber, 'paymentFailed', session.metadata.agreementId);
+        }
+
+        // ── Auto-schedule retry via BullMQ ──────────────────────────────────
+        // Find or create the Payment record for this failed intent
+        let failedPayment = await Payment.findOne({
+          stripePaymentIntent: paymentIntent.id,
+        });
+
+        if (!failedPayment) {
+          // Create a minimal failed payment record so retryFailedPayment can operate on it
+          failedPayment = await Payment.create({
+            agreement:          session.metadata.agreementId,
+            tenant:             failedAgreement.tenant._id,
+            landlord:           failedAgreement.landlord,
+            property:           failedAgreement.property,
+            amount:             paymentIntent.amount / 100,
+            type:               'rent',
+            status:             'failed',
+            gateway:            'stripe',
+            stripePaymentIntent: paymentIntent.id,
+            dueDate:            new Date(),
+          });
+        } else {
+          await Payment.findByIdAndUpdate(failedPayment._id, { status: 'failed' });
+        }
+
+        const retryCount = failedPayment.retryCount || 0;
+        if (retryCount < 3) {
+          try {
+            const { Queue } = require('bullmq');
+            const { redisConnection } = require('../config/redis');
+            const retryQueue = new Queue('payment-retry', { connection: redisConnection });
+            const delayMs = Math.pow(2, retryCount) * 60 * 60 * 1000; // 1h, 2h, 4h backoff
+
+            await retryQueue.add(
+              'retry-payment',
+              {
+                paymentId:   failedPayment._id.toString(),
+                agreementId: session.metadata.agreementId,
+                attempt:     retryCount + 1,
+              },
+              { delay: delayMs, attempts: 1 }
+            );
+
+            await Payment.findByIdAndUpdate(failedPayment._id, {
+              retryCount:  retryCount + 1,
+              nextRetryAt: new Date(Date.now() + delayMs),
+              status:      'retry_scheduled',
+            });
+
+            console.log(`🔄 Payment retry scheduled (attempt ${retryCount + 1}/3) in ${delayMs / 3600000}h for payment ${failedPayment._id}`);
+          } catch (retryErr) {
+            console.error('Failed to schedule payment retry:', retryErr.message);
+          }
+        } else {
+          console.log(`⛔ Max retries reached for payment ${failedPayment._id} — manual intervention required`);
         }
 
         console.log(`📧 Payment failure notification sent to tenant ${tenant.email}`);

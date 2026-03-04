@@ -101,9 +101,20 @@ const userSchema = mongoose.Schema(
     // ─── Push Notifications ────────────────────────────────────────
     fcmToken: {
       type: String,
-      default: null, // Firebase Cloud Messaging token for push notifications
+      default: null,
       select: false,
     },
+
+    // ─── Document Vault (Tenant) ───────────────────────────────────
+    // Persistent store of tenant-uploaded supporting documents.
+    documents: [
+      {
+        url:          { type: String, required: true },
+        documentType: { type: String, default: 'general' },
+        originalName: { type: String, default: '' },
+        uploadedAt:   { type: Date, default: Date.now },
+      },
+    ],
 
     // ─── Two-Factor Authentication (TOTP) ──────────────────────────
     twoFactorSecret: {

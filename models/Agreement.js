@@ -92,11 +92,13 @@ const agreementSchema = mongoose.Schema(
         signed: { type: Boolean, default: false },
         signedAt: Date,
         ipAddress: String,
+        drawData: { type: String, default: null }, // base64 canvas signature image
       },
       tenant: {
         signed: { type: Boolean, default: false },
         signedAt: Date,
         ipAddress: String,
+        drawData: { type: String, default: null }, // base64 canvas signature image
       },
     },
 
@@ -121,6 +123,15 @@ const agreementSchema = mongoose.Schema(
       notes:         { type: String, default: '' },
       status:        { type: String, enum: ['pending','accepted','rejected'], default: 'pending' },
       proposedAt:    { type: Date,   default: null },
+    },
+
+    // ─── Rent Escalation ───────────────────────────────────────────
+    // If enabled, rent is automatically increased each year on the anniversary date.
+    rentEscalation: {
+      enabled:         { type: Boolean, default: false },
+      percentage:      { type: Number, default: 0 },    // e.g. 5 = 5% per year
+      lastAppliedAt:   { type: Date, default: null },   // Date escalation was last applied
+      nextScheduledAt: { type: Date, default: null },   // Next anniversary date
     },
 
     // ─── Dispute Reference ─────────────────────────────────────────

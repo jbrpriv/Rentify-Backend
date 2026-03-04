@@ -12,7 +12,12 @@ const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
 // @access  Private (Landlord)
 const createAgreement = async (req, res) => {
   try {
-    const { tenantId, propertyId, startDate, endDate, rentAmount, depositAmount } = req.body;
+    const {
+      tenantId, propertyId, startDate, endDate,
+      rentAmount, depositAmount,
+      lateFeeAmount, lateFeeGracePeriodDays,
+      rentEscalationEnabled, rentEscalationPercentage,
+    } = req.body;
 
     // 1. Verify Property belongs to Landlord
     const property = await Property.findById(propertyId);
@@ -40,13 +45,29 @@ const createAgreement = async (req, res) => {
       return res.status(400).json({ message: 'endDate must be after startDate' });
     }
 
+    // Build rent escalation config
+    const escalationEnabled = rentEscalationEnabled === true || rentEscalationEnabled === 'true';
+    const escalationPct     = Number(rentEscalationPercentage) || 0;
+    const firstAnniversary  = new Date(startDate);
+    firstAnniversary.setFullYear(firstAnniversary.getFullYear() + 1);
+
     // 4. Create Agreement Record
     const agreement = await Agreement.create({
       landlord: req.user._id,
       tenant: tenantId,
       property: propertyId,
       term: { startDate, endDate, durationMonths },
-      financials: { rentAmount, depositAmount },
+      financials: {
+        rentAmount,
+        depositAmount,
+        lateFeeAmount:         Number(lateFeeAmount)         || 0,
+        lateFeeGracePeriodDays: Number(lateFeeGracePeriodDays) || 5,
+      },
+      rentEscalation: {
+        enabled:         escalationEnabled,
+        percentage:      escalationPct,
+        nextScheduledAt: escalationEnabled ? firstAnniversary : null,
+      },
       auditLog: [{
         action: 'CREATED',
         actor: req.user._id,
@@ -112,6 +133,7 @@ const signAgreement = async (req, res) => {
       signed: true,
       signedAt: new Date(),
       ipAddress: req.ip,
+      drawData: req.body.drawData || null, // base64 canvas image if provided
     };
 
     if (isLandlord) {
@@ -571,6 +593,7 @@ const signViaToken = async (req, res) => {
     sig.signed    = true;
     sig.signedAt  = new Date();
     sig.ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    sig.drawData  = req.body.drawData || null; // base64 canvas image if provided
 
     // Determine new status
     const bothSigned = agreement.signatures.landlord.signed && agreement.signatures.tenant.signed;
