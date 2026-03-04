@@ -1,7 +1,9 @@
-const Offer     = require('../models/Offer');
-const Property  = require('../models/Property');
-const Agreement = require('../models/Agreement');
-const { sendEmail } = require('../utils/emailService'); // N12 fix: needed to notify tenant on offer acceptance
+const Offer              = require('../models/Offer');
+const Property           = require('../models/Property');
+const Agreement          = require('../models/Agreement');
+const AgreementTemplate  = require('../models/AgreementTemplate');
+const Clause             = require('../models/Clause');
+const { sendEmail }      = require('../utils/emailService');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
