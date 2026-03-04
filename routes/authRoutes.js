@@ -123,9 +123,6 @@ function makeOAuthCallback(providerName) {
           maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
         });
 
-        const profileComplete =
-          user.isPhoneVerified && user.phoneNumber !== '0000000000';
-
         const params = new URLSearchParams({
           token:           accessToken,
           name:            user.name,
@@ -133,7 +130,7 @@ function makeOAuthCallback(providerName) {
           id:              user._id.toString(),
           email:           user.email,
           isPhoneVerified: String(user.isPhoneVerified),
-          profileComplete: String(profileComplete),
+          isNewUser:       String(!!user._isNewUser),
           provider:        providerName,
         });
 

@@ -36,8 +36,11 @@ async function _oauthUpsert(profile, email, provider) {
   // ── Look up by email (the single source of truth) ─────────────────────────
   let user = await User.findOne({ email: normalizedEmail });
 
+  let isNewUser = false;
+
   if (!user) {
     // ── Case 1: Brand new user ──────────────────────────────────────────────
+    isNewUser = true;
     user = await User.create({
       name:          profile.displayName,
       email:         normalizedEmail,
@@ -73,6 +76,7 @@ async function _oauthUpsert(profile, email, provider) {
     await user.save();
   }
 
+  user._isNewUser = isNewUser; // transient flag, not persisted
   return user;
 }
 
