@@ -710,7 +710,7 @@ const getAgreementPreview = async (req, res) => {
     }
 
     // Fallback: generate fresh PDF buffer and return as base64 for inline preview
-    const pdfBuffer = await generateAgreementPDFBuffer(agreement);
+    const pdfBuffer = await generateAgreementPDFBuffer(agreement, agreement.landlord, agreement.tenant, agreement.property);
     const base64 = pdfBuffer.toString('base64');
 
     res.json({
