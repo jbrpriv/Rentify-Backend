@@ -39,6 +39,11 @@ const { loginLimiter, propertyLimiter, uploadLimiter, messageLimiter, offerLimit
 const { handleStripeWebhook } = require('./controllers/paymentController');
 
 const app = express();
+
+// Trust the first proxy (nginx / ALB on EC2). Required so express-rate-limit
+// reads the real client IP from X-Forwarded-For instead of the proxy IP,
+// and so it doesn't throw ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every request.
+app.set('trust proxy', 1);
 const httpServer = http.createServer(app);
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
