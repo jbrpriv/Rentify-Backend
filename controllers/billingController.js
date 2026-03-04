@@ -9,7 +9,7 @@
  *   STRIPE_PRICE_ENTERPRISE — monthly price ID for Enterprise plan
  *
  * Tiers and feature limits:
- *   free:       Up to 2 properties, no clause builder, no S3 vault
+ *   free:       1 property, no clause builder, no S3 vault
  *   pro:        Up to 20 properties, clause builder, S3 vault, priority support
  *   enterprise: Unlimited properties, all features, custom branding
  */
@@ -19,7 +19,7 @@ const User = require('../models/User');
 
 // Feature limits per tier
 const TIER_LIMITS = {
-  free:       { maxProperties: 2,   clauseBuilder: false, documentVault: false },
+  free:       { maxProperties: 1,   clauseBuilder: false, documentVault: false },
   pro:        { maxProperties: 20,  clauseBuilder: true,  documentVault: true  },
   enterprise: { maxProperties: 999, clauseBuilder: true,  documentVault: true  },
 };
@@ -28,6 +28,12 @@ const TIER_PRICES = {
   pro:        process.env.STRIPE_PRICE_PRO,
   enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
 };
+
+// Whether Stripe is fully configured
+const stripeConfigured = () =>
+  !!(process.env.STRIPE_SECRET_KEY &&
+     process.env.STRIPE_PRICE_PRO &&
+     process.env.STRIPE_PRICE_ENTERPRISE);
 
 // @desc    Get current subscription status and feature limits for logged-in user
 // @route   GET /api/billing/status
@@ -41,6 +47,7 @@ const getBillingStatus = async (req, res) => {
       tier,
       limits: TIER_LIMITS[tier] || TIER_LIMITS.free,
       stripeCustomerId: user.stripeCustomerId || null,
+      stripeConfigured: stripeConfigured(),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -58,9 +65,20 @@ const subscribe = async (req, res) => {
       return res.status(400).json({ message: 'Invalid tier. Choose "pro" or "enterprise".' });
     }
 
+    // Graceful degradation when Stripe is not yet configured
+    if (!stripeConfigured()) {
+      return res.status(503).json({
+        message: 'Online payments are not yet configured for this platform. Please contact the administrator to upgrade your plan.',
+        stripeConfigured: false,
+      });
+    }
+
     const priceId = TIER_PRICES[tier];
     if (!priceId) {
-      return res.status(503).json({ message: `Stripe price ID for "${tier}" plan not configured.` });
+      return res.status(503).json({
+        message: `The ${tier} plan price is not configured. Please contact support.`,
+        stripeConfigured: false,
+      });
     }
 
     const user = await User.findById(req.user._id).select('email name stripeCustomerId subscriptionTier');
@@ -102,6 +120,13 @@ const subscribe = async (req, res) => {
 // @access  Private
 const openCustomerPortal = async (req, res) => {
   try {
+    if (!stripeConfigured()) {
+      return res.status(503).json({
+        message: 'Billing portal is not available. Please contact the administrator.',
+        stripeConfigured: false,
+      });
+    }
+
     const user = await User.findById(req.user._id).select('stripeCustomerId');
 
     if (!user.stripeCustomerId) {
@@ -136,7 +161,6 @@ const handleBillingWebhook = async (req, res) => {
     return res.status(400).send(`Billing Webhook Error: ${err.message}`);
   }
 
-  // Map Stripe subscription status to our tier
   const _tierFromMetadata = (metadata) => {
     return ['pro', 'enterprise'].includes(metadata?.tier) ? metadata.tier : null;
   };
@@ -147,7 +171,10 @@ const handleBillingWebhook = async (req, res) => {
       const userId = session.metadata?.userId;
       const tier   = _tierFromMetadata(session.metadata);
       if (userId && tier) {
-        await User.findByIdAndUpdate(userId, { subscriptionTier: tier });
+        await User.findByIdAndUpdate(userId, {
+          subscriptionTier: tier,
+          subscriptionStartDate: new Date(),
+        });
         console.log(`🎉 Subscription activated: user=${userId} tier=${tier}`);
       }
     }
@@ -160,7 +187,6 @@ const handleBillingWebhook = async (req, res) => {
 
     if (userId) {
       const status = subscription.status;
-      // Downgrade to free if subscription is cancelled / unpaid
       if (['canceled', 'unpaid', 'past_due'].includes(status)) {
         await User.findByIdAndUpdate(userId, { subscriptionTier: 'free' });
         console.log(`📉 Subscription downgraded: user=${userId} status=${status}`);
@@ -186,6 +212,7 @@ const handleBillingWebhook = async (req, res) => {
 // @access  Public
 const getPlans = async (req, res) => {
   res.json({
+    stripeConfigured: stripeConfigured(),
     plans: [
       {
         tier: 'free',
@@ -194,7 +221,7 @@ const getPlans = async (req, res) => {
         currency: 'PKR',
         interval: 'month',
         features: [
-          'Up to 2 properties',
+          '1 property listing',
           'Basic agreement templates',
           'Email notifications',
           'Tenant portal',

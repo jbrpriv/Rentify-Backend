@@ -1,12 +1,34 @@
 const Property = require('../models/Property');
 const Offer    = require('../models/Offer');
+const User     = require('../models/User');
 const { validationResult } = require('express-validator');
+const { TIER_LIMITS } = require('./billingController');
 
 // @desc    Create a new property
 const createProperty = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
   try {
+    // ── Subscription tier enforcement ────────────────────────────────────────
+    if (req.user.role === 'landlord') {
+      const landlordUser = await User.findById(req.user._id).select('subscriptionTier');
+      const tier         = landlordUser?.subscriptionTier || 'free';
+      const maxAllowed   = TIER_LIMITS[tier]?.maxProperties ?? 1;
+
+      const existingCount = await Property.countDocuments({ landlord: req.user._id });
+
+      if (existingCount >= maxAllowed) {
+        const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+        return res.status(403).json({
+          message: `Your ${tierLabel} plan allows a maximum of ${maxAllowed} propert${maxAllowed === 1 ? 'y' : 'ies'}. Upgrade your plan to add more.`,
+          limitReached: true,
+          tier,
+          maxProperties: maxAllowed,
+        });
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const property = await Property.create({
       landlord:           req.user._id,
       title:              req.body.title,
@@ -30,7 +52,7 @@ const createProperty = async (req, res) => {
 const getProperties = async (req, res) => {
   try {
     let filter = {};
-    if (req.user.role === 'landlord')          filter.landlord  = req.user._id;
+    if (req.user.role === 'landlord')              filter.landlord  = req.user._id;
     else if (req.user.role === 'property_manager') filter.managedBy = req.user._id;
 
     const properties = await Property.find(filter)
@@ -88,7 +110,6 @@ const updateProperty = async (req, res) => {
 };
 
 // @desc    Delete a property (landlord only, not if occupied)
-// @route   DELETE /api/properties/:id
 const deleteProperty = async (req, res) => {
   try {
     const property = await Property.findById(req.params.id);
@@ -101,9 +122,7 @@ const deleteProperty = async (req, res) => {
     if (property.status === 'occupied')
       return res.status(400).json({ message: 'Cannot delete an occupied property. The tenant must vacate first.' });
 
-    // Remove all pending/countered offers for this property too
     await Offer.deleteMany({ property: property._id, status: { $in: ['pending', 'countered'] } });
-
     await property.deleteOne();
     res.json({ message: 'Property deleted successfully' });
   } catch (error) {
@@ -122,7 +141,6 @@ const inviteManager = async (req, res) => {
     const isOwner = property.landlord.toString() === req.user._id.toString();
     if (!isOwner && req.user.role !== 'admin') return res.status(403).json({ message: 'Not authorized' });
 
-    const User    = require('../models/User');
     const manager = await User.findById(managerId);
     if (!manager || manager.role !== 'property_manager')
       return res.status(400).json({ message: 'User is not a registered property manager' });
@@ -152,10 +170,10 @@ const respondToInvitation = async (req, res) => {
       return res.status(400).json({ message: 'No pending invitation' });
 
     if (accept) {
-      property.managedBy            = req.user._id;
-      property.pmInvitation.status  = 'accepted';
+      property.managedBy           = req.user._id;
+      property.pmInvitation.status = 'accepted';
     } else {
-      property.pmInvitation.status  = 'declined';
+      property.pmInvitation.status = 'declined';
     }
     await property.save();
 
@@ -189,7 +207,7 @@ const assignManager = async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
 
     if (managerId) {
-      const manager = await require('../models/User').findById(managerId);
+      const manager = await User.findById(managerId);
       if (!manager || manager.role !== 'property_manager')
         return res.status(400).json({ message: 'User is not a property manager' });
       property.managedBy = managerId;

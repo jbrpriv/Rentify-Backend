@@ -1,5 +1,5 @@
-const express = require('express');
-const router = express.Router();
+const express  = require('express');
+const router   = express.Router();
 const passport = require('../config/passport');
 const { body } = require('express-validator');
 const { protect } = require('../middlewares/authMiddleware');
@@ -14,7 +14,7 @@ const {
   registerFCMToken,
 } = require('../controllers/authController');
 
-// ─── Register — with descriptive validation messages ─────────────────────────
+// ─── Register ─────────────────────────────────────────────────────────────────
 router.post('/register',
   [
     body('name').trim().notEmpty().withMessage('Name is required'),
@@ -53,93 +53,95 @@ router.post('/2fa/disable/send-otp', protect, send2FADisableOTP);
 router.post('/2fa/disable', protect, disable2FA);
 router.post('/2fa/validate', validate2FALogin);
 
-// ─── Google OAuth ─────────────────────────────────────────────────────────────
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-
-// Use passport's custom-callback pattern instead of chaining middleware.
-// This avoids passport internally calling next() in a context where next
-// may not be a function, which caused the "next is not a function" error.
-router.get('/google/callback', (req, res, next) => {
-  passport.authenticate('google', { session: false }, async (err, user) => {
-    if (err) {
-      console.error('Google OAuth error:', err.message);
-      return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_error`);
-    }
-    if (!user) {
-      return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_failed`);
-    }
-    try {
-      const accessToken = generateAccessToken(user._id);
-      const refreshToken = generateRefreshToken(user._id);
-
-      // Set HttpOnly refresh cookie
-      res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-      });
-      const profileComplete = user.isPhoneVerified && user.phoneNumber !== '0000000000';
-      return res.redirect(
-        `${process.env.CLIENT_URL}/auth/google/success` +
-        `?token=${accessToken}` +
-        `&name=${encodeURIComponent(user.name)}` +
-        `&role=${user.role}` +
-        `&id=${user._id}` +
-        `&email=${encodeURIComponent(user.email)}` +
-        `&isPhoneVerified=${user.isPhoneVerified}` +
-        `&profileComplete=${profileComplete}`
-
-      );
-    } catch (callbackErr) {
-      return next(callbackErr);
-    }
-  })(req, res, next);
-});
-
 router.post('/fcm-token', protect, registerFCMToken);
 
-// ─── Facebook OAuth ───────────────────────────────────────────────────────────
-// Only registers routes when the strategy is configured (credentials present).
-if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET) {
-  router.get('/facebook', passport.authenticate('facebook', { scope: ['email', 'public_profile'] }));
+// ─── Generic OAuth callback handler ──────────────────────────────────────────
+/**
+ * Factory that returns an Express route handler for any OAuth provider.
+ *
+ * On success it redirects to the shared frontend page:
+ *   /auth/oauth/success?token=...&name=...&role=...&id=...&email=...
+ *                      &isPhoneVerified=...&profileComplete=...&provider=...
+ *
+ * The frontend then decides whether to send the user to /dashboard or to
+ * /auth/oauth/complete-profile based on the `profileComplete` flag.
+ *
+ * @param {string} providerName - 'google' | 'facebook' (used for error messages & the `provider` param)
+ */
+function makeOAuthCallback(providerName) {
+  return (req, res, next) => {
+    passport.authenticate(providerName, { session: false }, async (err, user) => {
 
-  router.get('/facebook/callback', (req, res, next) => {
-    passport.authenticate('facebook', { session: false }, async (err, user) => {
+      // Auth-level error (bad credentials, revoked token, network issue, etc.)
       if (err) {
-        console.error('Facebook OAuth error:', err.message);
-        return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_error&provider=facebook`);
+        console.error(`${providerName} OAuth error:`, err.message);
+        return res.redirect(
+          `${process.env.CLIENT_URL}/login?error=oauth_error&provider=${providerName}`
+        );
       }
-      if (!user) {
-        return res.redirect(`${process.env.CLIENT_URL}/login?error=oauth_failed&provider=facebook`);
-      }
-      try {
-        const accessToken  = generateAccessToken(user._id);
-        const refreshTokenValue = generateRefreshToken(user._id);
 
+      // Strategy returned false/null (e.g. Facebook account has no email)
+      if (!user) {
+        return res.redirect(
+          `${process.env.CLIENT_URL}/login?error=oauth_failed&provider=${providerName}`
+        );
+      }
+
+      try {
+        const accessToken        = generateAccessToken(user._id);
+        const refreshTokenValue  = generateRefreshToken(user._id);
+
+        // HttpOnly refresh cookie — identical settings for every provider
         res.cookie('refreshToken', refreshTokenValue, {
           httpOnly: true,
           secure:   process.env.NODE_ENV === 'production',
           sameSite: 'strict',
-          maxAge:   30 * 24 * 60 * 60 * 1000,
+          maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
         });
 
-        const profileComplete = user.isPhoneVerified && user.phoneNumber !== '0000000000';
+        // Profile is "complete" once the user has a real phone that is verified.
+        // New OAuth users get the '0000000000' placeholder until they finish setup.
+        const profileComplete =
+          user.isPhoneVerified && user.phoneNumber !== '0000000000';
+
+        // Both providers land on the SAME generic success page so frontend
+        // logic never needs to diverge per-provider.
+        const params = new URLSearchParams({
+          token:           accessToken,
+          name:            user.name,
+          role:            user.role,
+          id:              user._id.toString(),
+          email:           user.email,
+          isPhoneVerified: String(user.isPhoneVerified),
+          profileComplete: String(profileComplete),
+          provider:        providerName,
+        });
+
         return res.redirect(
-          `${process.env.CLIENT_URL}/auth/google/success` +
-          `?token=${accessToken}` +
-          `&name=${encodeURIComponent(user.name)}` +
-          `&role=${user.role}` +
-          `&id=${user._id}` +
-          `&email=${encodeURIComponent(user.email)}` +
-          `&isPhoneVerified=${user.isPhoneVerified}` +
-          `&profileComplete=${profileComplete}`
+          `${process.env.CLIENT_URL}/auth/oauth/success?${params.toString()}`
         );
       } catch (callbackErr) {
         return next(callbackErr);
       }
     })(req, res, next);
-  });
+  };
+}
+
+// ─── Google OAuth ─────────────────────────────────────────────────────────────
+router.get('/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+router.get('/google/callback', makeOAuthCallback('google'));
+
+// ─── Facebook OAuth ───────────────────────────────────────────────────────────
+// Routes are only registered when credentials are present in the environment.
+if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET) {
+  router.get('/facebook',
+    passport.authenticate('facebook', { scope: ['email', 'public_profile'] })
+  );
+
+  router.get('/facebook/callback', makeOAuthCallback('facebook'));
 }
 
 module.exports = router;

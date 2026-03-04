@@ -10,36 +10,39 @@ const MaintenanceRequest = require('../models/MaintenanceRequest');
 // @access  Private (Admin)
 const getStats = async (req, res) => {
   try {
+    // ── Subscription counts ────────────────────────────────────────────────
+    const TIER_PRICES = { pro: 2999, enterprise: 9999 };
+
     const [
       totalUsers,
+      totalPro,
+      totalEnterprise,
       totalProperties,
       totalAgreements,
       activeAgreements,
       pendingAgreements,
       expiredAgreements,
-      totalPayments,
       openMaintenanceRequests,
     ] = await Promise.all([
       User.countDocuments(),
+      User.countDocuments({ subscriptionTier: 'pro' }),
+      User.countDocuments({ subscriptionTier: 'enterprise' }),
       Property.countDocuments(),
       Agreement.countDocuments(),
       Agreement.countDocuments({ status: 'active' }),
       Agreement.countDocuments({ status: { $in: ['draft', 'sent', 'signed'] } }),
       Agreement.countDocuments({ status: 'expired' }),
-      Payment.countDocuments({ status: 'paid' }),
       MaintenanceRequest.countDocuments({ status: { $in: ['open', 'in_progress'] } }),
     ]);
 
-    // Total platform revenue from all paid payments
-    const revenueResult = await Payment.aggregate([
-      { $match: { status: 'paid' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
-    const totalRevenue = revenueResult[0]?.total || 0;
+    // Monthly subscription revenue = (pro × 2999) + (enterprise × 9999)
+    const monthlySubscriptionRevenue =
+      (totalPro * TIER_PRICES.pro) + (totalEnterprise * TIER_PRICES.enterprise);
 
-    // Users by role
-    const usersByRole = await User.aggregate([
-      { $group: { _id: '$role', count: { $sum: 1 } } },
+    // Users by subscription tier (replaces users-by-role pie chart)
+    const usersBySubscription = await User.aggregate([
+      { $group: { _id: { $ifNull: ['$subscriptionTier', 'free'] }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
     ]);
 
     // Agreements created per month (last 6 months)
@@ -60,16 +63,18 @@ const getStats = async (req, res) => {
     res.json({
       totals: {
         users: totalUsers,
+        pro: totalPro,
+        enterprise: totalEnterprise,
+        free: totalUsers - totalPro - totalEnterprise,
         properties: totalProperties,
         agreements: totalAgreements,
         activeAgreements,
         pendingAgreements,
         expiredAgreements,
-        paidPayments: totalPayments,
         openMaintenanceRequests,
       },
-      revenue: totalRevenue,
-      usersByRole,
+      monthlySubscriptionRevenue,
+      usersBySubscription,
       agreementsByMonth,
     });
   } catch (error) {
