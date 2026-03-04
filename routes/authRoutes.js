@@ -97,19 +97,14 @@ function makeOAuthCallback(providerName) {
       }
 
       try {
-        // ── Facebook with no email: collect email via complete-profile first ──
-        // No account is created until the user provides a real email, which is
-        // then checked against existing accounts before creation.
+        // ── Facebook with no email: redirect to /register with a notice ─────
+        // Allowing the user to type an arbitrary email here risks silently
+        // linking their Facebook to an *existing* account (wrong portal bug).
+        // The safest UX is to send them to manual sign-up with an explanation.
         if (user.incomplete) {
-          const params = new URLSearchParams({
-            provider:     providerName,
-            facebookId:   user.facebookId   || '',
-            name:         user.name         || '',
-            profilePhoto: user.profilePhoto || '',
-            needsEmail:   'true',
-          });
+          const params = new URLSearchParams({ notice: 'facebook_no_email' });
           return res.redirect(
-            `${process.env.CLIENT_URL}/auth/oauth/complete-profile?${params.toString()}`
+            `${process.env.CLIENT_URL}/register?${params.toString()}`
           );
         }
 
@@ -124,11 +119,14 @@ function makeOAuthCallback(providerName) {
           maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
         });
 
-        // A user is "new" only if they still have the 0000000000 placeholder —
-        // meaning they've never completed their profile setup at all.
-        // A returning user who set a phone but didn't verify it goes to dashboard;
-        // the phone verification prompt is handled by the login flow separately.
-        const isNewUser = user.phoneNumber === '0000000000';
+        // A user needs the onboarding flow if:
+        //   (a) They have never set a phone number (brand-new Google account), OR
+        //   (b) They set a phone number but closed the tab before verifying the OTP
+        //       (profileComplete but isPhoneVerified is still false).
+        // In case (b) we pass skipToOTP=true so the complete-profile page jumps
+        // directly to the OTP step without asking them to re-enter their details.
+        const hasPlaceholderPhone = user.phoneNumber === '0000000000';
+        const isNewUser           = hasPlaceholderPhone || !user.isPhoneVerified;
 
         const params = new URLSearchParams({
           token:           accessToken,
@@ -139,6 +137,8 @@ function makeOAuthCallback(providerName) {
           isPhoneVerified: String(user.isPhoneVerified),
           isNewUser:       String(isNewUser),
           provider:        providerName,
+          // Tell complete-profile to skip to OTP step (phone is set, just unverified)
+          skipToOTP:       String(!hasPlaceholderPhone && !user.isPhoneVerified),
         });
 
         return res.redirect(

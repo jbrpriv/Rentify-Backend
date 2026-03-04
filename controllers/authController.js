@@ -53,7 +53,14 @@ const loginUser = async (req, res) => {
 
   const { email, password } = req.body;
   const user = await User.findOne({ email }).select('+password');
-  if (!user || !(await user.matchPassword(password))) return res.status(401).json({ message: 'Invalid email or password' });
+  if (!user || !(await user.matchPassword(password))) {
+    // Give OAuth-only users a specific error so they know to use Google/Facebook
+    if (user && Array.isArray(user.authProviders) && !user.authProviders.includes('password')) {
+      const provider = user.authProviders.find(p => p !== 'password') || 'social';
+      return res.status(401).json({ message: 'OAUTH_ACCOUNT', provider });
+    }
+    return res.status(401).json({ message: 'Invalid email or password' });
+  }
   if (!user.isActive) return res.status(403).json({ message: 'Account suspended. Contact support.' });
 
   // Check email verification — ALL roles must verify
