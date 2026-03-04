@@ -137,7 +137,10 @@ function makeOAuthCallback(providerName) {
           isPhoneVerified: String(user.isPhoneVerified),
           isNewUser:       String(isNewUser),
           provider:        providerName,
-          // Tell complete-profile to skip to OTP step (phone is set, just unverified)
+          // Pass existing phone so complete-profile can pre-populate the field.
+          // skipToOTP signals the profile form should lock name/role but keep
+          // phone editable — the user may want to correct their number.
+          phoneNumber:     hasPlaceholderPhone ? '' : user.phoneNumber,
           skipToOTP:       String(!hasPlaceholderPhone && !user.isPhoneVerified),
         });
 
