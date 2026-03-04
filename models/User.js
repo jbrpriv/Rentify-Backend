@@ -134,6 +134,15 @@ const userSchema = mongoose.Schema(
       default: null,
       select: false,
     },
+
+    // ─── OAuth Provider Tracking ───────────────────────────────────
+    // Tracks which OAuth providers are linked to this account.
+    // Email is always the primary key — a single email can have multiple
+    // providers linked to it (e.g. password + google + facebook).
+    authProviders: {
+      type: [String], // e.g. ['password', 'google', 'facebook']
+      default: ['password'],
+    },
   },
   {
     timestamps: true,

@@ -59,20 +59,28 @@ router.post('/fcm-token', protect, registerFCMToken);
 /**
  * Factory that returns an Express route handler for any OAuth provider.
  *
- * On success it redirects to the shared frontend page:
- *   /auth/oauth/success?token=...&name=...&role=...&id=...&email=...
- *                      &isPhoneVerified=...&profileComplete=...&provider=...
+ * Email is the primary key — if an account with the same email already
+ * exists (regardless of how it was created: password, Google, Facebook,
+ * or any other role), the providers are linked and the same account is
+ * returned. No duplicate accounts are ever created.
  *
- * The frontend then decides whether to send the user to /dashboard or to
- * /auth/oauth/complete-profile based on the `profileComplete` flag.
- *
- * @param {string} providerName - 'google' | 'facebook' (used for error messages & the `provider` param)
+ * Error codes forwarded to the frontend via query params:
+ *   oauth_error       — provider-level error (bad token, network, etc.)
+ *   oauth_failed      — strategy returned no user (shouldn't happen normally)
+ *   account_suspended — the matching email account has been banned
  */
 function makeOAuthCallback(providerName) {
   return (req, res, next) => {
     passport.authenticate(providerName, { session: false }, async (err, user) => {
 
-      // Auth-level error (bad credentials, revoked token, network issue, etc.)
+      // ── Suspended account ─────────────────────────────────────────────────
+      if (err?.code === 'ACCOUNT_SUSPENDED') {
+        return res.redirect(
+          `${process.env.CLIENT_URL}/login?error=account_suspended&provider=${providerName}`
+        );
+      }
+
+      // ── Any other passport/strategy error ─────────────────────────────────
       if (err) {
         console.error(`${providerName} OAuth error:`, err.message);
         return res.redirect(
@@ -80,7 +88,7 @@ function makeOAuthCallback(providerName) {
         );
       }
 
-      // Strategy returned false/null (e.g. Facebook account has no email)
+      // ── Strategy returned null (should not happen with current passport.js) ─
       if (!user) {
         return res.redirect(
           `${process.env.CLIENT_URL}/login?error=oauth_failed&provider=${providerName}`
@@ -88,10 +96,26 @@ function makeOAuthCallback(providerName) {
       }
 
       try {
-        const accessToken        = generateAccessToken(user._id);
-        const refreshTokenValue  = generateRefreshToken(user._id);
+        // ── Facebook with no email: collect email via complete-profile first ──
+        // No account is created until the user provides a real email, which is
+        // then checked against existing accounts before creation.
+        if (user.incomplete) {
+          const params = new URLSearchParams({
+            provider:     providerName,
+            facebookId:   user.facebookId   || '',
+            name:         user.name         || '',
+            profilePhoto: user.profilePhoto || '',
+            needsEmail:   'true',
+          });
+          return res.redirect(
+            `${process.env.CLIENT_URL}/auth/oauth/complete-profile?${params.toString()}`
+          );
+        }
 
-        // HttpOnly refresh cookie — identical settings for every provider
+        // ── Fully resolved user — issue tokens ────────────────────────────────
+        const accessToken       = generateAccessToken(user._id);
+        const refreshTokenValue = generateRefreshToken(user._id);
+
         res.cookie('refreshToken', refreshTokenValue, {
           httpOnly: true,
           secure:   process.env.NODE_ENV === 'production',
@@ -99,13 +123,9 @@ function makeOAuthCallback(providerName) {
           maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
         });
 
-        // Profile is "complete" once the user has a real phone that is verified.
-        // New OAuth users get the '0000000000' placeholder until they finish setup.
         const profileComplete =
           user.isPhoneVerified && user.phoneNumber !== '0000000000';
 
-        // Both providers land on the SAME generic success page so frontend
-        // logic never needs to diverge per-provider.
         const params = new URLSearchParams({
           token:           accessToken,
           name:            user.name,
@@ -131,16 +151,13 @@ function makeOAuthCallback(providerName) {
 router.get('/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
 );
-
 router.get('/google/callback', makeOAuthCallback('google'));
 
 // ─── Facebook OAuth ───────────────────────────────────────────────────────────
-// Routes are only registered when credentials are present in the environment.
 if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET) {
   router.get('/facebook',
     passport.authenticate('facebook', { scope: ['email', 'public_profile'] })
   );
-
   router.get('/facebook/callback', makeOAuthCallback('facebook'));
 }
 
