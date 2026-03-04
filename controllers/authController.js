@@ -69,11 +69,11 @@ const loginUser = async (req, res) => {
   }
 
   // Check phone verification — ALL roles must verify (skip Google placeholder)
+  // No token is issued here — the real JWT is only minted inside verifyPhoneOTP
+  // after the user proves they own the phone number.  The frontend drives the
+  // send-otp / verify-otp flow using only the email address.
   if (!user.isPhoneVerified && user.phoneNumber !== '0000000000') {
-    const accessToken  = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
-    setRefreshCookie(res, refreshToken);
-    return res.status(403).json({ message: 'PHONE_NOT_VERIFIED', token: accessToken, phoneNumber: user.phoneNumber });
+    return res.status(403).json({ message: 'PHONE_NOT_VERIFIED', email: user.email, phoneNumber: user.phoneNumber });
   }
 
   user.lastLogin = new Date();
@@ -173,10 +173,20 @@ const resetPassword = async (req, res) => {
 };
 
 // ─── OTP PHONE VERIFICATION ───────────────────────────────────────────────────
+// Public — identified by email in the request body, no JWT required.
+// Used by both the registration flow (after email verify) and the login flow
+// (when the server returns PHONE_NOT_VERIFIED).
 const sendPhoneOTP = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
-    if (!user.phoneNumber) return res.status(400).json({ message: 'No phone number on your account' });
+    // Support both authenticated (req.user from protect middleware on other routes)
+    // and unauthenticated callers (email in body).
+    const email = req.body.email || req.user?.email;
+    if (!email) return res.status(400).json({ message: 'Email is required' });
+
+    const user = await User.findOne({ email });
+    if (!user)              return res.status(404).json({ message: 'User not found' });
+    if (!user.phoneNumber)  return res.status(400).json({ message: 'No phone number on your account' });
+    if (user.isPhoneVerified) return res.status(400).json({ message: 'Phone already verified' });
 
     // ── Cooldown: max one OTP per 60 seconds per user ─────────────────────
     const COOLDOWN_MS = 60 * 1000;
@@ -188,9 +198,13 @@ const sendPhoneOTP = async (req, res) => {
     }
 
     const sent = await sendOTP(user.phoneNumber);
-    if (!sent) return res.status(500).json({ message: 'Failed to send OTP. Check Twilio config.' });
+    if (!sent) {
+      return res.status(503).json({
+        message: 'SMS service is temporarily unavailable. Please try again shortly.',
+        code: 'OTP_SEND_FAILED',
+      });
+    }
 
-    // Record the time so the cooldown is enforced on the next request
     user.otpSentAt = new Date();
     await user.save();
 
@@ -198,16 +212,44 @@ const sendPhoneOTP = async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
+// Public — identified by email in body, no JWT required.
+// On success this is the SINGLE place that issues the real access + refresh
+// tokens for the email/password login + registration flows.
+// The frontend must never write tokens to localStorage before reaching here.
 const verifyPhoneOTP = async (req, res) => {
   try {
-    const { code } = req.body;
-    if (!code) return res.status(400).json({ message: 'OTP code required' });
-    const user  = await User.findById(req.user._id);
+    const { email, code } = req.body;
+    if (!email || !code) return res.status(400).json({ message: 'Email and OTP code are required' });
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.isVerified) {
+      return res.status(403).json({ message: 'Email must be verified before verifying phone' });
+    }
+
     const valid = await verifyOTP(user.phoneNumber, code);
     if (!valid) return res.status(400).json({ message: 'Invalid or expired OTP code' });
+
     user.isPhoneVerified = true;
+    user.lastLogin = new Date();
     await user.save();
-    res.json({ message: 'Phone number verified!' });
+
+    // Both verifications passed — now issue real tokens for the first time
+    const accessToken  = generateAccessToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
+    setRefreshCookie(res, refreshToken);
+
+    res.json({
+      _id:             user._id,
+      name:            user.name,
+      email:           user.email,
+      role:            user.role,
+      isVerified:      true,
+      isPhoneVerified: true,
+      twoFactorEnabled: user.twoFactorEnabled || false,
+      token:           accessToken,
+    });
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
 

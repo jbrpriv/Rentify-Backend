@@ -45,8 +45,11 @@ router.post('/resend-verification', resendVerification);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 
-router.post('/send-otp', protect, sendPhoneOTP);
-router.post('/verify-otp', protect, verifyPhoneOTP);
+// These two routes are intentionally public — the user has no token yet.
+// Identity is established by email in the request body.
+// The real JWT is only issued by verify-otp on success.
+router.post('/send-otp', sendPhoneOTP);
+router.post('/verify-otp', verifyPhoneOTP);
 
 router.post('/2fa/setup', protect, setup2FA);
 router.post('/2fa/verify', protect, verify2FA);
