@@ -270,6 +270,83 @@ const validate2FALogin = async (req, res) => {
 // passport.authenticate(). This file intentionally has no googleCallback export
 // to avoid dead-code divergence. See authRoutes.js for the full OAuth flow.
 
+// ─── FACEBOOK COMPLETE (no-email flow) ───────────────────────────────────────
+// Called from the complete-profile page when Facebook didn't supply an email.
+// Creates the account using the email the user typed, then returns tokens so
+// subsequent API calls (profile update, send-otp, etc.) are authenticated.
+const facebookComplete = async (req, res) => {
+  try {
+    const { facebookId, email, name, role, phoneNumber } = req.body;
+
+    if (!facebookId || !email || !name) {
+      return res.status(400).json({ message: 'facebookId, email, and name are required' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Reject if email already exists — same dedup rule as everywhere else
+    const existing = await User.findOne({ email: normalizedEmail });
+    if (existing) {
+      // If somehow this Facebook ID already linked, just log them in
+      if (existing.authProviders?.includes('facebook')) {
+        const accessToken  = generateAccessToken(existing._id);
+        const refreshToken = generateRefreshToken(existing._id);
+        setRefreshCookie(res, refreshToken);
+        return res.json({
+          _id:   existing._id,
+          name:  existing.name,
+          email: existing.email,
+          role:  existing.role,
+          token: accessToken,
+          alreadyExists: true,
+        });
+      }
+      // Different account with same email — link Facebook to it
+      if (!existing.authProviders) existing.authProviders = ['password'];
+      if (!existing.authProviders.includes('facebook')) {
+        existing.authProviders.push('facebook');
+        await existing.save();
+      }
+      const accessToken  = generateAccessToken(existing._id);
+      const refreshToken = generateRefreshToken(existing._id);
+      setRefreshCookie(res, refreshToken);
+      return res.json({
+        _id:   existing._id,
+        name:  existing.name,
+        email: existing.email,
+        role:  existing.role,
+        token: accessToken,
+        alreadyExists: true,
+      });
+    }
+
+    // Create new user
+    const user = await User.create({
+      name,
+      email:         normalizedEmail,
+      password:      Math.random().toString(36).slice(-16) + 'Aa1!',
+      role:          role || 'tenant',
+      phoneNumber:   phoneNumber || '0000000000',
+      isVerified:    true,
+      authProviders: ['facebook'],
+    });
+
+    const accessToken  = generateAccessToken(user._id);
+    const refreshToken = generateRefreshToken(user._id);
+    setRefreshCookie(res, refreshToken);
+
+    res.status(201).json({
+      _id:   user._id,
+      name:  user.name,
+      email: user.email,
+      role:  user.role,
+      token: accessToken,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── FCM TOKEN ────────────────────────────────────────────────────────────────
 const registerFCMToken = async (req, res) => {
   try {
@@ -286,5 +363,5 @@ module.exports = {
   forgotPassword, resetPassword,
   sendPhoneOTP, verifyPhoneOTP,
   setup2FA, verify2FA, disable2FA, send2FADisableOTP, validate2FALogin,
-  registerFCMToken,
+  registerFCMToken, facebookComplete,
 };

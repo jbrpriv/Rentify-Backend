@@ -11,7 +11,7 @@ const {
   forgotPassword, resetPassword,
   sendPhoneOTP, verifyPhoneOTP,
   setup2FA, verify2FA, disable2FA, send2FADisableOTP, validate2FALogin,
-  registerFCMToken,
+  registerFCMToken, facebookComplete,
 } = require('../controllers/authController');
 
 // ─── Register ─────────────────────────────────────────────────────────────────
@@ -54,6 +54,7 @@ router.post('/2fa/disable', protect, disable2FA);
 router.post('/2fa/validate', validate2FALogin);
 
 router.post('/fcm-token', protect, registerFCMToken);
+router.post('/facebook/complete', facebookComplete); // no auth — creates the account
 
 // ─── Generic OAuth callback handler ──────────────────────────────────────────
 /**
