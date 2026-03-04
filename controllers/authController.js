@@ -177,8 +177,23 @@ const sendPhoneOTP = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if (!user.phoneNumber) return res.status(400).json({ message: 'No phone number on your account' });
+
+    // ── Cooldown: max one OTP per 60 seconds per user ─────────────────────
+    const COOLDOWN_MS = 60 * 1000;
+    if (user.otpSentAt && (Date.now() - new Date(user.otpSentAt).getTime()) < COOLDOWN_MS) {
+      const secondsLeft = Math.ceil((COOLDOWN_MS - (Date.now() - new Date(user.otpSentAt).getTime())) / 1000);
+      return res.status(429).json({
+        message: `Please wait ${secondsLeft} seconds before requesting another OTP.`,
+      });
+    }
+
     const sent = await sendOTP(user.phoneNumber);
     if (!sent) return res.status(500).json({ message: 'Failed to send OTP. Check Twilio config.' });
+
+    // Record the time so the cooldown is enforced on the next request
+    user.otpSentAt = new Date();
+    await user.save();
+
     res.json({ message: 'OTP sent to your phone number' });
   } catch (error) { res.status(500).json({ message: error.message }); }
 };

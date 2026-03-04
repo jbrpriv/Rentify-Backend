@@ -5,6 +5,12 @@ const User = require('../models/User');
 const protect = async (req, res, next) => {
   let token;
 
+  // sendBeacon can't set custom headers — accept token via query param for the
+  // abandon endpoint only. Any other use of query-param tokens is rejected.
+  if (!token && req.query._token && req.path.endsWith('/oauth/abandon')) {
+    token = req.query._token;
+  }
+
   if (
     req.headers.authorization &&
     req.headers.authorization.startsWith('Bearer')

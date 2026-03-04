@@ -56,7 +56,7 @@ router.post('/2fa/validate', validate2FALogin);
 
 router.post('/fcm-token', protect, registerFCMToken);
 router.post('/facebook/complete', facebookComplete); // no auth — creates the account
-router.delete('/oauth/abandon', protect, abandonOAuthAccount); // wipe incomplete OAuth account
+router.post('/oauth/abandon', protect, abandonOAuthAccount);  // wipe incomplete OAuth account (POST so sendBeacon works)
 
 // ─── Generic OAuth callback handler ──────────────────────────────────────────
 /**

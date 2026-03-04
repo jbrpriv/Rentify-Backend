@@ -116,6 +116,14 @@ const userSchema = mongoose.Schema(
       default: false,
     },
 
+    // ─── OTP cooldown ──────────────────────────────────────────────────
+    // Timestamp of the last phone OTP dispatch — used to enforce a 60-second
+    // cooldown so a user cannot trigger multiple SMS messages in quick succession.
+    otpSentAt: {
+      type: Date,
+      default: null,
+    },
+
     // ─── Password Reset ────────────────────────────────────────────
     passwordResetToken: {
       type: String,
