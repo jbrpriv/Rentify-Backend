@@ -54,6 +54,24 @@ const getBillingStatus = async (req, res) => {
   }
 };
 
+// Helper: create a Stripe checkout session, with automatic currency-conflict recovery.
+// Stripe does not allow a single customer to hold subscriptions in different currencies.
+// If the existing stripeCustomerId has a conflicting currency (e.g. a prior PKR checkout
+// was started but the price IDs are in USD, or vice-versa), Stripe throws:
+//   "You cannot combine currencies on a single customer."
+// We recover by creating a brand-new Stripe customer and retrying once.
+const _createCheckoutSession = async ({ customerId, priceId, userId, tier, userEmail, userName }) => {
+  return stripe.checkout.sessions.create({
+    customer: customerId,
+    payment_method_types: ['card'],
+    line_items: [{ price: priceId, quantity: 1 }],
+    mode: 'subscription',
+    success_url: `${process.env.CLIENT_URL}/dashboard/billing?success=true&tier=${tier}`,
+    cancel_url:  `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
+    metadata: { userId, tier },
+  });
+};
+
 // @desc    Create a Stripe Checkout Session to subscribe to a plan
 // @route   POST /api/billing/subscribe
 // @access  Private (Landlord)
@@ -99,18 +117,55 @@ const subscribe = async (req, res) => {
       await User.findByIdAndUpdate(req.user._id, { stripeCustomerId: customerId });
     }
 
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      payment_method_types: ['card'],
-      line_items: [{ price: priceId, quantity: 1 }],
-      mode: 'subscription',
-      success_url: `${process.env.CLIENT_URL}/dashboard/billing?success=true&tier=${tier}`,
-      cancel_url:  `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
-      metadata: { userId: req.user._id.toString(), tier },
-    });
+    let session;
+    try {
+      session = await _createCheckoutSession({
+        customerId,
+        priceId,
+        userId: req.user._id.toString(),
+        tier,
+        userEmail: user.email,
+        userName:  user.name,
+      });
+    } catch (stripeErr) {
+      // ── Currency conflict recovery ────────────────────────────────────────
+      // Stripe error code: 'currency_combination_invalid'
+      // Stripe error message contains: "cannot combine currencies"
+      // This happens when the customer already has an active checkout / subscription
+      // in a different currency from the price being used.
+      // Fix: provision a fresh Stripe customer (no currency history) and retry once.
+      const isCurrencyConflict =
+        stripeErr.code === 'currency_combination_invalid' ||
+        (stripeErr.message && stripeErr.message.toLowerCase().includes('cannot combine currencies'));
+
+      if (!isCurrencyConflict) throw stripeErr; // re-throw unrelated errors
+
+      console.warn(
+        `[billing] Currency conflict for customer ${customerId} — creating fresh customer and retrying.`
+      );
+
+      const freshCustomer = await stripe.customers.create({
+        email: user.email,
+        name:  user.name,
+        metadata: { userId: req.user._id.toString() },
+      });
+      customerId = freshCustomer.id;
+      await User.findByIdAndUpdate(req.user._id, { stripeCustomerId: customerId });
+
+      // Retry with the new customer — if it fails again, let it throw
+      session = await _createCheckoutSession({
+        customerId,
+        priceId,
+        userId: req.user._id.toString(),
+        tier,
+        userEmail: user.email,
+        userName:  user.name,
+      });
+    }
 
     res.json({ url: session.url });
   } catch (error) {
+    console.error('[billing] subscribe error:', error.message);
     res.status(500).json({ message: error.message });
   }
 };
