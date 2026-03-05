@@ -12,7 +12,7 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "setupFilesAfterFramework": [
+    "setupFilesAfterEnv": [
       "./__tests__/setup.js"
     ],
     "testMatch": [
@@ -32,6 +32,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1001.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
     "@sendgrid/mail": "^8.1.6",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.70.1",
@@ -56,8 +58,6 @@
     "passport": "^0.7.0",
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",
-    "@aws-sdk/client-s3": "^3.600.0",
-    "@aws-sdk/s3-request-presigner": "^3.600.0",
     "pdfkit": "^0.17.2",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.3",
@@ -68,6 +68,9 @@
     "twilio": "^5.12.2"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "jest": "^30.2.0",
+    "mongodb-memory-server": "^11.0.1",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
   }
 }

@@ -137,7 +137,7 @@ app.use((err, req, res, next) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(() => {
+if (process.env.NODE_ENV !== "test") connectDB().then(() => {
   httpServer.listen(PORT, () => {
     console.log(`\n🚀 RentifyPro server running on port ${PORT}`);
     console.log(`📖 Swagger docs: http://localhost:${PORT}/api-docs`);
