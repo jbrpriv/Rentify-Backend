@@ -25,7 +25,8 @@ async function testManualPush() {
         await mongoose.connect(process.env.MONGO_URI);
         console.log('Connected to MongoDB');
 
-        const user = await User.findOne({ email });
+        // fcmToken has 'select: false' in the schema, so we must explicitly request it
+        const user = await User.findOne({ email }).select('+fcmToken');
         if (!user) {
             console.error(`❌ User not found: ${email}`);
             process.exit(1);
