@@ -1,6 +1,6 @@
 const Property = require('../models/Property');
-const Offer    = require('../models/Offer');
-const User     = require('../models/User');
+const Offer = require('../models/Offer');
+const User = require('../models/User');
 const { validationResult } = require('express-validator');
 const { TIER_LIMITS } = require('./billingController');
 
@@ -12,8 +12,8 @@ const createProperty = async (req, res) => {
     // ── Subscription tier enforcement ────────────────────────────────────────
     if (req.user.role === 'landlord') {
       const landlordUser = await User.findById(req.user._id).select('subscriptionTier');
-      const tier         = landlordUser?.subscriptionTier || 'free';
-      const maxAllowed   = TIER_LIMITS[tier]?.maxProperties ?? 1;
+      const tier = landlordUser?.subscriptionTier || 'free';
+      const maxAllowed = TIER_LIMITS[tier]?.maxProperties ?? 1;
 
       const existingCount = await Property.countDocuments({ landlord: req.user._id });
 
@@ -30,17 +30,17 @@ const createProperty = async (req, res) => {
     // ────────────────────────────────────────────────────────────────────────
 
     const property = await Property.create({
-      landlord:           req.user._id,
-      title:              req.body.title,
-      type:               req.body.type,
-      address:            req.body.address,
-      specs:              req.body.specs,
-      financials:         req.body.financials,
-      leaseTerms:         req.body.leaseTerms,
-      amenities:          req.body.amenities || [],
+      landlord: req.user._id,
+      title: req.body.title,
+      type: req.body.type,
+      address: req.body.address,
+      specs: req.body.specs,
+      financials: req.body.financials,
+      leaseTerms: req.body.leaseTerms,
+      amenities: req.body.amenities || [],
       listingDescription: req.body.listingDescription,
-      images:             req.body.images || [],
-      isListed:           false,
+      images: req.body.images || [],
+      isListed: false,
     });
     res.status(201).json(property);
   } catch (error) {
@@ -52,7 +52,7 @@ const createProperty = async (req, res) => {
 const getProperties = async (req, res) => {
   try {
     let filter = {};
-    if (req.user.role === 'landlord')              filter.landlord  = req.user._id;
+    if (req.user.role === 'landlord') filter.landlord = req.user._id;
     else if (req.user.role === 'property_manager') filter.managedBy = req.user._id;
 
     const properties = await Property.find(filter)
@@ -76,9 +76,9 @@ const getPropertyById = async (req, res) => {
 
     if (!property) return res.status(404).json({ message: 'Property not found' });
 
-    const uid     = req.user._id.toString();
+    const uid = req.user._id.toString();
     const isOwner = property.landlord._id.toString() === uid;
-    const isPM    = property.managedBy?._id?.toString() === uid;
+    const isPM = property.managedBy?._id?.toString() === uid;
     const isAdmin = req.user.role === 'admin';
 
     if (!isOwner && !isPM && !isAdmin) return res.status(403).json({ message: 'Not authorized' });
@@ -99,7 +99,7 @@ const updateProperty = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Not authorized' });
 
-    const allowed = ['title','address','type','specs','financials','leaseTerms','amenities','listingDescription','images','status'];
+    const allowed = ['title', 'address', 'type', 'specs', 'financials', 'leaseTerms', 'amenities', 'listingDescription', 'images', 'status'];
     allowed.forEach(f => { if (req.body[f] !== undefined) property[f] = req.body[f]; });
 
     await property.save();
@@ -170,7 +170,7 @@ const respondToInvitation = async (req, res) => {
       return res.status(400).json({ message: 'No pending invitation' });
 
     if (accept) {
-      property.managedBy           = req.user._id;
+      property.managedBy = req.user._id;
       property.pmInvitation.status = 'accepted';
     } else {
       property.pmInvitation.status = 'declined';
@@ -243,10 +243,10 @@ const archiveProperty = async (req, res) => {
       return res.status(400).json({ message: 'Property is already archived' });
     }
 
-    property.isArchived     = true;
-    property.archivedAt     = new Date();
-    property.archivedReason = req.body.reason || 'Archived by owner';
-    property.isListed       = false; // Unlist from browse
+    property.isArchived = true;
+    property.archivedAt = new Date();
+    property.archivedReason = (req.body && req.body.reason) || 'Archived by owner';
+    property.isListed = false; // Unlist from browse
     await property.save();
 
     res.json({ message: 'Property archived successfully', property });
@@ -271,8 +271,8 @@ const restoreProperty = async (req, res) => {
       return res.status(400).json({ message: 'Property is not archived' });
     }
 
-    property.isArchived     = false;
-    property.archivedAt     = null;
+    property.isArchived = false;
+    property.archivedAt = null;
     property.archivedReason = '';
     await property.save();
 
