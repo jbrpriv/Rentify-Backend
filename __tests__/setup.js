@@ -10,7 +10,8 @@ process.env.CLIENT_URL = 'http://localhost:3000';
 process.env.STRIPE_SECRET_KEY = 'sk_test_placeholder';
 process.env.STRIPE_CURRENCY = 'pkr';
 
-// ── Mock modules that connect to external services on import ─────────────────
+// ── Mock all external-connecting modules ─────────────────────────────────────
+
 jest.mock('../config/db', () => jest.fn());
 
 jest.mock('../config/redis', () => ({
@@ -18,14 +19,27 @@ jest.mock('../config/redis', () => ({
     redisClient: { get: jest.fn(), set: jest.fn(), del: jest.fn(), on: jest.fn() },
 }));
 
-jest.mock('../utils/firebaseService', () => ({
-    sendPushNotification: jest.fn().mockResolvedValue(true),
+jest.mock('../middlewares/rateLimiter', () => ({
+    loginLimiter: (req, res, next) => next(),
+    propertyLimiter: (req, res, next) => next(),
+    uploadLimiter: (req, res, next) => next(),
+    messageLimiter: (req, res, next) => next(),
+    offerLimiter: (req, res, next) => next(),
+    generalLimiter: (req, res, next) => next(),
+}));
+
+jest.mock('../queues/notificationQueue', () => ({
+    add: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('../workers/notificationWorker', () => ({}));
 
 jest.mock('../schedulers/rentScheduler', () => ({
     startRentScheduler: jest.fn(),
+}));
+
+jest.mock('../utils/firebaseService', () => ({
+    sendPushNotification: jest.fn().mockResolvedValue(true),
 }));
 
 // ── In-memory MongoDB lifecycle ───────────────────────────────────────────────
