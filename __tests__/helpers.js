@@ -15,7 +15,7 @@ const createUser = async (overrides = {}) => {
     const defaults = {
         name: 'Test User',
         email: `user_${Date.now()}_${Math.random().toString(36).slice(2)}@test.com`,
-        password: await bcrypt.hash('Password123!', 10),
+        password: 'Password123!',
         role: 'tenant',
         phoneNumber: '03001234567',
         isVerified: true,
