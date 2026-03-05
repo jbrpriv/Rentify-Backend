@@ -32,11 +32,11 @@ router.get('/active-checkout/:agreementId', protect, getActiveCheckoutUrl);
 
 // ─── Razorpay ────────────────────────────────────────────────────────────────
 router.post('/razorpay/create-order', protect, createRazorpayOrder);
-router.post('/razorpay/verify',       protect, verifyRazorpayPayment);
+router.post('/razorpay/verify', protect, verifyRazorpayPayment);
 
 // ─── PayPal ──────────────────────────────────────────────────────────────────
 router.post('/paypal/create-order', protect, createPayPalOrder);
-router.post('/paypal/capture',      protect, capturePayPalOrder);
+router.post('/paypal/capture', protect, capturePayPalOrder);
 
 // ─── Retry failed payments ───────────────────────────────────────────────────
 router.post('/retry/:paymentId', protect, retryFailedPayment);
@@ -45,7 +45,10 @@ router.post('/retry/:paymentId', protect, retryFailedPayment);
 // Get rent schedule for an agreement
 router.get('/schedule/:agreementId', protect, getRentSchedule);
 
-// Get payment history
+// Get payment history (root route — used by dashboard for charts)
+router.get('/', protect, getPaymentHistory);
+
+// Get payment history (named route — kept for explicit use)
 router.get('/history', protect, getPaymentHistory);
 
 // NOTE: Webhook route is registered directly in server.js BEFORE express.json()
