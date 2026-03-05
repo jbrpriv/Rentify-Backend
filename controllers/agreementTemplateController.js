@@ -1,12 +1,12 @@
 const AgreementTemplate = require('../models/AgreementTemplate');
-const Clause            = require('../models/Clause');
+const Clause = require('../models/Clause');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const populate = (q) =>
   q
-    .populate('landlord',   'name email')
-    .populate('clauseIds',  'title body category jurisdiction isApproved')
+    .populate('landlord', 'name email')
+    .populate('clauseIds', 'title body category jurisdiction isApproved')
     .populate('reviewedBy', 'name email');
 
 // ─── GET /api/agreement-templates ────────────────────────────────────────────
@@ -19,10 +19,13 @@ const getTemplates = async (req, res) => {
     if (req.user.role === 'admin') {
       // Admin sees all — optional landlordId filter via query
       if (req.query.landlordId) filter.landlord = req.query.landlordId;
-      if (req.query.status)     filter.status   = req.query.status;
+      if (req.query.status) filter.status = req.query.status;
     } else {
-      // Landlord sees only their own
-      filter.landlord = req.user._id;
+      // Landlord sees their own templates OR any approved template
+      filter.$or = [
+        { landlord: req.user._id },
+        { status: 'approved' }
+      ];
     }
 
     // ── Jurisdiction / region filter ────────────────────────────────────────
@@ -81,7 +84,7 @@ const createTemplate = async (req, res) => {
 
     if (ids.length > 0) {
       const validClauses = await Clause.find({
-        _id:        { $in: ids },
+        _id: { $in: ids },
         isArchived: false,
         $or: [
           { isApproved: true },
@@ -90,7 +93,7 @@ const createTemplate = async (req, res) => {
       }).select('_id');
 
       const validIds = new Set(validClauses.map((c) => c._id.toString()));
-      const invalid  = ids.filter((id) => !validIds.has(id.toString()));
+      const invalid = ids.filter((id) => !validIds.has(id.toString()));
 
       if (invalid.length > 0) {
         return res.status(400).json({
@@ -100,11 +103,11 @@ const createTemplate = async (req, res) => {
     }
 
     const template = await AgreementTemplate.create({
-      landlord:     req.user._id,
-      name:         name.trim(),
-      description:  (description || '').trim(),
-      clauseIds:    ids,
-      status:       'pending',
+      landlord: req.user._id,
+      name: name.trim(),
+      description: (description || '').trim(),
+      clauseIds: ids,
+      status: 'pending',
       jurisdiction: (req.body.jurisdiction || 'general').trim().toLowerCase(),
     });
 
@@ -129,14 +132,14 @@ const updateTemplate = async (req, res) => {
 
     const { name, description, clauseIds } = req.body;
 
-    if (name)        template.name        = name.trim();
+    if (name) template.name = name.trim();
     if (description !== undefined) template.description = description.trim();
 
     if (Array.isArray(clauseIds)) {
       // Re-validate clauses
       if (clauseIds.length > 0) {
         const validClauses = await Clause.find({
-          _id:        { $in: clauseIds },
+          _id: { $in: clauseIds },
           isArchived: false,
           $or: [
             { isApproved: true },
@@ -145,7 +148,7 @@ const updateTemplate = async (req, res) => {
         }).select('_id');
 
         const validIds = new Set(validClauses.map((c) => c._id.toString()));
-        const invalid  = clauseIds.filter((id) => !validIds.has(id.toString()));
+        const invalid = clauseIds.filter((id) => !validIds.has(id.toString()));
         if (invalid.length > 0) {
           return res.status(400).json({ message: `Invalid clause IDs: ${invalid.join(', ')}` });
         }
@@ -155,9 +158,9 @@ const updateTemplate = async (req, res) => {
     }
 
     // Reset to pending so admin re-reviews changes
-    template.status          = 'pending';
-    template.reviewedBy      = null;
-    template.reviewedAt      = null;
+    template.status = 'pending';
+    template.reviewedBy = null;
+    template.reviewedAt = null;
     template.rejectionReason = '';
 
     await template.save();
@@ -203,9 +206,9 @@ const reviewTemplate = async (req, res) => {
     const template = await AgreementTemplate.findById(req.params.id);
     if (!template) return res.status(404).json({ message: 'Template not found' });
 
-    template.status          = approved ? 'approved' : 'rejected';
-    template.reviewedBy      = req.user._id;
-    template.reviewedAt      = new Date();
+    template.status = approved ? 'approved' : 'rejected';
+    template.reviewedBy = req.user._id;
+    template.reviewedAt = new Date();
     template.rejectionReason = approved ? '' : (rejectionReason || 'Not approved');
 
     await template.save();
@@ -225,7 +228,7 @@ const useTemplate = async (req, res) => {
     if (!template) return res.status(404).json({ message: 'Template not found' });
 
     template.usageCount = (template.usageCount || 0) + 1;
-    template.lastUsedAt  = new Date();
+    template.lastUsedAt = new Date();
     await template.save();
 
     res.json({ message: 'Usage recorded', usageCount: template.usageCount });
@@ -250,9 +253,9 @@ const getTemplateAnalytics = async (req, res) => {
     }, {});
 
     res.json({
-      totalTemplates:  templates.length,
-      totalUsage:      templates.reduce((s, t) => s + (t.usageCount || 0), 0),
-      topTemplates:    templates.slice(0, 10),
+      totalTemplates: templates.length,
+      totalUsage: templates.reduce((s, t) => s + (t.usageCount || 0), 0),
+      topTemplates: templates.slice(0, 10),
       byJurisdiction,
     });
   } catch (err) {

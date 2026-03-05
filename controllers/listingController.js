@@ -1,11 +1,11 @@
-const Property  = require('../models/Property');
+const Property = require('../models/Property');
 const Agreement = require('../models/Agreement');
 const { sendEmail } = require('../utils/emailService');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 let Offer, Application;
-try { Offer       = require('../models/Offer');       } catch { Offer = null; }
+try { Offer = require('../models/Offer'); } catch { Offer = null; }
 try { Application = require('../models/Application'); } catch { Application = null; }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ const getListingById = async (req, res) => {
     const property = await Property.findOneAndUpdate(
       { _id: req.params.id, isListed: true },
       { $inc: { views: 1 } },
-      { new: true }
+      { returnDocument: 'after' }
     ).populate('landlord', 'name');
 
     if (!property) {
@@ -84,7 +84,7 @@ const submitOffer = async (req, res) => {
     const base = {
       property: property._id,
       landlord: property.landlord._id,
-      tenant:   req.user._id,
+      tenant: req.user._id,
       applicantDetails: { name: req.user.name, email: req.user.email, phone: req.user.phoneNumber },
     };
 
@@ -122,7 +122,7 @@ const submitOffer = async (req, res) => {
           ...base, offerType: 'maintenance',
           message: (maintenanceOffer.message || '').slice(0, 2000),
           proposedTerms: {
-            maintenanceScope:       maintenanceOffer.scope.slice(0, 1000),
+            maintenanceScope: maintenanceOffer.scope.slice(0, 1000),
             rentReductionRequested: maintenanceOffer.reduction ? Number(maintenanceOffer.reduction) : null,
           },
         }));
