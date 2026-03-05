@@ -86,7 +86,6 @@ describe('POST /api/auth/login', () => {
     beforeEach(async () => {
         await createUser({
             email: 'login@test.com',
-            password: await bcrypt.hash('Password123!', 10),
             isVerified: true,
             isPhoneVerified: true,
         });
@@ -159,7 +158,7 @@ describe('POST /api/auth/verify-email', () => {
             .send({ email: 'verify@test.com', code: '123456' });
         expect(res.status).toBe(200);
 
-        const updated = await User.findById(user._id);
+        const updated = await User.findById(user._id).select('+passwordResetToken');
         expect(updated.isVerified).toBe(true);
     });
 
