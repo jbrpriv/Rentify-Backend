@@ -1,0 +1,101 @@
+config:
+  target: "{{ $processEnvironment.API_URL || 'http://localhost:5000' }}"
+  http:
+    timeout: 10
+  phases:
+    # Warm-up: 10 users/sec for 30s
+    - duration: 30
+      arrivalRate: 10
+      name: "Warm-up"
+    # Ramp-up: 10 → 100 users/sec over 60s
+    - duration: 60
+      arrivalRate: 10
+      rampTo: 100
+      name: "Ramp-up"
+    # Sustained load: 100 users/sec for 120s (target: 10K concurrent)
+    - duration: 120
+      arrivalRate: 100
+      name: "Sustained load"
+    # Cool-down
+    - duration: 30
+      arrivalRate: 10
+      name: "Cool-down"
+
+  payload:
+    path: "./load-test-users.csv"
+    fields:
+      - "email"
+      - "password"
+      - "token"
+
+  variables:
+    landlordToken: "{{ $processEnvironment.LANDLORD_TOKEN }}"
+    tenantToken:   "{{ $processEnvironment.TENANT_TOKEN }}"
+
+scenarios:
+  # ─── Auth: Login ──────────────────────────────────────────────────────────
+  - name: "POST /auth/login"
+    weight: 20
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            email:    "{{ email }}"
+            password: "{{ password }}"
+          expect:
+            - statusCode: 200
+
+  # ─── Landlord: List properties ───────────────────────────────────────────
+  - name: "GET /properties"
+    weight: 25
+    flow:
+      - get:
+          url: "/api/properties"
+          headers:
+            Authorization: "Bearer {{ landlordToken }}"
+          expect:
+            - statusCode: 200
+
+  # ─── Agreements: List + View ─────────────────────────────────────────────
+  - name: "GET /agreements"
+    weight: 25
+    flow:
+      - get:
+          url: "/api/agreements"
+          headers:
+            Authorization: "Bearer {{ landlordToken }}"
+          expect:
+            - statusCode: 200
+
+  # ─── Tenant: Payments ────────────────────────────────────────────────────
+  - name: "GET /payments"
+    weight: 15
+    flow:
+      - get:
+          url: "/api/payments"
+          headers:
+            Authorization: "Bearer {{ tenantToken }}"
+          expect:
+            - statusCode: 200
+
+  # ─── Notifications ────────────────────────────────────────────────────────
+  - name: "GET /notifications"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/notifications?page=1&limit=20"
+          headers:
+            Authorization: "Bearer {{ tenantToken }}"
+          expect:
+            - statusCode: 200
+
+  # ─── Landlord Dashboard ──────────────────────────────────────────────────
+  - name: "GET /dashboard/landlord"
+    weight: 5
+    flow:
+      - get:
+          url: "/api/dashboard/landlord"
+          headers:
+            Authorization: "Bearer {{ landlordToken }}"
+          expect:
+            - statusCode: 200
