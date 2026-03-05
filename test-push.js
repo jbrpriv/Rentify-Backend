@@ -4,23 +4,20 @@ const { sendPush } = require('./utils/firebaseService');
 require('dotenv').config();
 
 /**
- * test-push.js — Manual push notification tester
+ * test-push.js — Send a test push notification to a user by email.
  *
  * Usage:
- *   node test-push.js <email>                           # Send push to existing token
- *   node test-push.js <email> --set-token <fcmToken>   # Save token to DB then send push
+ *   node test-push.js <email>
  *
- * Example:
- *   node test-push.js abdullahmux5@gmail.com --set-token "fsZiYTmbb1RJLA4kO9..."
+ * Prerequisites:
+ *   1. Log in on the frontend and allow notifications when prompted.
+ *   2. The FCM token will be saved automatically — then run this script.
  */
 
 async function testManualPush() {
     const email = process.argv[2];
-    const setFlag = process.argv.indexOf('--set-token');
-    const newToken = setFlag !== -1 ? process.argv[setFlag + 1] : null;
-
     if (!email) {
-        console.error('Usage: node test-push.js <email> [--set-token <token>]');
+        console.error('Usage: node test-push.js <email>');
         process.exit(1);
     }
 
@@ -30,39 +27,29 @@ async function testManualPush() {
 
         const user = await User.findOne({ email });
         if (!user) {
-            console.error(`User ${email} not found`);
+            console.error(`❌ User not found: ${email}`);
             process.exit(1);
-        }
-
-        // Directly save the token if --set-token was provided
-        if (newToken) {
-            await User.findByIdAndUpdate(user._id, { fcmToken: newToken });
-            console.log(`✅ Token saved for ${email}`);
-            user.fcmToken = newToken;
         }
 
         if (!user.fcmToken) {
-            console.error(`User ${email} has no fcmToken.`);
-            console.log('Tip: run with --set-token <token> to set one directly.');
-            console.log('Get your token from the browser console on your Vercel URL.');
+            console.error(`❌ No FCM token for ${email}.`);
+            console.error('   → Log in on the frontend and allow notifications, then try again.');
             process.exit(1);
         }
 
-        console.log(`Sending test push to ${email}...`);
-        console.log(`Token: ${user.fcmToken.slice(0, 30)}...`);
+        console.log(`Sending push to ${email}...`);
 
-        const success = await sendPush(user.fcmToken, 'newMessage', 'System (Test)');
+        const result = await sendPush(user.fcmToken, 'newMessage', 'System (Test)');
 
-        if (success === true) {
-            console.log('✅ Push sent! Check your browser/device for the notification.');
-        } else if (success === 'token_expired') {
-            console.log('❌ Token expired/invalid. Log in on the frontend again to refresh it.');
+        if (result === true) {
+            console.log('✅ Push sent! Minimize your browser to see the OS notification.');
+        } else if (result === 'token_expired') {
+            console.error('❌ Token expired — log in on the frontend again to refresh it.');
         } else {
-            console.log('❌ Failed — check FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL in your .env.');
+            console.error('❌ Push failed — check FIREBASE_* credentials in .env.');
         }
-
     } catch (err) {
-        console.error('Error:', err);
+        console.error('Error:', err.message);
     } finally {
         await mongoose.disconnect();
     }
