@@ -1,5 +1,4 @@
 const Message = require('../models/Message');
-const Application = require('../models/Application');
 const MaintenanceRequest = require('../models/MaintenanceRequest');
 const Agreement = require('../models/Agreement');
 const Property = require('../models/Property');
@@ -53,11 +52,7 @@ const getNotificationCounts = async (req, res) => {
         status: { $in: ['sent', 'signed', 'active'] },
       });
 
-    } else if (role === 'admin') {
-      // Pending applications across all landlords
-      counts.applications = await Application.countDocuments({ status: 'pending' });
     }
-
     res.json(counts);
   } catch (error) {
     res.status(500).json({ message: error.message });
