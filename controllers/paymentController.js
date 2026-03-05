@@ -19,7 +19,7 @@ try {
 function getRazorpayClient() {
   if (!Razorpay || !process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) return null;
   return new Razorpay({
-    key_id:     process.env.RAZORPAY_KEY_ID,
+    key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET,
   });
 }
@@ -39,7 +39,7 @@ function getPayPalClient() {
 const getAvailableGateways = (req, res) => {
   const gateways = [{ id: 'stripe', name: 'Stripe', enabled: !!process.env.STRIPE_SECRET_KEY }];
   if (getRazorpayClient()) gateways.push({ id: 'razorpay', name: 'Razorpay', enabled: true });
-  if (getPayPalClient())   gateways.push({ id: 'paypal',   name: 'PayPal',   enabled: true });
+  if (getPayPalClient()) gateways.push({ id: 'paypal', name: 'PayPal', enabled: true });
   res.json({ gateways });
 };
 
@@ -66,19 +66,19 @@ const createRazorpayOrder = async (req, res) => {
     const totalAmount = (agreement.financials.rentAmount + agreement.financials.depositAmount) * 100;
 
     const order = await rzp.orders.create({
-      amount:   Math.round(totalAmount),
+      amount: Math.round(totalAmount),
       currency: process.env.RAZORPAY_CURRENCY || 'INR',
-      receipt:  `agr_${agreementId}`,
-      notes:    { agreementId: agreementId.toString(), type: 'initial' },
+      receipt: `agr_${agreementId}`,
+      notes: { agreementId: agreementId.toString(), type: 'initial' },
     });
 
     res.json({
-      orderId:  order.id,
-      amount:   order.amount,
+      orderId: order.id,
+      amount: order.amount,
       currency: order.currency,
-      keyId:    process.env.RAZORPAY_KEY_ID,
+      keyId: process.env.RAZORPAY_KEY_ID,
       prefill: {
-        name:  agreement.tenant.name,
+        name: agreement.tenant.name,
         email: agreement.tenant.email,
       },
     });
@@ -117,7 +117,7 @@ const verifyRazorpayPayment = async (req, res) => {
     // Build rent schedule
     const schedule = [];
     const startDate = new Date(agreement.term.startDate);
-    const duration  = agreement.term.durationMonths || 12;
+    const duration = agreement.term.durationMonths || 12;
     for (let i = 0; i < duration; i++) {
       const dueDate = new Date(startDate);
       dueDate.setMonth(startDate.getMonth() + i);
@@ -141,8 +141,12 @@ const verifyRazorpayPayment = async (req, res) => {
 
     await Agreement.findByIdAndUpdate(agreementId, {
       status: 'active', isPaid: true, rentSchedule: schedule,
-      $push: { auditLog: { action: 'LEASE_ACTIVATED', timestamp: new Date(),
-        details: `Initial payment completed via Razorpay. Payment ID: ${razorpay_payment_id}` } },
+      $push: {
+        auditLog: {
+          action: 'LEASE_ACTIVATED', timestamp: new Date(),
+          details: `Initial payment completed via Razorpay. Payment ID: ${razorpay_payment_id}`
+        }
+      },
     });
 
     await require('../models/Property').findByIdAndUpdate(agreement.property._id, {
@@ -177,7 +181,7 @@ const createPayPalOrder = async (req, res) => {
     if (agreement.isPaid) return res.status(400).json({ message: 'Already paid' });
 
     const totalAmount = (agreement.financials.rentAmount + agreement.financials.depositAmount).toFixed(2);
-    const currency    = process.env.PAYPAL_CURRENCY || 'USD';
+    const currency = process.env.PAYPAL_CURRENCY || 'USD';
 
     const request = new paypal.orders.OrdersCreateRequest();
     request.requestBody({
@@ -197,8 +201,8 @@ const createPayPalOrder = async (req, res) => {
     const approveLink = response.result.links.find(l => l.rel === 'approve');
 
     res.json({
-      orderId:     response.result.id,
-      approveUrl:  approveLink?.href,
+      orderId: response.result.id,
+      approveUrl: approveLink?.href,
       totalAmount,
       currency,
     });
@@ -217,7 +221,7 @@ const capturePayPalOrder = async (req, res) => {
   try {
     const { orderId, agreementId } = req.body;
 
-    const request  = new paypal.orders.OrdersCaptureRequest(orderId);
+    const request = new paypal.orders.OrdersCaptureRequest(orderId);
     request.requestBody({});
     const response = await ppClient.execute(request);
 
@@ -236,7 +240,7 @@ const capturePayPalOrder = async (req, res) => {
 
     const schedule = [];
     const startDate = new Date(agreement.term.startDate);
-    const duration  = agreement.term.durationMonths || 12;
+    const duration = agreement.term.durationMonths || 12;
     for (let i = 0; i < duration; i++) {
       const dueDate = new Date(startDate);
       dueDate.setMonth(startDate.getMonth() + i);
@@ -259,8 +263,12 @@ const capturePayPalOrder = async (req, res) => {
 
     await Agreement.findByIdAndUpdate(agreementId, {
       status: 'active', isPaid: true, rentSchedule: schedule,
-      $push: { auditLog: { action: 'LEASE_ACTIVATED', timestamp: new Date(),
-        details: `Initial payment captured via PayPal. Capture ID: ${captureId}` } },
+      $push: {
+        auditLog: {
+          action: 'LEASE_ACTIVATED', timestamp: new Date(),
+          details: `Initial payment captured via PayPal. Capture ID: ${captureId}`
+        }
+      },
     });
 
     await require('../models/Property').findByIdAndUpdate(agreement.property._id, {
@@ -319,20 +327,20 @@ const retryFailedPayment = async (req, res) => {
       );
 
       await Payment.findByIdAndUpdate(payment._id, {
-        retryCount:   retryCount + 1,
-        nextRetryAt:  new Date(Date.now() + delayMs),
-        status:       'retry_scheduled',
+        retryCount: retryCount + 1,
+        nextRetryAt: new Date(Date.now() + delayMs),
+        status: 'retry_scheduled',
       });
 
       res.json({
-        message:     `Retry scheduled (attempt ${retryCount + 1}/3)`,
+        message: `Retry scheduled (attempt ${retryCount + 1}/3)`,
         nextRetryAt: new Date(Date.now() + delayMs),
-        retryCount:  retryCount + 1,
+        retryCount: retryCount + 1,
       });
     } else {
       // Fallback: return a new checkout URL
       res.json({
-        message:  'Retry queue unavailable — please use the checkout link below',
+        message: 'Retry queue unavailable — please use the checkout link below',
         redirect: `${process.env.CLIENT_URL}/dashboard/payments?agreementId=${payment.agreement._id}`,
       });
     }
@@ -416,7 +424,7 @@ const handleStripeWebhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
+  if (event.type === 'checkout.session.completed' && event.data.object?.metadata?.paymentType !== 'monthly_rent') {
     const session = event.data.object;
     const { agreementId } = session.metadata;
 
@@ -528,7 +536,7 @@ const handleStripeWebhook = async (req, res) => {
 
   // ─── Monthly rent payment completed ───────────────────────────────────────
   if (event.type === 'checkout.session.completed' &&
-      event.data.object?.metadata?.paymentType === 'monthly_rent') {
+    event.data.object?.metadata?.paymentType === 'monthly_rent') {
     const session = event.data.object;
     const { agreementId, scheduleIndex, month } = session.metadata;
 
@@ -545,25 +553,25 @@ const handleStripeWebhook = async (req, res) => {
     const idx = parseInt(scheduleIndex, 10);
     const entry = agreement.rentSchedule?.[idx];
     if (entry && entry.status !== 'paid') {
-      entry.status      = 'paid';
-      entry.paidDate    = new Date();
-      entry.paidAmount  = session.amount_total / 100;
+      entry.status = 'paid';
+      entry.paidDate = new Date();
+      entry.paidAmount = session.amount_total / 100;
       entry.stripePaymentIntent = session.payment_intent;
       entry.checkoutUrl = null; // Clear stale URL — this session is consumed
 
       // Save a standalone Payment record
       const monthlyPayment = await Payment.create({
         agreement: agreementId,
-        tenant:    agreement.tenant._id,
-        landlord:  agreement.landlord._id,
-        property:  agreement.property._id,
-        amount:    session.amount_total / 100,
-        type:      'rent',
-        status:    'paid',
-        paidAt:    new Date(),
-        dueDate:   entry.dueDate,
+        tenant: agreement.tenant._id,
+        landlord: agreement.landlord._id,
+        property: agreement.property._id,
+        amount: session.amount_total / 100,
+        type: 'rent',
+        status: 'paid',
+        paidAt: new Date(),
+        dueDate: entry.dueDate,
         lateFeeIncluded: (entry.lateFeeAmount || 0) > 0,
-        lateFeeAmount:   entry.lateFeeAmount || 0,
+        lateFeeAmount: entry.lateFeeAmount || 0,
         stripePaymentIntent: session.payment_intent,
         stripeSessionId: session.id,
       });
@@ -580,7 +588,7 @@ const handleStripeWebhook = async (req, res) => {
       }
 
       agreement.auditLog.push({
-        action:  'RENT_PAID',
+        action: 'RENT_PAID',
         details: `Monthly rent paid for ${month}. Amount: ${session.amount_total / 100}`,
         timestamp: new Date(),
       });
@@ -633,16 +641,16 @@ const handleStripeWebhook = async (req, res) => {
         if (!failedPayment) {
           // Create a minimal failed payment record so retryFailedPayment can operate on it
           failedPayment = await Payment.create({
-            agreement:          session.metadata.agreementId,
-            tenant:             failedAgreement.tenant._id,
-            landlord:           failedAgreement.landlord,
-            property:           failedAgreement.property,
-            amount:             paymentIntent.amount / 100,
-            type:               'rent',
-            status:             'failed',
-            gateway:            'stripe',
+            agreement: session.metadata.agreementId,
+            tenant: failedAgreement.tenant._id,
+            landlord: failedAgreement.landlord,
+            property: failedAgreement.property,
+            amount: paymentIntent.amount / 100,
+            type: 'rent',
+            status: 'failed',
+            gateway: 'stripe',
             stripePaymentIntent: paymentIntent.id,
-            dueDate:            new Date(),
+            dueDate: new Date(),
           });
         } else {
           await Payment.findByIdAndUpdate(failedPayment._id, { status: 'failed' });
@@ -659,17 +667,17 @@ const handleStripeWebhook = async (req, res) => {
             await retryQueue.add(
               'retry-payment',
               {
-                paymentId:   failedPayment._id.toString(),
+                paymentId: failedPayment._id.toString(),
                 agreementId: session.metadata.agreementId,
-                attempt:     retryCount + 1,
+                attempt: retryCount + 1,
               },
               { delay: delayMs, attempts: 1 }
             );
 
             await Payment.findByIdAndUpdate(failedPayment._id, {
-              retryCount:  retryCount + 1,
+              retryCount: retryCount + 1,
               nextRetryAt: new Date(Date.now() + delayMs),
-              status:      'retry_scheduled',
+              status: 'retry_scheduled',
             });
 
             console.log(`🔄 Payment retry scheduled (attempt ${retryCount + 1}/3) in ${delayMs / 3600000}h for payment ${failedPayment._id}`);
@@ -847,7 +855,7 @@ const createRentCheckoutSession = async (req, res) => {
       ],
       mode: 'payment',
       success_url: `${process.env.CLIENT_URL}/dashboard/payments?success=true&month=${encodeURIComponent(month)}`,
-      cancel_url:  `${process.env.CLIENT_URL}/dashboard/payments?canceled=true`,
+      cancel_url: `${process.env.CLIENT_URL}/dashboard/payments?canceled=true`,
       metadata: {
         agreementId: agreement._id.toString(),
         scheduleIndex: String(scheduleIndex),
@@ -884,7 +892,7 @@ const getActiveCheckoutUrl = async (req, res) => {
     }
 
     // Find the first unpaid schedule entry
-    const idx   = agreement.rentSchedule.findIndex(e => e.status !== 'paid');
+    const idx = agreement.rentSchedule.findIndex(e => e.status !== 'paid');
     const entry = agreement.rentSchedule[idx];
 
     if (!entry) {
@@ -898,8 +906,8 @@ const getActiveCheckoutUrl = async (req, res) => {
 
     // Fallback: create on-demand (same logic as createRentCheckoutSession)
     const totalAmount = entry.amount + (entry.lateFeeAmount || 0);
-    const currency    = process.env.STRIPE_CURRENCY || 'pkr';
-    const month       = new Date(entry.dueDate).toLocaleString('default', {
+    const currency = process.env.STRIPE_CURRENCY || 'pkr';
+    const month = new Date(entry.dueDate).toLocaleString('default', {
       month: 'long', year: 'numeric',
     });
 
@@ -911,9 +919,8 @@ const getActiveCheckoutUrl = async (req, res) => {
             currency,
             product_data: {
               name: `Monthly Rent — ${month}`,
-              description: `Property: ${agreement.property?.title || 'N/A'}${
-                entry.lateFeeAmount ? ` (incl. Rs. ${entry.lateFeeAmount} late fee)` : ''
-              }`,
+              description: `Property: ${agreement.property?.title || 'N/A'}${entry.lateFeeAmount ? ` (incl. Rs. ${entry.lateFeeAmount} late fee)` : ''
+                }`,
             },
             unit_amount: Math.round(totalAmount * 100),
           },
@@ -922,12 +929,12 @@ const getActiveCheckoutUrl = async (req, res) => {
       ],
       mode: 'payment',
       success_url: `${process.env.CLIENT_URL}/dashboard/payments?success=true&month=${encodeURIComponent(month)}`,
-      cancel_url:  `${process.env.CLIENT_URL}/dashboard/payments?canceled=true`,
+      cancel_url: `${process.env.CLIENT_URL}/dashboard/payments?canceled=true`,
       customer_email: agreement.tenant?.email,
       metadata: {
-        agreementId:   agreement._id.toString(),
+        agreementId: agreement._id.toString(),
         scheduleIndex: String(idx),
-        paymentType:   'monthly_rent',
+        paymentType: 'monthly_rent',
         month,
       },
     });

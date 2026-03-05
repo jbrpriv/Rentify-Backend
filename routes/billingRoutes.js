@@ -6,6 +6,7 @@ const {
   subscribe,
   openCustomerPortal,
   getPlans,
+  verifyRazorpaySubscription,
 } = require('../controllers/billingController');
 
 // Public — list available plans
@@ -19,6 +20,9 @@ router.post('/subscribe', protect, subscribe);
 
 // Private — open Stripe customer portal (manage / cancel)
 router.post('/portal', protect, openCustomerPortal);
+
+// Private — verify Razorpay subscription signature
+router.post('/razorpay/verify', protect, verifyRazorpaySubscription);
 
 // NOTE: Billing webhook (POST /api/billing/webhook) is registered directly
 // in server.js BEFORE express.json() so the raw body is preserved for

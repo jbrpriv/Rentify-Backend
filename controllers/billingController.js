@@ -19,21 +19,40 @@ const User = require('../models/User');
 
 // Feature limits per tier
 const TIER_LIMITS = {
-  free:       { maxProperties: 1,   clauseBuilder: false, documentVault: false },
-  pro:        { maxProperties: 20,  clauseBuilder: true,  documentVault: true  },
-  enterprise: { maxProperties: 999, clauseBuilder: true,  documentVault: true  },
+  free: { maxProperties: 1, clauseBuilder: false, documentVault: false },
+  pro: { maxProperties: 20, clauseBuilder: true, documentVault: true },
+  enterprise: { maxProperties: 999, clauseBuilder: true, documentVault: true },
 };
 
 const TIER_PRICES = {
-  pro:        process.env.STRIPE_PRICE_PRO,
+  pro: process.env.STRIPE_PRICE_PRO,
   enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
+};
+
+const RZP_PLAN_IDS = {
+  pro: process.env.RAZORPAY_PLAN_PRO,
+  enterprise: process.env.RAZORPAY_PLAN_ENTERPRISE,
 };
 
 // Whether Stripe is fully configured
 const stripeConfigured = () =>
   !!(process.env.STRIPE_SECRET_KEY &&
-     process.env.STRIPE_PRICE_PRO &&
-     process.env.STRIPE_PRICE_ENTERPRISE);
+    process.env.STRIPE_PRICE_PRO &&
+    process.env.STRIPE_PRICE_ENTERPRISE);
+
+const razorpayConfigured = () =>
+  !!(process.env.RAZORPAY_KEY_ID &&
+    process.env.RAZORPAY_KEY_SECRET &&
+    process.env.RAZORPAY_PLAN_PRO &&
+    process.env.RAZORPAY_PLAN_ENTERPRISE);
+
+function getRazorpayClient() {
+  const Razorpay = require('razorpay');
+  return new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+}
 
 // @desc    Get current subscription status and feature limits for logged-in user
 // @route   GET /api/billing/status
@@ -48,6 +67,7 @@ const getBillingStatus = async (req, res) => {
       limits: TIER_LIMITS[tier] || TIER_LIMITS.free,
       stripeCustomerId: user.stripeCustomerId || null,
       stripeConfigured: stripeConfigured(),
+      razorpayConfigured: razorpayConfigured(),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -67,7 +87,7 @@ const _createCheckoutSession = async ({ customerId, priceId, userId, tier, userE
     line_items: [{ price: priceId, quantity: 1 }],
     mode: 'subscription',
     success_url: `${process.env.CLIENT_URL}/dashboard/billing?success=true&tier=${tier}`,
-    cancel_url:  `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
+    cancel_url: `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
     metadata: { userId, tier },
   });
 };
@@ -77,10 +97,31 @@ const _createCheckoutSession = async ({ customerId, priceId, userId, tier, userE
 // @access  Private (Landlord)
 const subscribe = async (req, res) => {
   try {
-    const { tier } = req.body;
+    const { tier, gateway = 'stripe' } = req.body;
 
     if (!['pro', 'enterprise'].includes(tier)) {
       return res.status(400).json({ message: 'Invalid tier. Choose "pro" or "enterprise".' });
+    }
+
+    if (gateway === 'razorpay') {
+      if (!razorpayConfigured()) {
+        return res.status(503).json({ message: 'Razorpay is not configured for subscriptions.' });
+      }
+      const rzp = getRazorpayClient();
+      const planId = RZP_PLAN_IDS[tier];
+
+      const subscription = await rzp.subscriptions.create({
+        plan_id: planId,
+        total_count: 1200, // Roughly 100 years
+        customer_notify: 1,
+      });
+
+      return res.json({
+        subscriptionId: subscription.id,
+        keyId: process.env.RAZORPAY_KEY_ID,
+        currency: 'INR',
+        gateway: 'razorpay',
+      });
     }
 
     // Graceful degradation when Stripe is not yet configured
@@ -110,7 +151,7 @@ const subscribe = async (req, res) => {
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
-        name:  user.name,
+        name: user.name,
         metadata: { userId: req.user._id.toString() },
       });
       customerId = customer.id;
@@ -125,7 +166,7 @@ const subscribe = async (req, res) => {
         userId: req.user._id.toString(),
         tier,
         userEmail: user.email,
-        userName:  user.name,
+        userName: user.name,
       });
     } catch (stripeErr) {
       // ── Currency conflict recovery ────────────────────────────────────────
@@ -146,7 +187,7 @@ const subscribe = async (req, res) => {
 
       const freshCustomer = await stripe.customers.create({
         email: user.email,
-        name:  user.name,
+        name: user.name,
         metadata: { userId: req.user._id.toString() },
       });
       customerId = freshCustomer.id;
@@ -159,13 +200,41 @@ const subscribe = async (req, res) => {
         userId: req.user._id.toString(),
         tier,
         userEmail: user.email,
-        userName:  user.name,
+        userName: user.name,
       });
     }
 
     res.json({ url: session.url });
   } catch (error) {
     console.error('[billing] subscribe error:', error.message);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Verify Razorpay subscription signature
+// @route   POST /api/billing/razorpay/verify
+// @access  Private (Landlord)
+const verifyRazorpaySubscription = async (req, res) => {
+  try {
+    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature, tier } = req.body;
+
+    const crypto = require('crypto');
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ message: 'Invalid subscription signature' });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, {
+      subscriptionTier: tier,
+      subscriptionStartDate: new Date(),
+    });
+
+    res.json({ message: 'Razorpay subscription activated', tier });
+  } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
@@ -189,7 +258,7 @@ const openCustomerPortal = async (req, res) => {
     }
 
     const portalSession = await stripe.billingPortal.sessions.create({
-      customer:   user.stripeCustomerId,
+      customer: user.stripeCustomerId,
       return_url: `${process.env.CLIENT_URL}/dashboard/billing`,
     });
 
@@ -224,7 +293,7 @@ const handleBillingWebhook = async (req, res) => {
     const session = event.data.object;
     if (session.mode === 'subscription') {
       const userId = session.metadata?.userId;
-      const tier   = _tierFromMetadata(session.metadata);
+      const tier = _tierFromMetadata(session.metadata);
       if (userId && tier) {
         await User.findByIdAndUpdate(userId, {
           subscriptionTier: tier,
@@ -268,6 +337,7 @@ const handleBillingWebhook = async (req, res) => {
 const getPlans = async (req, res) => {
   res.json({
     stripeConfigured: stripeConfigured(),
+    razorpayConfigured: razorpayConfigured(),
     plans: [
       {
         tier: 'free',
@@ -290,6 +360,7 @@ const getPlans = async (req, res) => {
         currency: 'PKR',
         interval: 'month',
         stripePriceId: TIER_PRICES.pro || null,
+        razorpayPlanId: RZP_PLAN_IDS.pro || null,
         features: [
           'Up to 20 properties',
           'Clause builder with 50+ templates',
@@ -307,6 +378,7 @@ const getPlans = async (req, res) => {
         currency: 'PKR',
         interval: 'month',
         stripePriceId: TIER_PRICES.enterprise || null,
+        razorpayPlanId: RZP_PLAN_IDS.enterprise || null,
         features: [
           'Unlimited properties',
           'All Pro features',
@@ -322,4 +394,4 @@ const getPlans = async (req, res) => {
   });
 };
 
-module.exports = { getBillingStatus, subscribe, openCustomerPortal, handleBillingWebhook, getPlans, TIER_LIMITS };
+module.exports = { getBillingStatus, subscribe, openCustomerPortal, handleBillingWebhook, getPlans, TIER_LIMITS, verifyRazorpaySubscription };

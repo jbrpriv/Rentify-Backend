@@ -104,7 +104,7 @@ const paymentSchema = mongoose.Schema(
 
 // Auto-generate receipt number before saving a paid payment (H7 fix: UUID-based, no race condition)
 paymentSchema.pre('save', function () {
-  if (this.isNew && this.status === 'paid' && !this.receiptNumber) {
+  if ((this.isNew || this.isModified('status')) && this.status === 'paid' && !this.receiptNumber) {
     // Use timestamp + random hex suffix — globally unique without a DB round-trip
     const ts   = Date.now().toString(36).toUpperCase();
     const rand = Math.random().toString(36).slice(2, 7).toUpperCase();

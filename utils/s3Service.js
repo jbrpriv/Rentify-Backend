@@ -30,9 +30,9 @@ function _getClient() {
   }
 
   _s3Client = new S3Client({
-    region:      process.env.AWS_REGION || 'ap-south-1',
+    region: process.env.AWS_REGION || 'ap-south-1',
     credentials: {
-      accessKeyId:     process.env.AWS_ACCESS_KEY_ID,
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     },
   });
@@ -54,15 +54,15 @@ async function uploadAgreementPDF(pdfBuffer, agreementId) {
 
   // Key pattern: agreements/<year>/<agreementId>/signed-agreement.pdf
   const year = new Date().getFullYear();
-  const key  = `agreements/${year}/${agreementId}/signed-agreement.pdf`;
+  const key = `agreements/${year}/${agreementId}/signed-agreement.pdf`;
 
   const command = new PutObjectCommand({
-    Bucket:      BUCKET,
-    Key:         key,
-    Body:        pdfBuffer,
+    Bucket: BUCKET,
+    Key: key,
+    Body: pdfBuffer,
     ContentType: 'application/pdf',
     // Tag for lifecycle policies
-    Tagging:     'Type=SignedAgreement',
+    Tagging: 'Type=SignedAgreement',
     // Server-side encryption
     ServerSideEncryption: 'AES256',
     Metadata: {
@@ -89,7 +89,7 @@ async function getAgreementPDFUrl(s3Key, expiresInSeconds = 3600) {
 
   const command = new GetObjectCommand({
     Bucket: BUCKET,
-    Key:    s3Key,
+    Key: s3Key,
   });
 
   const url = await getSignedUrl(client, command, { expiresIn: expiresInSeconds });
@@ -117,14 +117,14 @@ function isS3Configured() {
 async function uploadReceiptPDF(pdfBuffer, paymentId) {
   const client = _getClient();
   const year = new Date().getFullYear();
-  const key  = `receipts/${year}/${paymentId}/receipt.pdf`;
+  const key = `receipts/${year}/${paymentId}/receipt.pdf`;
 
   const command = new PutObjectCommand({
-    Bucket:      BUCKET,
-    Key:         key,
-    Body:        pdfBuffer,
+    Bucket: BUCKET,
+    Key: key,
+    Body: pdfBuffer,
     ContentType: 'application/pdf',
-    Tagging:     'Type=PaymentReceipt',
+    Tagging: 'Type=PaymentReceipt',
     ServerSideEncryption: 'AES256',
     Metadata: { paymentId, uploadedAt: new Date().toISOString() },
   });
@@ -146,4 +146,53 @@ async function getReceiptPDFUrl(s3Key, expiresInSeconds = 3600) {
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
 }
 
-module.exports = { uploadAgreementPDF, getAgreementPDFUrl, uploadReceiptPDF, getReceiptPDFUrl, isS3Configured };
+/**
+ * Upload a tenant document to S3.
+ * @param {Buffer} fileBuffer
+ * @param {string} userId
+ * @param {string} originalName
+ * @param {string} mimeType
+ * @returns {Promise<string>} - The S3 object key
+ */
+async function uploadTenantDocument(fileBuffer, userId, originalName, mimeType) {
+  const client = _getClient();
+  const ts = Date.now().toString(36);
+  const safeName = originalName.replace(/[^a-zA-Z0-9.\-_]/g, '');
+  const key = `tenants/${userId}/documents/${ts}-${safeName}`;
+
+  const command = new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: fileBuffer,
+    ContentType: mimeType,
+    Tagging: 'Type=TenantDocument',
+    ServerSideEncryption: 'AES256',
+    Metadata: { userId, uploadedAt: new Date().toISOString() },
+  });
+
+  await client.send(command);
+  console.log(`📄 Tenant document uploaded to S3: s3://${BUCKET}/${key}`);
+  return key;
+}
+
+/**
+ * Generate a pre-signed URL for a tenant document.
+ * @param {string} s3Key
+ * @param {number} expiresInSeconds
+ * @returns {Promise<string>}
+ */
+async function getTenantDocumentUrl(s3Key, expiresInSeconds = 3600) {
+  const client = _getClient();
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: s3Key });
+  return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
+module.exports = {
+  uploadAgreementPDF,
+  getAgreementPDFUrl,
+  uploadReceiptPDF,
+  getReceiptPDFUrl,
+  uploadTenantDocument,
+  getTenantDocumentUrl,
+  isS3Configured
+};
