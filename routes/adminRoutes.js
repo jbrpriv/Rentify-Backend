@@ -15,10 +15,12 @@ const {
   archiveClause,
   getAllProperties,
   kickTenantFromProperty,
+  getAdminAnalytics,
 } = require('../controllers/adminController');
 
 // ─── Platform Stats ───────────────────────────────────────────────────────────
-router.get('/stats', protect, isAdmin, getStats);
+router.get('/stats',     protect, isAdmin, getStats);
+router.get('/analytics', protect, isAdmin, getAdminAnalytics);
 
 // ─── User Management ──────────────────────────────────────────────────────────
 router.get('/users', protect, isAdmin, getUsers);

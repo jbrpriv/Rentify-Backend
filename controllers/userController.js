@@ -1,6 +1,8 @@
 const User = require('../models/User');
 const Agreement = require('../models/Agreement');
 const Property = require('../models/Property');
+const Payment = require('../models/Payment');
+const MaintenanceRequest = require('../models/MaintenanceRequest');
 
 // @desc    Find user by email (used when landlord types tenant email to create agreement)
 // @route   POST /api/users/lookup
@@ -203,4 +205,87 @@ const getContacts = async (req, res) => {
   }
 };
 
-module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts };
+// @desc    Landlord analytics — revenue, occupancy, payment health, renewals
+// @route   GET /api/users/landlord-analytics
+// @access  Private (landlord only)
+const getLandlordAnalytics = async (req, res) => {
+  try {
+    const landlordId = req.user._id;
+    const now        = new Date();
+
+    const sixMonthsAgo = new Date(now);
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const monthlyRevenue = await Payment.aggregate([
+      { $match: { landlord: landlordId, status: 'paid', type: 'rent', paidAt: { $gte: sixMonthsAgo } } },
+      {
+        $group: {
+          _id:          { year: { $year: '$paidAt' }, month: { $month: '$paidAt' } },
+          total:        { $sum: '$amount' },
+          lateFeeTotal: { $sum: '$lateFeeAmount' },
+          count:        { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+
+    const activeAgreements = await Agreement.find({ landlord: landlordId, status: 'active' })
+      .select('rentSchedule financials term property tenant')
+      .populate('property', 'title')
+      .populate('tenant', 'name');
+
+    let paid = 0, pending = 0, overdue = 0, lateFeeCollected = 0;
+    activeAgreements.forEach(a => {
+      (a.rentSchedule || []).forEach(entry => {
+        if (entry.status === 'paid')                                     paid++;
+        else if (entry.status === 'pending')                             pending++;
+        else if (['overdue', 'late_fee_applied'].includes(entry.status)) overdue++;
+        if (entry.lateFeeApplied) lateFeeCollected += (entry.lateFeeAmount || 0);
+      });
+    });
+
+    const [totalProperties, leasedProperties] = await Promise.all([
+      Property.countDocuments({ owner: landlordId }),
+      Agreement.countDocuments({ landlord: landlordId, status: 'active' }),
+    ]);
+
+    const in90Days = new Date(now);
+    in90Days.setDate(in90Days.getDate() + 90);
+
+    const expiringLeases = await Agreement.find({
+      landlord: landlordId,
+      status: 'active',
+      'term.endDate': { $gte: now, $lte: in90Days },
+    })
+      .select('term financials')
+      .populate('property', 'title address')
+      .populate('tenant', 'name email')
+      .sort('term.endDate');
+
+    const agreementStatusRaw = await Agreement.aggregate([
+      { $match: { landlord: landlordId } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+    const agreementStatus = agreementStatusRaw.reduce((acc, s) => { acc[s._id] = s.count; return acc; }, {});
+
+    const lifetimeRevenue = await Payment.aggregate([
+      { $match: { landlord: landlordId, status: 'paid', type: 'rent' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    res.json({
+      monthlyRevenue,
+      paymentHealth:    { paid, pending, overdue },
+      lateFeeCollected,
+      occupancy:        { total: totalProperties, leased: leasedProperties, vacant: Math.max(0, totalProperties - leasedProperties) },
+      expiringLeases,
+      agreementStatus,
+      lifetimeRevenue:  lifetimeRevenue[0]?.total || 0,
+      activeTenantsCount: activeAgreements.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics };

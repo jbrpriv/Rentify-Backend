@@ -451,3 +451,70 @@ module.exports = {
   getAllProperties,
   kickTenantFromProperty,
 };
+// @desc    Admin deep analytics — revenue, churn, growth, disputes, maintenance
+// @route   GET /api/admin/analytics
+// @access  Private (admin)
+const getAdminAnalytics = async (req, res) => {
+  try {
+    const now          = new Date();
+    const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(now.getMonth() - 6);
+
+    const [
+      monthlyRentRevenue,
+      totalRentRevenue,
+      revenueByGateway,
+      expiredLast6,
+      createdLast6,
+      userGrowth,
+      disputeStats,
+      maintenanceStats,
+    ] = await Promise.all([
+      Payment.aggregate([
+        { $match: { status: 'paid', type: 'rent', paidAt: { $gte: sixMonthsAgo } } },
+        { $group: { _id: { year: { $year: '$paidAt' }, month: { $month: '$paidAt' } }, total: { $sum: '$amount' }, count: { $sum: 1 } } },
+        { $sort: { '_id.year': 1, '_id.month': 1 } },
+      ]),
+      Payment.aggregate([
+        { $match: { status: 'paid', type: 'rent' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+      Payment.aggregate([
+        { $match: { status: 'paid' } },
+        { $group: { _id: '$gateway', total: { $sum: '$amount' }, count: { $sum: 1 } } },
+        { $sort: { total: -1 } },
+      ]),
+      Agreement.countDocuments({ status: { $in: ['expired', 'terminated'] }, updatedAt: { $gte: sixMonthsAgo } }),
+      Agreement.countDocuments({ createdAt: { $gte: sixMonthsAgo } }),
+      User.aggregate([
+        { $match: { createdAt: { $gte: sixMonthsAgo } } },
+        { $group: { _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } }, count: { $sum: 1 } } },
+        { $sort: { '_id.year': 1, '_id.month': 1 } },
+      ]),
+      require('../models/Dispute').aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+      MaintenanceRequest.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const churnRate = createdLast6 > 0 ? Math.round((expiredLast6 / createdLast6) * 100) : 0;
+
+    res.json({
+      monthlyRentRevenue,
+      totalRentRevenue:  totalRentRevenue[0]?.total || 0,
+      revenueByGateway,
+      churnRate,
+      expiredLast6,
+      createdLast6,
+      userGrowth,
+      disputeStats:     disputeStats.reduce((a, d) => { a[d._id] = d.count; return a; }, {}),
+      maintenanceStats: maintenanceStats.reduce((a, d) => { a[d._id] = d.count; return a; }, {}),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Re-export with new function included
+Object.assign(module.exports, { getAdminAnalytics });
