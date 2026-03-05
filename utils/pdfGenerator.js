@@ -75,10 +75,18 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
 
   if (agreement.signatures?.landlord?.signed) {
     doc.fontSize(11).text('LANDLORD SIGNATURE:', { continued: false });
+    // Draw canvas signature image if present
+    const llDrawData = agreement.signatures.landlord.drawData;
+    if (llDrawData) {
+      try {
+        const base64 = llDrawData.replace(/^data:image\/\w+;base64,/, '');
+        const imgBuf = Buffer.from(base64, 'base64');
+        doc.image(imgBuf, { width: 220, height: 70 });
+      } catch (_) { /* image decode failed — skip */ }
+    }
     doc.fontSize(10)
       .text(`Name: ${landlord.name}`)
       .text(`Signed At: ${new Date(agreement.signatures.landlord.signedAt).toLocaleString()}`)
-      .text(`IP Address: ${agreement.signatures.landlord.ipAddress}`)
       .text('Status: \u2713 Digitally Signed');
   } else {
     doc.fontSize(11).text('LANDLORD SIGNATURE:');
@@ -92,10 +100,17 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
 
   if (agreement.signatures?.tenant?.signed) {
     doc.fontSize(11).text('TENANT SIGNATURE:', { continued: false });
+    const tnDrawData = agreement.signatures.tenant.drawData;
+    if (tnDrawData) {
+      try {
+        const base64 = tnDrawData.replace(/^data:image\/\w+;base64,/, '');
+        const imgBuf = Buffer.from(base64, 'base64');
+        doc.image(imgBuf, { width: 220, height: 70 });
+      } catch (_) { /* image decode failed — skip */ }
+    }
     doc.fontSize(10)
       .text(`Name: ${tenant.name}`)
       .text(`Signed At: ${new Date(agreement.signatures.tenant.signedAt).toLocaleString()}`)
-      .text(`IP Address: ${agreement.signatures.tenant.ipAddress}`)
       .text('Status: \u2713 Digitally Signed');
   } else {
     doc.fontSize(11).text('TENANT SIGNATURE:');
@@ -136,7 +151,7 @@ const generateAgreementPDFBuffer = (agreement, landlord, tenant, property) => {
     const chunks = [];
 
     doc.on('data', (chunk) => chunks.push(chunk));
-    doc.on('end',  () => resolve(Buffer.concat(chunks)));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
 
     _buildPDF(doc, agreement, landlord, tenant, property);
@@ -217,7 +232,7 @@ const generateReceiptPDFBuffer = (payment, tenant, property) => {
     const doc = new PDFDocument({ margin: 50, size: 'A5' });
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
-    doc.on('end',  () => resolve(Buffer.concat(chunks)));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     _buildReceiptPDF(doc, payment, tenant, property);
     doc.end();
