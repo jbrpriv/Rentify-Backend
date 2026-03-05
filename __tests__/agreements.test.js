@@ -383,6 +383,7 @@ describe('POST /api/agreements/:id/sign-via-token', () => {
         const res = await request(app)
             .post(`/api/agreements/${agreement._id}/sign-via-token`)
             .send({ token: 'validtoken123', party: 'tenant' });
+        console.log(res.body);
         expect(res.status).toBe(200);
         expect(res.body.status).toBeDefined();
     });
