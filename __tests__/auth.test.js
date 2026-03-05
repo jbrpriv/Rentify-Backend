@@ -158,7 +158,7 @@ describe('POST /api/auth/verify-email', () => {
             .send({ email: 'verify@test.com', code: '123456' });
         expect(res.status).toBe(200);
 
-        const updated = await User.findById(user._id).select('+passwordResetToken');
+        const updated = await User.findById(user._id);
         expect(updated.isVerified).toBe(true);
     });
 
@@ -203,7 +203,7 @@ describe('POST /api/auth/forgot-password', () => {
     it('sets a reset token for known email', async () => {
         const user = await createUser({ email: 'forgot@test.com' });
         await request(app).post('/api/auth/forgot-password').send({ email: 'forgot@test.com' });
-        const updated = await User.findById(user._id);
+        const updated = await User.findById(user._id).select('+passwordResetToken');
         expect(updated.passwordResetToken).toBeTruthy();
     });
 });
