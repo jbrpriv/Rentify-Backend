@@ -206,6 +206,7 @@ describe('Property archive & restore', () => {
         const res = await request(app)
             .put(`/api/properties/${property._id}/archive`)
             .set(authHeader(landlord._id));
+        console.log(res.body);
         expect(res.status).toBe(200);
         expect(res.body.property.isArchived).toBe(true);
     });
