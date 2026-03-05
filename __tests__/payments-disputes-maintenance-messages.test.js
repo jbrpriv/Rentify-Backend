@@ -165,6 +165,7 @@ describe('Disputes', () => {
                 description: 'The AC has been broken for 3 weeks and landlord is not responding.',
                 category: 'maintenance',
             });
+        console.log(res.body);
         expect(res.status).toBe(201);
         expect(res.body.filedBy._id).toBe(tenant._id.toString());
     });
@@ -251,6 +252,7 @@ describe('Maintenance Requests', () => {
                 priority: 'high',
                 category: 'plumbing',
             });
+        console.log(res.body);
         expect(res.status).toBe(201);
         expect(res.body.status).toBe('open');
         expect(res.body.tenant._id).toBe(tenant._id.toString());
