@@ -68,8 +68,9 @@ const getTemplateById = async (req, res) => {
 // before it can be used in offer acceptance.
 const createTemplate = async (req, res) => {
   try {
-    if (!['landlord', 'property_manager'].includes(req.user.role)) {
-      return res.status(403).json({ message: 'Only landlords can create agreement templates' });
+    if (!['landlord', 'property_manager', 'admin'].includes(req.user.role)) {
+      // Admins are allowed to create global templates. Landlords create pending templates.
+      return res.status(403).json({ message: 'Only landlords or admins can create agreement templates' });
     }
 
     const { name, description, clauseIds } = req.body;
