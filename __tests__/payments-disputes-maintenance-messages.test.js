@@ -183,7 +183,7 @@ describe('Disputes', () => {
                 agreementId: agreement._id.toString(),
                 title: 'Tenant damaged property',
                 description: 'Significant damage to the walls.',
-                category: 'property_damage',
+                category: 'damage',
             });
         expect(res.status).toBe(201);
     });
@@ -249,7 +249,7 @@ describe('Maintenance Requests', () => {
                 propertyId: property._id.toString(),
                 title: 'Broken pipe',
                 description: 'The kitchen pipe is leaking.',
-                priority: 'high',
+                priority: 'urgent',
                 category: 'plumbing',
             });
         console.log(res.body);
