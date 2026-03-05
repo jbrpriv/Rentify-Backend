@@ -1,16 +1,16 @@
-const User = require('../models/User');
-const Property = require('../models/Property');
-const Agreement = require('../models/Agreement');
-const Payment = require('../models/Payment');
-const Clause = require('../models/Clause');
+const User               = require('../models/User');
+const Property           = require('../models/Property');
+const Agreement          = require('../models/Agreement');
+const Payment            = require('../models/Payment');
+const Clause             = require('../models/Clause');
 const MaintenanceRequest = require('../models/MaintenanceRequest');
+const logger             = require('../utils/logger');
 
 // @desc    Get platform-wide stats
 // @route   GET /api/admin/stats
 // @access  Private (Admin)
 const getStats = async (req, res) => {
   try {
-    // ── Subscription counts ────────────────────────────────────────────────
     const TIER_PRICES = { pro: 2999, enterprise: 9999 };
 
     const [
@@ -35,17 +35,14 @@ const getStats = async (req, res) => {
       MaintenanceRequest.countDocuments({ status: { $in: ['open', 'in_progress'] } }),
     ]);
 
-    // Monthly subscription revenue = (pro × 2999) + (enterprise × 9999)
     const monthlySubscriptionRevenue =
       (totalPro * TIER_PRICES.pro) + (totalEnterprise * TIER_PRICES.enterprise);
 
-    // Users by subscription tier (replaces users-by-role pie chart)
     const usersBySubscription = await User.aggregate([
       { $group: { _id: { $ifNull: ['$subscriptionTier', 'free'] }, count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]);
 
-    // Agreements created per month (last 6 months)
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
@@ -53,7 +50,7 @@ const getStats = async (req, res) => {
       { $match: { createdAt: { $gte: sixMonthsAgo } } },
       {
         $group: {
-          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+          _id:   { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
           count: { $sum: 1 },
         },
       },
@@ -82,6 +79,7 @@ const getStats = async (req, res) => {
   }
 };
 
+
 // @desc    Get all users with filtering
 // @route   GET /api/admin/users
 // @access  Private (Admin)
@@ -90,11 +88,11 @@ const getUsers = async (req, res) => {
     const { role, isActive, search, page = 1, limit = 20 } = req.query;
     const filter = {};
 
-    if (role) filter.role = role;
-    if (isActive !== undefined) filter.isActive = isActive === 'true';
+    if (role)                       filter.role     = role;
+    if (isActive !== undefined)     filter.isActive = isActive === 'true';
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
+        { name:  { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
       ];
     }
@@ -112,16 +110,13 @@ const getUsers = async (req, res) => {
 
     res.json({
       users,
-      pagination: {
-        total,
-        page: Number(page),
-        pages: Math.ceil(total / Number(limit)),
-      },
+      pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)) },
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Get single user by ID
 // @route   GET /api/admin/users/:id
@@ -133,7 +128,6 @@ const getUserById = async (req, res) => {
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Get their agreements and properties
     const [agreements, properties] = await Promise.all([
       Agreement.find({ $or: [{ landlord: user._id }, { tenant: user._id }] })
         .select('status term financials property')
@@ -147,6 +141,7 @@ const getUserById = async (req, res) => {
   }
 };
 
+
 // @desc    Ban or unban a user
 // @route   PUT /api/admin/users/:id/ban
 // @access  Private (Admin)
@@ -156,7 +151,6 @@ const toggleUserBan = async (req, res) => {
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    // Prevent admin from banning themselves
     if (user._id.toString() === req.user._id.toString()) {
       return res.status(400).json({ message: 'You cannot ban your own account' });
     }
@@ -165,13 +159,14 @@ const toggleUserBan = async (req, res) => {
     await user.save();
 
     res.json({
-      message: user.isActive ? 'User account reactivated' : 'User account suspended',
+      message:  user.isActive ? 'User account reactivated' : 'User account suspended',
       isActive: user.isActive,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Change a user's role
 // @route   PUT /api/admin/users/:id/role
@@ -199,6 +194,7 @@ const changeUserRole = async (req, res) => {
   }
 };
 
+
 // @desc    Get all agreements platform-wide
 // @route   GET /api/admin/agreements
 // @access  Private (Admin)
@@ -213,7 +209,7 @@ const getAllAgreements = async (req, res) => {
     const [agreements, total] = await Promise.all([
       Agreement.find(filter)
         .populate('landlord', 'name email')
-        .populate('tenant', 'name email')
+        .populate('tenant',   'name email')
         .populate('property', 'title address')
         .sort('-createdAt')
         .skip(skip)
@@ -230,6 +226,7 @@ const getAllAgreements = async (req, res) => {
   }
 };
 
+
 // @desc    Get platform-wide audit log (from all agreements)
 // @route   GET /api/admin/audit-logs
 // @access  Private (Admin)
@@ -238,7 +235,6 @@ const getAuditLogs = async (req, res) => {
     const { page = 1, limit = 50, action } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    // N9 fix: use $facet to return both paginated results AND total count in one query
     const facetResult = await Agreement.aggregate([
       { $unwind: '$auditLog' },
       ...(action ? [{ $match: { 'auditLog.action': action } }] : []),
@@ -264,7 +260,7 @@ const getAuditLogs = async (req, res) => {
       },
     ]);
 
-    const logs  = facetResult[0]?.logs || [];
+    const logs  = facetResult[0]?.logs       || [];
     const total = facetResult[0]?.totalCount[0]?.count || 0;
 
     res.json({
@@ -281,6 +277,7 @@ const getAuditLogs = async (req, res) => {
   }
 };
 
+
 // ─── Clause / Template Management ─────────────────────────────────────────────
 
 // @desc    Get all clauses
@@ -291,11 +288,11 @@ const getClauses = async (req, res) => {
     const { category, isApproved, isArchived = false } = req.query;
     const filter = { isArchived: isArchived === 'true' };
 
-    if (category) filter.category = category;
+    if (category)              filter.category   = category;
     if (isApproved !== undefined) filter.isApproved = isApproved === 'true';
 
     const clauses = await Clause.find(filter)
-      .populate('createdBy', 'name email')
+      .populate('createdBy',  'name email')
       .populate('approvedBy', 'name email')
       .sort('-createdAt');
 
@@ -305,20 +302,22 @@ const getClauses = async (req, res) => {
   }
 };
 
+
 // @desc    Create a new clause template
 // @route   POST /api/admin/clauses
 // @access  Private (Admin, Law Reviewer)
 const createClause = async (req, res) => {
   try {
-    const { title, body, category, jurisdiction, isDefault } = req.body;
+    const { title, body, category, jurisdiction, isDefault, condition } = req.body;
 
     const clause = await Clause.create({
       title,
       body,
-      category: category || 'general',
+      category:     category     || 'general',
       jurisdiction: jurisdiction || 'Pakistan',
-      isDefault: isDefault || false,
-      createdBy: req.user._id,
+      isDefault:    isDefault    || false,
+      condition:    condition    || null,    // [FIX #4]
+      createdBy:    req.user._id,
     });
 
     res.status(201).json(clause);
@@ -326,6 +325,7 @@ const createClause = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Approve or reject a clause
 // @route   PUT /api/admin/clauses/:id/approve
@@ -337,10 +337,10 @@ const reviewClause = async (req, res) => {
     const clause = await Clause.findById(req.params.id);
     if (!clause) return res.status(404).json({ message: 'Clause not found' });
 
-    clause.isApproved = approved;
-    clause.approvedBy = approved ? req.user._id : null;
-    clause.approvedAt = approved ? new Date() : null;
-    clause.rejectionReason = approved ? '' : (rejectionReason || 'Not approved');
+    clause.isApproved      = approved;
+    clause.approvedBy      = approved ? req.user._id : null;
+    clause.approvedAt      = approved ? new Date()   : null;
+    clause.rejectionReason = approved ? ''           : (rejectionReason || 'Not approved');
 
     await clause.save();
     res.json(clause);
@@ -348,6 +348,7 @@ const reviewClause = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Archive a clause
 // @route   PUT /api/admin/clauses/:id/archive
@@ -366,29 +367,29 @@ const archiveClause = async (req, res) => {
   }
 };
 
+
 // @desc    Get all properties with tenant info
 // @route   GET /api/admin/properties
 // @access  Private (Admin)
 const getAllProperties = async (req, res) => {
   try {
     const properties = await Property.find()
-      .populate('landlord', 'name email')
+      .populate('landlord',  'name email')
       .populate('managedBy', 'name email')
       .sort({ createdAt: -1 });
 
-    // Attach current tenant for each property
-    const propIds = properties.map(p => p._id);
+    const propIds        = properties.map((p) => p._id);
     const activeAgreements = await Agreement.find({
       property: { $in: propIds },
-      status: 'active',
+      status:   'active',
     }).populate('tenant', 'name email');
 
     const tenantMap = {};
-    activeAgreements.forEach(ag => {
+    activeAgreements.forEach((ag) => {
       tenantMap[ag.property.toString()] = ag;
     });
 
-    const result = properties.map(p => ({
+    const result = properties.map((p) => ({
       ...p.toObject(),
       activeAgreement: tenantMap[p._id.toString()] || null,
     }));
@@ -399,35 +400,35 @@ const getAllProperties = async (req, res) => {
   }
 };
 
+
 // @desc    Kick tenant from property (terminate agreement)
 // @route   POST /api/admin/properties/:id/kick-tenant
 // @access  Private (Admin)
 const kickTenantFromProperty = async (req, res) => {
   try {
-    const { reason } = req.body;
-    const propertyId = req.params.id;
+    const { reason }     = req.body;
+    const propertyId     = req.params.id;
 
     const agreement = await Agreement.findOne({
       property: propertyId,
-      status: 'active',
-    }).populate('tenant', 'name email').populate('property', 'title');
+      status:   'active',
+    })
+      .populate('tenant',   'name email')
+      .populate('property', 'title');
 
     if (!agreement) {
       return res.status(404).json({ message: 'No active tenant found for this property' });
     }
 
-    // Terminate the agreement
     agreement.status = 'terminated';
     agreement.auditLog.push({
-      action: 'TERMINATED_BY_ADMIN',
-      actor: req.user._id,
+      action:    'TERMINATED_BY_ADMIN',
+      actor:     req.user._id,
       ipAddress: req.ip,
-      details: reason || 'Terminated by administrator',
+      details:   reason || 'Terminated by administrator',
     });
     await agreement.save();
 
-    // Mark property as vacant (not 'available' — that's not a valid enum value)
-    // Also reset isListed so landlord can consciously re-publish it
     await Property.findByIdAndUpdate(propertyId, { status: 'vacant', isListed: false });
 
     res.json({ message: `Tenant ${agreement.tenant?.name} has been removed from ${agreement.property?.title}` });
@@ -436,28 +437,15 @@ const kickTenantFromProperty = async (req, res) => {
   }
 };
 
-module.exports = {
-  getStats,
-  getUsers,
-  getUserById,
-  toggleUserBan,
-  changeUserRole,
-  getAllAgreements,
-  getAuditLogs,
-  getClauses,
-  createClause,
-  reviewClause,
-  archiveClause,
-  getAllProperties,
-  kickTenantFromProperty,
-};
+
 // @desc    Admin deep analytics — revenue, churn, growth, disputes, maintenance
 // @route   GET /api/admin/analytics
-// @access  Private (admin)
+// @access  Private (Admin)
 const getAdminAnalytics = async (req, res) => {
   try {
     const now          = new Date();
-    const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(now.getMonth() - 6);
+    const sixMonthsAgo = new Date(now);
+    sixMonthsAgo.setMonth(now.getMonth() - 6);
 
     const [
       monthlyRentRevenue,
@@ -502,7 +490,7 @@ const getAdminAnalytics = async (req, res) => {
 
     res.json({
       monthlyRentRevenue,
-      totalRentRevenue:  totalRentRevenue[0]?.total || 0,
+      totalRentRevenue: totalRentRevenue[0]?.total || 0,
       revenueByGateway,
       churnRate,
       expiredLast6,
@@ -516,5 +504,95 @@ const getAdminAnalytics = async (req, res) => {
   }
 };
 
-// Re-export with new function included
-Object.assign(module.exports, { getAdminAnalytics });
+
+// @desc    Paginated list of all users with billing / subscription details
+// @route   GET /api/admin/billing/users
+// @access  Private (Admin)
+// @query   page=1 | limit=25 | tier=free|pro|enterprise | search=<name or email>
+// [FIX #6]
+const getBillingUsers = async (req, res) => {
+  try {
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(100, parseInt(req.query.limit) || 25);
+    const skip   = (page - 1) * limit;
+    const { tier, search } = req.query;
+
+    const filter = {};
+
+    if (tier && ['free', 'pro', 'enterprise'].includes(tier)) {
+      if (tier === 'free') {
+        filter.$or = [
+          { subscriptionTier: 'free' },
+          { subscriptionTier: { $exists: false } },
+          { subscriptionTier: null },
+        ];
+      } else {
+        filter.subscriptionTier = tier;
+      }
+    }
+
+    if (search) {
+      const regex = { $regex: search, $options: 'i' };
+      filter.$or = filter.$or
+        ? [...filter.$or, { name: regex }, { email: regex }]
+        : [{ name: regex }, { email: regex }];
+    }
+
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .select(
+          'name email role subscriptionTier stripeCustomerId ' +
+          'subscriptionStatus subscriptionUpdatedAt createdAt isBanned isActive'
+        )
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      User.countDocuments(filter),
+    ]);
+
+    const [freeCt, proCt, enterpriseCt] = await Promise.all([
+      User.countDocuments({ $or: [{ subscriptionTier: 'free' }, { subscriptionTier: null }, { subscriptionTier: { $exists: false } }] }),
+      User.countDocuments({ subscriptionTier: 'pro' }),
+      User.countDocuments({ subscriptionTier: 'enterprise' }),
+    ]);
+
+    res.json({
+      users,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+      summary: {
+        free:       freeCt,
+        pro:        proCt,
+        enterprise: enterpriseCt,
+        totalMRR:   (proCt * 2999) + (enterpriseCt * 9999),
+      },
+    });
+  } catch (error) {
+    logger.error('getBillingUsers error', { err: error.message });
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+
+module.exports = {
+  getStats,
+  getUsers,
+  getUserById,
+  toggleUserBan,
+  changeUserRole,
+  getAllAgreements,
+  getAuditLogs,
+  getClauses,
+  createClause,
+  reviewClause,
+  archiveClause,
+  getAllProperties,
+  kickTenantFromProperty,
+  getAdminAnalytics,
+  getBillingUsers,     // [FIX #6]
+};

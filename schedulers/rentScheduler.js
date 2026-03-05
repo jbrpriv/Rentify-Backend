@@ -1,12 +1,43 @@
-const cron = require('node-cron');
-const Agreement = require('../models/Agreement');
+/**
+ * schedulers/rentScheduler.js
+ *
+ * [FIX #3]  Now writes to the Reminder collection before queuing jobs.
+ *           findOrCreate() provides idempotency — safe to run on restart.
+ *
+ * [FIX #2]  console.error/log replaced with structured Winston logger.
+ */
+
+const cron             = require('node-cron');
+const Agreement        = require('../models/Agreement');
+const Reminder         = require('../models/Reminder');            // ← FIX #3
 const notificationQueue = require('../queues/notificationQueue');
+const logger           = require('../utils/logger');               // ← FIX #2
+
+// ─── Helper: queue + record ──────────────────────────────────────────────────
+/**
+ * Persist a Reminder document and conditionally push to BullMQ.
+ * If the Reminder already exists (scheduler restart) we skip re-queuing.
+ */
+async function scheduleReminder({ agreement, type, periodDate, jobId, queuePayload }) {
+  const { created } = await Reminder.findOrCreate({
+    agreement: agreement._id,
+    type,
+    periodDate,
+    jobId,
+    meta: queuePayload.data || {},
+  });
+
+  if (created) {
+    await notificationQueue.add(jobId, queuePayload, { jobId });
+    logger.debug('Reminder queued', { type, jobId });
+  }
+}
 
 const startRentScheduler = () => {
 
   // ─── Daily 8AM: Rent Reminders + Expiry Warnings ─────────────────────────
   cron.schedule('0 8 * * *', async () => {
-    console.log('⏰ Running daily rent reminder check...');
+    logger.info('⏰ Running daily rent reminder check...');
 
     try {
       const today = new Date();
@@ -17,7 +48,6 @@ const startRentScheduler = () => {
       for (const agreement of activeAgreements) {
         const startDate = new Date(agreement.term.startDate);
 
-        // Calculate next due date (same day-of-month as lease start)
         const nextDueDate = new Date(
           today.getFullYear(),
           today.getMonth(),
@@ -30,54 +60,56 @@ const startRentScheduler = () => {
 
         const daysUntilDue = Math.ceil((nextDueDate - today) / (1000 * 60 * 60 * 24));
 
-        // 3-day advance reminder
         if (daysUntilDue === 3) {
-          await notificationQueue.add(
-            `rent-reminder-${agreement._id}`,
-            {
+          await scheduleReminder({
+            agreement,
+            type:        'RENT_DUE_REMINDER',
+            periodDate:  nextDueDate,
+            jobId:       `rent-${agreement._id}-${nextDueDate.getMonth()}`,
+            queuePayload: {
               type: 'RENT_DUE_REMINDER',
               data: {
                 agreementId: agreement._id.toString(),
-                dueDate: nextDueDate.toISOString(),
+                dueDate:     nextDueDate.toISOString(),
               },
             },
-            { jobId: `rent-${agreement._id}-${nextDueDate.getMonth()}` }
-          );
+          });
         }
 
-        // 30-day lease expiry warning
-        const endDate = new Date(agreement.term.endDate);
-        const daysUntilExpiry = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
+        const endDate          = new Date(agreement.term.endDate);
+        const daysUntilExpiry  = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
 
         if (daysUntilExpiry === 30) {
-          await notificationQueue.add(
-            `expiry-warning-${agreement._id}`,
-            {
+          await scheduleReminder({
+            agreement,
+            type:        'AGREEMENT_EXPIRY_WARNING',
+            periodDate:  endDate,
+            jobId:       `expiry-${agreement._id}`,
+            queuePayload: {
               type: 'AGREEMENT_EXPIRY_WARNING',
               data: { agreementId: agreement._id.toString() },
             },
-            { jobId: `expiry-${agreement._id}` }
-          );
+          });
         }
       }
     } catch (error) {
-      console.error('Scheduler error (reminders):', error.message);
+      logger.error('Scheduler error (reminders)', { err: error.message, stack: error.stack });
     }
   });
 
   // ─── Daily 9AM: Auto Late Fee Application ────────────────────────────────
   cron.schedule('0 9 * * *', async () => {
-    console.log('💸 Running daily late fee check...');
+    logger.info('💸 Running daily late fee check...');
 
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Find all active agreements that have a rent schedule
       const activeAgreements = await Agreement.find({
         status: 'active',
         'rentSchedule.0': { $exists: true },
-      }).populate('tenant', 'name email phoneNumber smsOptIn')
+      })
+        .populate('tenant',   'name email phoneNumber smsOptIn')
         .populate('property', 'title');
 
       let feeCount = 0;
@@ -85,9 +117,9 @@ const startRentScheduler = () => {
       for (const agreement of activeAgreements) {
         let modified = false;
         const gracePeriodDays = agreement.financials.lateFeeGracePeriodDays || 5;
-        const lateFeeAmount = agreement.financials.lateFeeAmount || 0;
+        const lateFeeAmount   = agreement.financials.lateFeeAmount || 0;
 
-        if (lateFeeAmount === 0) continue; // Skip if no late fee configured
+        if (lateFeeAmount === 0) continue;
 
         for (const entry of agreement.rentSchedule) {
           if (entry.status !== 'pending' && entry.status !== 'overdue') continue;
@@ -95,57 +127,51 @@ const startRentScheduler = () => {
           const dueDate = new Date(entry.dueDate);
           dueDate.setHours(0, 0, 0, 0);
 
-          const daysPastDue = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
-
-          // Snapshot the status BEFORE any in-memory mutations this iteration.
-          // This prevents the late-fee block from immediately firing on an entry
-          // that was just flipped to 'overdue' in the same loop pass (Bug 4).
+          const daysPastDue       = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
           const statusBeforeThisRun = entry.status;
 
-          // Mark as overdue as soon as it's past due date
           if (daysPastDue > 0 && entry.status === 'pending') {
             entry.status = 'overdue';
-            modified = true;
+            modified     = true;
 
-            // Queue overdue notification
-            await notificationQueue.add(
-              `overdue-${agreement._id}-${entry.dueDate}`,
-              {
+            await scheduleReminder({
+              agreement,
+              type:        'RENT_OVERDUE',
+              periodDate:  dueDate,
+              jobId:       `overdue-${agreement._id}-${dueDate.getMonth()}`,
+              queuePayload: {
                 type: 'RENT_OVERDUE',
                 data: { agreementId: agreement._id.toString() },
               },
-              { jobId: `overdue-${agreement._id}-${dueDate.getMonth()}` }
-            );
+            });
           }
 
-          // Apply late fee after grace period — but ONLY if the entry was
-          // already 'overdue' before the current scheduler run began.
-          // This ensures tenants always see a grace-period window (Bug 4).
           if (
             daysPastDue > gracePeriodDays &&
             statusBeforeThisRun === 'overdue' &&
             !entry.lateFeeApplied
           ) {
-            entry.lateFeeApplied = true;
-            entry.lateFeeAmount = lateFeeAmount;
-            entry.status = 'late_fee_applied';
-            entry.amount = entry.amount + lateFeeAmount; // Total now includes late fee
-            modified = true;
+            entry.lateFeeApplied  = true;
+            entry.lateFeeAmount   = lateFeeAmount;
+            entry.status          = 'late_fee_applied';
+            entry.amount          = entry.amount + lateFeeAmount;
+            modified              = true;
             feeCount++;
 
-            // Log in audit trail
             agreement.auditLog.push({
-              action: 'LATE_FEE_APPLIED',
+              action:    'LATE_FEE_APPLIED',
               timestamp: new Date(),
-              details: `Late fee of Rs. ${lateFeeAmount} applied to ${entry.dueDate} rent entry. ${daysPastDue} days past due.`,
+              details:   `Late fee of Rs. ${lateFeeAmount} applied to ${entry.dueDate} rent entry. ${daysPastDue} days past due.`,
             });
 
-            // Notify tenant
             const t = agreement.tenant;
             if (t) {
-              await notificationQueue.add(
-                `late-fee-${agreement._id}-${entry.dueDate}`,
-                {
+              await scheduleReminder({
+                agreement,
+                type:        'LATE_FEE_APPLIED',
+                periodDate:  dueDate,
+                jobId:       `late-fee-${agreement._id}-${dueDate.getMonth()}`,
+                queuePayload: {
                   type: 'LATE_FEE_APPLIED',
                   data: {
                     tenantId:       t._id?.toString(),
@@ -158,139 +184,120 @@ const startRentScheduler = () => {
                     dueDate:        entry.dueDate,
                   },
                 },
-                { jobId: `late-fee-${agreement._id}-${dueDate.getMonth()}` }
-              );
+              });
             }
 
-            console.log(`💸 Late fee applied for agreement ${agreement._id}, due ${entry.dueDate}`);
+            logger.info(`Late fee applied`, { agreementId: agreement._id, dueDate: entry.dueDate, amount: lateFeeAmount });
           }
         }
 
-        if (modified) {
-          await agreement.save();
-        }
+        if (modified) await agreement.save();
       }
 
-      console.log(`✅ Late fee check complete. ${feeCount} fees applied.`);
+      logger.info(`✅ Late fee check complete`, { feesApplied: feeCount });
     } catch (error) {
-      console.error('Scheduler error (late fees):', error.message);
+      logger.error('Scheduler error (late fees)', { err: error.message, stack: error.stack });
     }
   });
 
-  // ─── Daily Midnight: Expire ended leases ─────────────────────────────────
+  // ─── Daily Midnight: Expire ended leases + retention ─────────────────────
   cron.schedule('0 0 * * *', async () => {
-    console.log('🔄 Checking for expired leases...');
+    logger.info('🔄 Checking for expired leases...');
     try {
       const today = new Date();
 
       const result = await Agreement.updateMany(
-        {
-          status: 'active',
-          'term.endDate': { $lt: today },
-        },
+        { status: 'active', 'term.endDate': { $lt: today } },
         {
           status: 'expired',
           $push: {
             auditLog: {
-              action: 'AUTO_EXPIRED',
+              action:    'AUTO_EXPIRED',
               timestamp: new Date(),
-              details: 'Lease automatically marked as expired by scheduler.',
+              details:   'Lease automatically marked as expired by scheduler.',
             },
           },
         }
       );
 
       if (result.modifiedCount > 0) {
-        console.log(`✅ ${result.modifiedCount} lease(s) marked as expired.`);
+        logger.info(`Leases expired`, { count: result.modifiedCount });
       }
 
-      // ── Set document retention expiry on newly expired leases ────────────
-      // Regulation: retain for 7 years after lease end (legal standard)
       const retentionDeadline = new Date(today);
       retentionDeadline.setFullYear(retentionDeadline.getFullYear() + 7);
 
       await Agreement.updateMany(
-        {
-          status: 'expired',
-          retentionExpiry: null,
-          'term.endDate': { $lt: today },
-        },
+        { status: 'expired', retentionExpiry: null, 'term.endDate': { $lt: today } },
         { retentionExpiry: retentionDeadline }
       );
     } catch (error) {
-      console.error('Scheduler error (expiry):', error.message);
+      logger.error('Scheduler error (expiry)', { err: error.message, stack: error.stack });
     }
   });
 
-  // ── Document retention purge — run weekly on Sunday midnight ─────────────
+  // ─── Weekly Sunday Midnight: Document retention purge ────────────────────
   cron.schedule('0 0 * * 0', async () => {
     try {
       const now = new Date();
-      // Find agreements whose retention period has passed
       const expired = await Agreement.find({
-        retentionExpiry: { $lt: now, $ne: null },
-        documentsArchivedAt: null,
+        retentionExpiry:      { $lt: now, $ne: null },
+        documentsArchivedAt:  null,
       }).select('_id documentUrl');
 
       for (const agr of expired) {
-        // Mark documents as archived (actual S3 deletion/glaciering handled separately)
         await Agreement.findByIdAndUpdate(agr._id, {
           documentsArchivedAt: now,
           $push: {
             auditLog: {
               action:    'DOCUMENTS_ARCHIVED',
               timestamp: now,
-              details:   'Document retention period exceeded. Documents flagged for archival per retention policy.',
+              details:   'Document retention period exceeded. Documents flagged for archival.',
             },
           },
         });
       }
 
       if (expired.length > 0) {
-        console.log(`🗂️  ${expired.length} agreement(s) flagged for document archival (retention expired).`);
+        logger.info(`Documents flagged for archival`, { count: expired.length });
       }
     } catch (error) {
-      console.error('Scheduler error (retention purge):', error.message);
+      logger.error('Scheduler error (retention purge)', { err: error.message, stack: error.stack });
     }
   });
 
-  console.log('✅ Rent scheduler started (reminders @8AM, late fees @9AM, expiry @midnight, retention @Sunday)');
-
   // ─── Daily 10AM: Rent Escalation ─────────────────────────────────────────
   cron.schedule('0 10 * * *', async () => {
-    console.log('📈 Running daily rent escalation check...');
+    logger.info('📈 Running daily rent escalation check...');
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      // Find active agreements with escalation enabled and due today or overdue
       const agreements = await Agreement.find({
         status: 'active',
-        'rentEscalation.enabled': true,
+        'rentEscalation.enabled':        true,
         'rentEscalation.nextScheduledAt': { $lte: today },
-      }).populate('tenant', 'name email phoneNumber smsOptIn')
+      })
+        .populate('tenant',   'name email phoneNumber smsOptIn')
         .populate('landlord', 'name email');
 
       for (const agreement of agreements) {
         const pct = agreement.rentEscalation.percentage || 0;
         if (pct <= 0) continue;
 
-        const oldRent = agreement.financials.rentAmount;
+        const oldRent  = agreement.financials.rentAmount;
         const increase = Math.round(oldRent * (pct / 100));
         const newRent  = oldRent + increase;
 
-        // Apply new rent amount
         agreement.financials.rentAmount = newRent;
 
-        // Update future unpaid rent schedule entries
-        agreement.rentSchedule = agreement.rentSchedule.map(entry => {
+        agreement.rentSchedule = agreement.rentSchedule.map((entry) => {
           if (entry.status === 'pending' && new Date(entry.dueDate) > today) {
             return { ...entry.toObject(), amount: newRent };
           }
           return entry;
         });
 
-        // Schedule next escalation (1 year from now)
         const nextDate = new Date(today);
         nextDate.setFullYear(nextDate.getFullYear() + 1);
         agreement.rentEscalation.lastAppliedAt   = today;
@@ -304,10 +311,12 @@ const startRentScheduler = () => {
 
         await agreement.save();
 
-        // Notify tenant
-        await notificationQueue.add(
-          `escalation-${agreement._id}-${today.getFullYear()}`,
-          {
+        await scheduleReminder({
+          agreement,
+          type:        'RENT_ESCALATED',
+          periodDate:  today,
+          jobId:       `escalation-${agreement._id}-${today.getFullYear()}`,
+          queuePayload: {
             type: 'RENT_ESCALATED',
             data: {
               agreementId: agreement._id.toString(),
@@ -318,15 +327,16 @@ const startRentScheduler = () => {
               percentage:  pct,
             },
           },
-          { jobId: `escalation-${agreement._id}-${today.getFullYear()}` }
-        );
+        });
 
-        console.log(`📈 Rent escalated for agreement ${agreement._id}: Rs. ${oldRent} → Rs. ${newRent}`);
+        logger.info(`Rent escalated`, { agreementId: agreement._id, oldRent, newRent });
       }
     } catch (error) {
-      console.error('Scheduler error (escalation):', error.message);
+      logger.error('Scheduler error (escalation)', { err: error.message, stack: error.stack });
     }
   });
+
+  logger.info('✅ Rent scheduler started (reminders @8AM, late fees @9AM, expiry @midnight, retention @Sunday, escalation @10AM)');
 };
 
 module.exports = { startRentScheduler };

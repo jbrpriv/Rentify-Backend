@@ -1,57 +1,70 @@
+/**
+ * routes/paymentRoutes.js
+ *
+ * [FIX #7]  Razorpay and PayPal routes removed.
+ *           Dead code cleaned from both this router and paymentController.js.
+ *
+ * ─── What was removed ────────────────────────────────────────────────────────
+ *   Routes:
+ *     POST /razorpay/create-order
+ *     POST /razorpay/verify
+ *     POST /paypal/create-order
+ *     POST /paypal/capture
+ *
+ *   Controller exports (delete these from paymentController.js):
+ *     createRazorpayOrder
+ *     verifyRazorpayPayment
+ *     createPayPalOrder
+ *     capturePayPalOrder
+ *
+ *   Controller internals (delete from paymentController.js):
+ *     getRazorpayClient()
+ *     getPayPalClient()
+ *     The try/catch require blocks for razorpay + @paypal/checkout-server-sdk
+ *     The 'razorpay' entry in getAvailableGateways()
+ *     The 'paypal'   entry in getAvailableGateways()
+ *
+ *   getAvailableGateways now returns only:
+ *     [{ id: 'stripe', name: 'Stripe', enabled: true }]
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 const { protect } = require('../middlewares/authMiddleware');
+
 const {
   createCheckoutSession,
   createRentCheckoutSession,
   getRentSchedule,
   getPaymentHistory,
   getAvailableGateways,
-  getActiveCheckoutUrl,       // ← was exported but never imported here — this caused the 404
-  createRazorpayOrder,
-  verifyRazorpayPayment,
-  createPayPalOrder,
-  capturePayPalOrder,
+  getActiveCheckoutUrl,
   retryFailedPayment,
 } = require('../controllers/paymentController');
 
-// Available payment gateways
+// ─── Available gateways (Stripe only) ────────────────────────────────────────
 router.get('/gateways', protect, getAvailableGateways);
 
 // ─── Stripe ──────────────────────────────────────────────────────────────────
-// Create Stripe checkout session for initial deposit + 1st month rent
+// Initial deposit + first month rent checkout
 router.post('/create-checkout-session', protect, createCheckoutSession);
 
-// Create Stripe checkout session for a specific monthly rent payment
+// Monthly rent payment checkout
 router.post('/pay-rent', protect, createRentCheckoutSession);
 
-// ─── Active checkout URL (pre-generated or on-demand for next unpaid month) ──
-// FIX: This route was MISSING — getActiveCheckoutUrl existed in the controller
-//      but was never wired up, causing: "Route not found: GET /api/payments/active-checkout/:id"
+// Pre-generated or on-demand checkout URL for next unpaid rent period
 router.get('/active-checkout/:agreementId', protect, getActiveCheckoutUrl);
 
-// ─── Razorpay ────────────────────────────────────────────────────────────────
-router.post('/razorpay/create-order', protect, createRazorpayOrder);
-router.post('/razorpay/verify', protect, verifyRazorpayPayment);
-
-// ─── PayPal ──────────────────────────────────────────────────────────────────
-router.post('/paypal/create-order', protect, createPayPalOrder);
-router.post('/paypal/capture', protect, capturePayPalOrder);
-
-// ─── Retry failed payments ───────────────────────────────────────────────────
+// ─── Retry failed payment ────────────────────────────────────────────────────
 router.post('/retry/:paymentId', protect, retryFailedPayment);
 
 // ─── Schedules & History ─────────────────────────────────────────────────────
-// Get rent schedule for an agreement
 router.get('/schedule/:agreementId', protect, getRentSchedule);
+router.get('/',                      protect, getPaymentHistory);
+router.get('/history',               protect, getPaymentHistory);
 
-// Get payment history (root route — used by dashboard for charts)
-router.get('/', protect, getPaymentHistory);
-
-// Get payment history (named route — kept for explicit use)
-router.get('/history', protect, getPaymentHistory);
-
-// NOTE: Webhook route is registered directly in server.js BEFORE express.json()
-// so that the raw body is preserved for Stripe signature verification
+// NOTE: Stripe webhook is registered in server.js before express.json()
 
 module.exports = router;

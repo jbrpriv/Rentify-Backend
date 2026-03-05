@@ -1,39 +1,41 @@
 const Agreement = require('../models/Agreement');
-const Property = require('../models/Property');
-const User = require('../models/User');
-const Clause = require('../models/Clause');
-const crypto = require('crypto');
+const Property  = require('../models/Property');
+const User      = require('../models/User');
+const Clause    = require('../models/Clause');
+const crypto    = require('crypto');
+const logger    = require('../utils/logger');
 const { generateAgreementPDF, generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
-const { sendEmail } = require('../utils/emailService');
-const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
+const { sendEmail }                                         = require('../utils/emailService');
+const { uploadAgreementPDF, isS3Configured }               = require('../utils/s3Service');
 
-// createAgreement has been removed. 
-// Agreements are now drafted strictly by accepting an Offer (see offerController.js -> acceptOffer)
+// createAgreement has been removed.
+// Agreements are now drafted strictly by accepting an Offer (offerController.js → acceptOffer)
 
 
 // @desc    Sign an agreement
 // @route   PUT /api/agreements/:id/sign
 // @access  Private (Landlord or Tenant)
+// [FIX #5] Enforces signerOrder: landlord_first | tenant_first | any
 const signAgreement = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('landlord', 'name email')
-      .populate('tenant', 'name email')
+      .populate('tenant',   'name email')
       .populate('property', 'title');
 
     if (!agreement) {
       return res.status(404).json({ message: 'Agreement not found' });
     }
 
-    const userId = req.user._id.toString();
+    const userId     = req.user._id.toString();
     const isLandlord = agreement.landlord._id.toString() === userId;
-    const isTenant = agreement.tenant._id.toString() === userId;
+    const isTenant   = agreement.tenant._id.toString()   === userId;
 
     if (!isLandlord && !isTenant) {
       return res.status(403).json({ message: 'Not authorized to sign this agreement' });
     }
 
-    // Prevent double signing
+    // ─── Prevent double-signing ───────────────────────────────────────────
     if (isLandlord && agreement.signatures.landlord.signed) {
       return res.status(400).json({ message: 'You have already signed this agreement' });
     }
@@ -41,31 +43,47 @@ const signAgreement = async (req, res) => {
       return res.status(400).json({ message: 'You have already signed this agreement' });
     }
 
-    // Stamp the signature
+    // ─── [FIX #5] Enforce signerOrder ────────────────────────────────────
+    const order = agreement.signerOrder || 'landlord_first';
+
+    if (order === 'landlord_first' && isTenant && !agreement.signatures.landlord.signed) {
+      return res.status(400).json({
+        message: 'The landlord must sign this agreement before the tenant can sign.',
+      });
+    }
+    if (order === 'tenant_first' && isLandlord && !agreement.signatures.tenant.signed) {
+      return res.status(400).json({
+        message: 'The tenant must sign this agreement before the landlord can sign.',
+      });
+    }
+    // order === 'any': no restriction — fall through
+
+    // ─── Stamp the signature ─────────────────────────────────────────────
     const signatureData = {
-      signed: true,
-      signedAt: new Date(),
+      signed:    true,
+      signedAt:  new Date(),
       ipAddress: req.ip,
-      drawData: req.body?.drawData || null, // base64 canvas image if provided
+      drawData:  req.body?.drawData || null,
     };
 
     if (isLandlord) {
       agreement.signatures.landlord = signatureData;
-      agreement.status = 'sent'; // Landlord signed first, waiting for tenant
+      if (!agreement.signatures.tenant.signed) {
+        agreement.status = 'sent'; // waiting for tenant
+      }
     }
 
     if (isTenant) {
       agreement.signatures.tenant = signatureData;
     }
 
-    // If BOTH have signed → wait for payment (status: 'signed')
+    // ─── Both signed → awaiting payment ──────────────────────────────────
     const landlordSigned = isLandlord ? true : agreement.signatures.landlord.signed;
-    const tenantSigned = isTenant ? true : agreement.signatures.tenant.signed;
+    const tenantSigned   = isTenant   ? true : agreement.signatures.tenant.signed;
 
     if (landlordSigned && tenantSigned) {
-      agreement.status = 'signed'; // Awaiting Stripe payment to become active
+      agreement.status = 'signed';
 
-      // Notify landlord that tenant has signed
       sendEmail(
         agreement.landlord.email,
         'agreementSigned',
@@ -75,48 +93,50 @@ const signAgreement = async (req, res) => {
       );
 
       agreement.auditLog.push({
-        action: 'FULLY_SIGNED',
-        actor: req.user._id,
+        action:    'FULLY_SIGNED',
+        actor:     req.user._id,
         ipAddress: req.ip,
-        details: 'Both parties signed. Awaiting security deposit payment to activate.',
+        details:   'Both parties signed. Awaiting security deposit payment to activate.',
       });
 
-      // ─── S3 Document Vault (H3) ────────────────────────────────────────────
-      // Upload a permanent signed copy to S3 now that both parties have signed.
-      // Done asynchronously — we don't block the HTTP response.
+      // Async S3 upload — does not block response
       if (isS3Configured()) {
         generateAgreementPDFBuffer(agreement, agreement.landlord, agreement.tenant, agreement.property)
           .then((pdfBuffer) => uploadAgreementPDF(pdfBuffer, agreement._id.toString()))
-          .then((s3Key) => {
-            return Agreement.findByIdAndUpdate(agreement._id, {
-              documentUrl: s3Key,
+          .then((s3Key) =>
+            Agreement.findByIdAndUpdate(agreement._id, {
+              documentUrl:     s3Key,
               documentVersion: (agreement.documentVersion || 1) + 1,
-            });
-          })
-          .catch((err) => {
-            console.error('S3 upload failed for agreement', agreement._id, err.message);
-          });
+            })
+          )
+          .catch((err) =>
+            logger.error('S3 upload failed for agreement', { agreementId: agreement._id, err: err.message })
+          );
       }
     } else {
       agreement.auditLog.push({
-        action: isLandlord ? 'SIGNED_LANDLORD' : 'SIGNED_TENANT',
-        actor: req.user._id,
+        action:    isLandlord ? 'SIGNED_LANDLORD' : 'SIGNED_TENANT',
+        actor:     req.user._id,
         ipAddress: req.ip,
-        details: `Signed by ${req.user.name} at ${new Date().toISOString()}`,
+        details:   `Signed by ${req.user.name} at ${new Date().toISOString()}`,
       });
     }
 
     await agreement.save();
 
     res.json({
-      message: 'Agreement signed successfully',
-      status: agreement.status,
+      message:    landlordSigned && tenantSigned
+        ? 'Agreement fully signed. Awaiting payment to activate.'
+        : 'Agreement signed successfully',
+      status:     agreement.status,
       signatures: agreement.signatures,
     });
   } catch (error) {
+    logger.error('signAgreement error', { err: error.message, stack: error.stack });
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Get Agreements
 // @route   GET /api/agreements
@@ -125,7 +145,6 @@ const getAgreements = async (req, res) => {
   try {
     const { role, _id: userId } = req.user;
 
-    // Admins and law reviewers can see all agreements
     const query =
       role === 'admin' || role === 'law_reviewer'
         ? {}
@@ -134,7 +153,7 @@ const getAgreements = async (req, res) => {
     const agreements = await Agreement.find(query)
       .populate('property', 'title address')
       .populate('landlord', 'name email')
-      .populate('tenant', 'name email')
+      .populate('tenant',   'name email')
       .sort('-createdAt');
 
     res.json(agreements);
@@ -143,6 +162,7 @@ const getAgreements = async (req, res) => {
   }
 };
 
+
 // @desc    Generate PDF for an Agreement
 // @route   GET /api/agreements/:id/pdf
 // @access  Private (Landlord or Tenant)
@@ -150,46 +170,41 @@ const downloadAgreementPDF = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('landlord', 'name email')
-      .populate('tenant', 'name email')
+      .populate('tenant',   'name email')
       .populate('property');
 
     if (!agreement) {
       return res.status(404).json({ message: 'Agreement not found' });
     }
 
-    // Security Check: Only involved parties or admin can download
     const isAdmin = req.user.role === 'admin';
     if (
       !isAdmin &&
       agreement.landlord._id.toString() !== req.user._id.toString() &&
-      agreement.tenant._id.toString() !== req.user._id.toString()
+      agreement.tenant._id.toString()   !== req.user._id.toString()
     ) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
-    // Log the download action
     agreement.auditLog.push({
-      action: 'PDF_DOWNLOADED',
-      actor: req.user._id,
+      action:    'PDF_DOWNLOADED',
+      actor:     req.user._id,
       ipAddress: req.ip,
-      details: 'PDF Document Generated'
+      details:   'PDF Document Generated',
     });
     await agreement.save();
 
-    // Set headers for file download
-    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Type',        'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
 
-    // Generate PDF
     generateAgreementPDF(agreement, agreement.landlord, agreement.tenant, agreement.property, res);
-
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
 
-// ─── RENEWAL WORKFLOW ─────────────────────────────────────────────────────────
+// ─── RENEWAL WORKFLOW ──────────────────────────────────────────────────────────
 
 // @desc   Propose a lease renewal (Landlord initiates)
 // @route  POST /api/agreements/:id/renew
@@ -198,7 +213,7 @@ const proposeRenewal = async (req, res) => {
   try {
     const { newEndDate, newRentAmount, notes } = req.body;
     const agreement = await Agreement.findById(req.params.id)
-      .populate('tenant', 'name email')
+      .populate('tenant',   'name email')
       .populate('property', 'title');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
@@ -210,24 +225,23 @@ const proposeRenewal = async (req, res) => {
     }
 
     agreement.renewalProposal = {
-      proposedBy: req.user._id,
-      newEndDate: newEndDate || null,
+      proposedBy:    req.user._id,
+      newEndDate:    newEndDate    || null,
       newRentAmount: newRentAmount || agreement.financials.rentAmount,
-      notes: notes || '',
-      status: 'pending',
-      proposedAt: new Date(),
+      notes:         notes        || '',
+      status:        'pending',
+      proposedAt:    new Date(),
     };
 
     agreement.auditLog.push({
-      action: 'RENEWAL_PROPOSED',
-      actor: req.user._id,
+      action:    'RENEWAL_PROPOSED',
+      actor:     req.user._id,
       ipAddress: req.ip,
-      details: `Renewal proposed until ${newEndDate}. New rent: Rs. ${newRentAmount || agreement.financials.rentAmount}`,
+      details:   `Renewal proposed until ${newEndDate}. New rent: Rs. ${newRentAmount || agreement.financials.rentAmount}`,
     });
 
     await agreement.save();
 
-    // Notify tenant (using top-level sendEmail import)
     await sendEmail(
       agreement.tenant.email,
       'renewalProposed',
@@ -242,6 +256,7 @@ const proposeRenewal = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc   Tenant responds to renewal proposal
 // @route  PUT /api/agreements/:id/renew/respond
@@ -264,29 +279,27 @@ const respondToRenewal = async (req, res) => {
     if (accept) {
       const proposal = agreement.renewalProposal;
 
-      // Apply renewal: extend term, update rent if changed
-      agreement.term.endDate = proposal.newEndDate || agreement.term.endDate;
-      agreement.financials.rentAmount = proposal.newRentAmount || agreement.financials.rentAmount;
-      agreement.status = 'active';
-      agreement.renewalProposal.status = 'accepted';
+      agreement.term.endDate             = proposal.newEndDate    || agreement.term.endDate;
+      agreement.financials.rentAmount    = proposal.newRentAmount || agreement.financials.rentAmount;
+      agreement.status                   = 'active';
+      agreement.renewalProposal.status   = 'accepted';
 
-      // M1 fix: Recompute durationMonths to reflect extended lease
       const newStart = new Date(agreement.term.startDate);
-      const newEnd = new Date(agreement.term.endDate);
+      const newEnd   = new Date(agreement.term.endDate);
       agreement.term.durationMonths =
         (newEnd.getFullYear() - newStart.getFullYear()) * 12 +
-        (newEnd.getMonth() - newStart.getMonth());
+        (newEnd.getMonth()   - newStart.getMonth());
 
       agreement.auditLog.push({
-        action: 'RENEWAL_ACCEPTED',
-        actor: req.user._id,
+        action:  'RENEWAL_ACCEPTED',
+        actor:   req.user._id,
         details: `Tenant accepted renewal until ${agreement.term.endDate}. Duration updated to ${agreement.term.durationMonths} months.`,
       });
     } else {
       agreement.renewalProposal.status = 'rejected';
       agreement.auditLog.push({
-        action: 'RENEWAL_REJECTED',
-        actor: req.user._id,
+        action:  'RENEWAL_REJECTED',
+        actor:   req.user._id,
         details: 'Tenant declined renewal proposal',
       });
     }
@@ -298,6 +311,7 @@ const respondToRenewal = async (req, res) => {
   }
 };
 
+
 // @desc    Get approved clauses (for agreement builder clause picker)
 // @route   GET /api/agreements/clauses
 // @access  Private (Landlord, PM, Admin)
@@ -305,11 +319,11 @@ const getAvailableClauses = async (req, res) => {
   try {
     const { category, jurisdiction } = req.query;
     const filter = { isApproved: true, isArchived: false };
-    if (category) filter.category = category;
+    if (category)     filter.category     = category;
     if (jurisdiction) filter.jurisdiction = jurisdiction;
 
     const clauses = await Clause.find(filter)
-      .select('title body category jurisdiction isDefault usageCount')
+      .select('title body category jurisdiction isDefault usageCount condition')
       .sort({ isDefault: -1, usageCount: -1 });
 
     res.json(clauses);
@@ -318,12 +332,14 @@ const getAvailableClauses = async (req, res) => {
   }
 };
 
+
 // @desc    Add / replace clauseSet on a draft agreement
 // @route   PUT /api/agreements/:id/clauses
 // @access  Private (Landlord who owns the agreement)
+// [FIX #4] Snapshots the clause condition alongside title + body
 const updateAgreementClauses = async (req, res) => {
   try {
-    const { clauseIds } = req.body; // Array of Clause ObjectId strings
+    const { clauseIds } = req.body;
 
     if (!Array.isArray(clauseIds)) {
       return res.status(400).json({ message: 'clauseIds must be an array' });
@@ -339,23 +355,23 @@ const updateAgreementClauses = async (req, res) => {
       return res.status(400).json({ message: 'Clauses can only be updated on draft or sent agreements' });
     }
 
-    // Fetch clause documents and snapshot title + body into the agreement
     const clauses = await Clause.find({ _id: { $in: clauseIds }, isApproved: true, isArchived: false });
 
+    // [FIX #4] Snapshot the condition alongside title + body
     agreement.clauseSet = clauses.map((c) => ({
-      clauseId: c._id,
-      title: c.title,
-      body: c.body,
+      clauseId:  c._id,
+      title:     c.title,
+      body:      c.body,
+      condition: c.condition || null,
     }));
 
-    // Increment usage count on selected clauses
     await Clause.updateMany({ _id: { $in: clauseIds } }, { $inc: { usageCount: 1 } });
 
     agreement.auditLog.push({
-      action: 'CLAUSES_UPDATED',
-      actor: req.user._id,
+      action:    'CLAUSES_UPDATED',
+      actor:     req.user._id,
       ipAddress: req.ip,
-      details: `${clauses.length} clause(s) attached to agreement`,
+      details:   `${clauses.length} clause(s) attached to agreement`,
     });
 
     await agreement.save();
@@ -364,6 +380,7 @@ const updateAgreementClauses = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Get signed agreement document URL (pre-signed S3 link)
 // @route   GET /api/agreements/:id/document-url
@@ -375,7 +392,7 @@ const getDocumentUrl = async (req, res) => {
     const agreement = await Agreement.findById(req.params.id);
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
-    const userId = req.user._id.toString();
+    const userId  = req.user._id.toString();
     const isParty = agreement.landlord.toString() === userId || agreement.tenant.toString() === userId;
     if (!isParty && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized' });
@@ -396,13 +413,14 @@ const getDocumentUrl = async (req, res) => {
   }
 };
 
+
 // @desc    Send DocuSign-style signing invitation emails with secure tokens
 // @route   POST /api/agreements/:id/send-signing-invites
 // @access  Private (Landlord on this agreement)
 const sendSigningInvites = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
-      .populate('tenant', 'name email')
+      .populate('tenant',   'name email')
       .populate('landlord', 'name email')
       .populate('property', 'title');
 
@@ -417,32 +435,29 @@ const sendSigningInvites = async (req, res) => {
       return res.status(400).json({ message: 'Agreement must be in draft or pending signature status to send invitations' });
     }
 
-    // Generate secure tokens for both parties
     const landlordToken = crypto.randomBytes(32).toString('hex');
-    const tenantToken = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    const tenantToken   = crypto.randomBytes(32).toString('hex');
+    const expiresAt     = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    // Replace existing tokens for these parties
     agreement.signingTokens = agreement.signingTokens.filter(
-      t => !['landlord', 'tenant'].includes(t.party)
+      (t) => !['landlord', 'tenant'].includes(t.party)
     );
     agreement.signingTokens.push(
       { party: 'landlord', token: landlordToken, expiresAt, used: false },
-      { party: 'tenant', token: tenantToken, expiresAt, used: false }
+      { party: 'tenant',   token: tenantToken,   expiresAt, used: false }
     );
 
     agreement.status = 'pending_signature';
     agreement.auditLog.push({
-      action: 'SIGNING_INVITES_SENT',
-      actor: req.user._id,
+      action:    'SIGNING_INVITES_SENT',
+      actor:     req.user._id,
       timestamp: new Date(),
-      details: `Signing invitations sent to ${agreement.landlord.email} and ${agreement.tenant.email}`,
+      details:   `Signing invitations sent to ${agreement.landlord.email} and ${agreement.tenant.email}`,
     });
     await agreement.save();
 
     const baseUrl = process.env.CLIENT_URL || 'http://localhost:3000';
 
-    // Email landlord
     await sendEmail(
       agreement.landlord.email,
       'signingInvite',
@@ -451,7 +466,6 @@ const sendSigningInvites = async (req, res) => {
       `${baseUrl}/sign/${agreement._id}?token=${landlordToken}&party=landlord`
     );
 
-    // Email tenant
     await sendEmail(
       agreement.tenant.email,
       'signingInvite',
@@ -461,14 +475,15 @@ const sendSigningInvites = async (req, res) => {
     );
 
     res.json({
-      message: 'Signing invitations sent successfully',
-      sentTo: [agreement.landlord.email, agreement.tenant.email],
+      message:  'Signing invitations sent successfully',
+      sentTo:   [agreement.landlord.email, agreement.tenant.email],
       expiresAt,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Sign agreement via secure token (DocuSign-style link)
 // @route   POST /api/agreements/:id/sign-via-token
@@ -479,14 +494,14 @@ const signViaToken = async (req, res) => {
     if (!token || !party) return res.status(400).json({ message: 'Token and party are required' });
 
     const agreement = await Agreement.findById(req.params.id)
-      .populate('tenant', 'name email')
+      .populate('tenant',   'name email')
       .populate('landlord', 'name email')
       .populate('property', 'title');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
     const signingToken = agreement.signingTokens.find(
-      t => t.party === party && t.token === token && !t.used
+      (t) => t.party === party && t.token === token && !t.used
     );
 
     if (!signingToken) {
@@ -497,46 +512,44 @@ const signViaToken = async (req, res) => {
       return res.status(400).json({ message: 'Signing link has expired. Please request a new invitation.' });
     }
 
-    // Mark token as used
-    signingToken.used = true;
+    signingToken.used   = true;
     signingToken.usedAt = new Date();
 
-    // Record signature
-    const sig = agreement.signatures[party];
-    sig.signed = true;
-    sig.signedAt = new Date();
-    sig.ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-    sig.drawData = req.body?.drawData || null; // base64 canvas image if provided
+    const sig       = agreement.signatures[party];
+    sig.signed      = true;
+    sig.signedAt    = new Date();
+    sig.ipAddress   = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    sig.drawData    = req.body?.drawData || null;
 
-    // Determine new status
     const bothSigned = agreement.signatures.landlord.signed && agreement.signatures.tenant.signed;
     if (bothSigned) {
       agreement.status = 'signed';
       agreement.auditLog.push({
-        action: 'AGREEMENT_FULLY_SIGNED',
+        action:    'AGREEMENT_FULLY_SIGNED',
         timestamp: new Date(),
-        details: 'Both parties signed via secure token links. Agreement is fully executed.',
+        details:   'Both parties signed via secure token links. Agreement is fully executed.',
       });
     } else {
       agreement.status = 'pending_signature';
       agreement.auditLog.push({
-        action: 'PARTIAL_SIGNATURE',
+        action:    'PARTIAL_SIGNATURE',
         timestamp: new Date(),
-        details: `${party} signed via secure token link.`,
+        details:   `${party} signed via secure token link.`,
       });
     }
 
     await agreement.save();
 
     res.json({
-      message: bothSigned ? 'Agreement fully signed by all parties' : `Signature recorded for ${party}`,
-      status: agreement.status,
+      message:    bothSigned ? 'Agreement fully signed by all parties' : `Signature recorded for ${party}`,
+      status:     agreement.status,
       bothSigned,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // @desc    Get full version history for an agreement
 // @route   GET /api/agreements/:id/version-history
@@ -545,32 +558,32 @@ const getVersionHistory = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('versionHistory.savedBy', 'name email role')
-      .populate('auditLog.actor', 'name email role');
+      .populate('auditLog.actor',         'name email role');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
-    const userId = req.user._id.toString();
-    const isTenant = agreement.tenant?.toString() === userId;
+    const userId     = req.user._id.toString();
+    const isTenant   = agreement.tenant?.toString()   === userId;
     const isLandlord = agreement.landlord?.toString() === userId;
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin    = req.user.role === 'admin';
 
     if (!isTenant && !isLandlord && !isAdmin) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
     res.json({
-      agreementId: agreement._id,
+      agreementId:    agreement._id,
       currentVersion: agreement.versionHistory.length,
       versionHistory: agreement.versionHistory.sort((a, b) => b.version - a.version),
-      auditLog: agreement.auditLog.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
+      auditLog:       agreement.auditLog.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Save a version snapshot of the agreement
-// Internal helper — also exposed as API endpoint
+
+// Internal helper — saves version snapshot
 const saveVersionSnapshot = async (agreementId, userId, reason = 'Manual save') => {
   const agreement = await Agreement.findById(agreementId);
   if (!agreement) return;
@@ -582,15 +595,16 @@ const saveVersionSnapshot = async (agreementId, userId, reason = 'Manual save') 
     savedBy: userId,
     reason,
     snapshot: {
-      clauses: (agreement.clauseSet || []).map(c => c.title || c.clauseId?.toString() || ''),
+      clauses:    (agreement.clauseSet || []).map((c) => c.title || c.clauseId?.toString() || ''),
       financials: agreement.financials,
-      term: agreement.term,
-      status: agreement.status,
+      term:       agreement.term,
+      status:     agreement.status,
     },
   });
   await agreement.save();
   return nextVersion;
 };
+
 
 // @desc    Manually snapshot the current agreement state
 // @route   POST /api/agreements/:id/snapshot
@@ -617,40 +631,39 @@ const snapshotAgreement = async (req, res) => {
   }
 };
 
-// @desc    Get inline PDF preview URL (pre-signed S3 or regenerate)
+
+// @desc    Get inline PDF preview URL
 // @route   GET /api/agreements/:id/preview
 // @access  Private (parties on agreement or admin)
 const getAgreementPreview = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('property', 'title address')
-      .populate('tenant', 'name email')
+      .populate('tenant',   'name email')
       .populate('landlord', 'name email');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
-    const userId = req.user._id.toString();
-    const isTenant = agreement.tenant?._id.toString() === userId;
+    const userId     = req.user._id.toString();
+    const isTenant   = agreement.tenant?._id.toString()   === userId;
     const isLandlord = agreement.landlord?._id.toString() === userId;
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin    = req.user.role === 'admin';
 
     if (!isTenant && !isLandlord && !isAdmin) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
-    // If document already stored in S3, return signed URL
     if (agreement.documentUrl && isS3Configured()) {
       const { getAgreementPDFUrl } = require('../utils/s3Service');
-      const url = await getAgreementPDFUrl(agreement.documentUrl, 1800); // 30 min
+      const url = await getAgreementPDFUrl(agreement.documentUrl, 1800);
       return res.json({ url, source: 's3', expiresIn: 1800 });
     }
 
-    // Fallback: generate fresh PDF buffer and return as base64 for inline preview
     const pdfBuffer = await generateAgreementPDFBuffer(agreement, agreement.landlord, agreement.tenant, agreement.property);
-    const base64 = pdfBuffer.toString('base64');
+    const base64    = pdfBuffer.toString('base64');
 
     res.json({
-      source: 'generated',
+      source:   'generated',
       base64,
       mimeType: 'application/pdf',
       filename: `agreement-${agreement._id}.pdf`,
@@ -659,6 +672,7 @@ const getAgreementPreview = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 module.exports = {
   getAgreements,
