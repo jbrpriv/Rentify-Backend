@@ -7,96 +7,9 @@ const { generateAgreementPDF, generateAgreementPDFBuffer } = require('../utils/p
 const { sendEmail } = require('../utils/emailService');
 const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
 
-// @desc    Create a new rental agreement
-// @route   POST /api/agreements
-// @access  Private (Landlord)
-const createAgreement = async (req, res) => {
-  try {
-    const {
-      tenantId, propertyId, startDate, endDate,
-      rentAmount, depositAmount,
-      lateFeeAmount, lateFeeGracePeriodDays,
-      rentEscalationEnabled, rentEscalationPercentage,
-    } = req.body;
+// createAgreement has been removed. 
+// Agreements are now drafted strictly by accepting an Offer (see offerController.js -> acceptOffer)
 
-    // 1. Verify Property belongs to Landlord
-    const property = await Property.findById(propertyId);
-    if (!property || property.landlord.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Not authorized to lease this property' });
-    }
-
-    // 2. Validate tenant exists and has the correct role (Bug 7 / M4)
-    const tenant = await User.findById(tenantId);
-    if (!tenant) {
-      return res.status(404).json({ message: 'Tenant not found' });
-    }
-    if (tenant.role !== 'tenant') {
-      return res.status(400).json({ message: 'Provided userId does not belong to a tenant account' });
-    }
-
-    // 3. Compute lease duration in months (Bug 2 / C2)
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const durationMonths =
-      (end.getFullYear() - start.getFullYear()) * 12 +
-      (end.getMonth() - start.getMonth());
-
-    if (durationMonths <= 0) {
-      return res.status(400).json({ message: 'endDate must be after startDate' });
-    }
-
-    // Build rent escalation config
-    const escalationEnabled = rentEscalationEnabled === true || rentEscalationEnabled === 'true';
-    const escalationPct = Number(rentEscalationPercentage) || 0;
-    const firstAnniversary = new Date(startDate);
-    firstAnniversary.setFullYear(firstAnniversary.getFullYear() + 1);
-
-    // 4. Create Agreement Record
-    const agreement = await Agreement.create({
-      landlord: req.user._id,
-      tenant: tenantId,
-      property: propertyId,
-      term: { startDate, endDate, durationMonths },
-      financials: {
-        rentAmount,
-        depositAmount,
-        lateFeeAmount: Number(lateFeeAmount) || 0,
-        lateFeeGracePeriodDays: Number(lateFeeGracePeriodDays) || 5,
-      },
-      rentEscalation: {
-        enabled: escalationEnabled,
-        percentage: escalationPct,
-        nextScheduledAt: escalationEnabled ? firstAnniversary : null,
-      },
-      auditLog: [{
-        action: 'CREATED',
-        actor: req.user._id,
-        ipAddress: req.ip,
-        details: 'Initial Draft Created'
-      }]
-    });
-
-    const populated = await Agreement.findById(agreement._id)
-      .populate('landlord', 'name')
-      .populate('tenant', 'name email')
-      .populate('property', 'title');
-
-    sendEmail(
-      populated.tenant.email,
-      'agreementCreated',
-      populated.tenant.name,
-      populated.landlord.name,
-      populated.property.title,
-      agreement.term.startDate,
-      agreement.term.endDate,
-      agreement.financials.rentAmount
-    );
-
-    res.status(201).json(agreement);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
 
 // @desc    Sign an agreement
 // @route   PUT /api/agreements/:id/sign
@@ -748,7 +661,6 @@ const getAgreementPreview = async (req, res) => {
 };
 
 module.exports = {
-  createAgreement,
   getAgreements,
   downloadAgreementPDF,
   signAgreement,

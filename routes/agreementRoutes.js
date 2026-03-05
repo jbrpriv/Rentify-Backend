@@ -2,16 +2,15 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middlewares/authMiddleware');
 const {
-  createAgreement, downloadAgreementPDF, getAgreements, signAgreement,
+  downloadAgreementPDF, getAgreements, signAgreement,
   proposeRenewal, respondToRenewal,
   getAvailableClauses, updateAgreementClauses, getDocumentUrl,
   sendSigningInvites, signViaToken,
   getVersionHistory, snapshotAgreement, getAgreementPreview,
 } = require('../controllers/agreementController');
 
-// List / Create agreements
+// List agreements
 router.route('/')
-  .post(protect, createAgreement)
   .get(protect, getAgreements);
 
 // Clause picker — get approved clauses for the agreement builder (H4)
@@ -27,19 +26,19 @@ router.get('/:id/preview', protect, getAgreementPreview);
 router.get('/:id/document-url', protect, getDocumentUrl);
 
 // Signing
-router.put( '/:id/sign',             protect, signAgreement);
-router.post('/:id/send-invites',     protect, sendSigningInvites);
-router.post('/:id/sign-via-token',           signViaToken);   // public — token-authenticated
+router.put('/:id/sign', protect, signAgreement);
+router.post('/:id/send-invites', protect, sendSigningInvites);
+router.post('/:id/sign-via-token', signViaToken);   // public — token-authenticated
 
 // Version history & snapshots
-router.get( '/:id/version-history',  protect, getVersionHistory);
-router.post('/:id/snapshot',         protect, snapshotAgreement);
+router.get('/:id/version-history', protect, getVersionHistory);
+router.post('/:id/snapshot', protect, snapshotAgreement);
 
 // Clause set management (H4)
 router.put('/:id/clauses', protect, updateAgreementClauses);
 
 // Renewal workflow
-router.post('/:id/renew',        protect, proposeRenewal);
+router.post('/:id/renew', protect, proposeRenewal);
 router.put('/:id/renew/respond', protect, respondToRenewal);
 
 module.exports = router;
