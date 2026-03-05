@@ -118,14 +118,28 @@ const verifyRazorpayPayment = async (req, res) => {
     const schedule = [];
     const startDate = new Date(agreement.term.startDate);
     const duration = agreement.term.durationMonths || 12;
+
+    const isEscalationEnabled = agreement.rentEscalation?.enabled;
+    const escalationPct = agreement.rentEscalation?.percentage || 0;
+    const baseRent = agreement.financials.rentAmount;
+
     for (let i = 0; i < duration; i++) {
       const dueDate = new Date(startDate);
       dueDate.setMonth(startDate.getMonth() + i);
+
+      let currentAmount = baseRent;
+      if (isEscalationEnabled && escalationPct > 0) {
+        const yearsPassed = Math.floor(i / 12);
+        for (let y = 0; y < yearsPassed; y++) {
+          currentAmount = Math.round(currentAmount * (1 + (escalationPct / 100)));
+        }
+      }
+
       schedule.push({
-        dueDate, amount: agreement.financials.rentAmount,
+        dueDate, amount: currentAmount,
         status: i === 0 ? 'paid' : 'pending',
         paidDate: i === 0 ? new Date() : null,
-        paidAmount: i === 0 ? agreement.financials.rentAmount : null,
+        paidAmount: i === 0 ? currentAmount : null,
         lateFeeApplied: false, lateFeeAmount: 0,
       });
     }
@@ -241,14 +255,28 @@ const capturePayPalOrder = async (req, res) => {
     const schedule = [];
     const startDate = new Date(agreement.term.startDate);
     const duration = agreement.term.durationMonths || 12;
+
+    const isEscalationEnabled = agreement.rentEscalation?.enabled;
+    const escalationPct = agreement.rentEscalation?.percentage || 0;
+    const baseRent = agreement.financials.rentAmount;
+
     for (let i = 0; i < duration; i++) {
       const dueDate = new Date(startDate);
       dueDate.setMonth(startDate.getMonth() + i);
+
+      let currentAmount = baseRent;
+      if (isEscalationEnabled && escalationPct > 0) {
+        const yearsPassed = Math.floor(i / 12);
+        for (let y = 0; y < yearsPassed; y++) {
+          currentAmount = Math.round(currentAmount * (1 + (escalationPct / 100)));
+        }
+      }
+
       schedule.push({
-        dueDate, amount: agreement.financials.rentAmount,
+        dueDate, amount: currentAmount,
         status: i === 0 ? 'paid' : 'pending',
         paidDate: i === 0 ? new Date() : null,
-        paidAmount: i === 0 ? agreement.financials.rentAmount : null,
+        paidAmount: i === 0 ? currentAmount : null,
         lateFeeApplied: false, lateFeeAmount: 0,
       });
     }
@@ -443,16 +471,28 @@ const handleStripeWebhook = async (req, res) => {
     const startDate = new Date(agreement.term.startDate);
     const duration = agreement.term.durationMonths || 12;
 
+    const isEscalationEnabled = agreement.rentEscalation?.enabled;
+    const escalationPct = agreement.rentEscalation?.percentage || 0;
+    const baseRent = agreement.financials.rentAmount;
+
     for (let i = 0; i < duration; i++) {
       const dueDate = new Date(startDate);
       dueDate.setMonth(startDate.getMonth() + i);
 
+      let currentAmount = baseRent;
+      if (isEscalationEnabled && escalationPct > 0) {
+        const yearsPassed = Math.floor(i / 12);
+        for (let y = 0; y < yearsPassed; y++) {
+          currentAmount = Math.round(currentAmount * (1 + (escalationPct / 100)));
+        }
+      }
+
       schedule.push({
         dueDate,
-        amount: agreement.financials.rentAmount,
+        amount: currentAmount,
         status: i === 0 ? 'paid' : 'pending',
         paidDate: i === 0 ? new Date() : null,
-        paidAmount: i === 0 ? agreement.financials.rentAmount : null,
+        paidAmount: i === 0 ? currentAmount : null,
         lateFeeApplied: false,
         lateFeeAmount: 0,
         stripePaymentIntent: i === 0 ? session.payment_intent : null,
