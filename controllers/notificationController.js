@@ -26,12 +26,11 @@ const getNotificationCounts = async (req, res) => {
         status: { $in: ['open', 'in_progress'] },
       });
 
-      // Agreements sent to tenant but not yet fully signed
+      // Agreements requiring landlord's signature
       counts.agreements = await Agreement.countDocuments({
         landlord: userId,
         status: 'sent',
-        'signatures.landlord.signed': true,
-        'signatures.tenant.signed': false,
+        'signatures.landlord.signed': false,
       });
 
     } else if (role === 'tenant') {
