@@ -12,14 +12,27 @@
 const Sentry = require('@sentry/node');
 // profiling is optional; only initialise if the package is installed
 let Profiling;
-try { Profiling = require('@sentry/profiling-node'); } catch (_) {}
+try { Profiling = require('@sentry/profiling-node'); } catch (_) { }
+
+// @sentry/profiling-node v8+ exports nodeProfilingIntegration() (a function).
+// Older v7 exports ProfilingIntegration (a class).  Support both.
+function getProfilingIntegration() {
+  if (!Profiling) return [];
+  if (typeof Profiling.nodeProfilingIntegration === 'function') {
+    return [Profiling.nodeProfilingIntegration()];
+  }
+  if (typeof Profiling.ProfilingIntegration === 'function') {
+    return [new Profiling.ProfilingIntegration()];
+  }
+  return [];
+}
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,           // set SENTRY_DSN= in .env
   environment: process.env.NODE_ENV || 'development',
   tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
   profilesSampleRate: 0.1,
-  integrations: Profiling ? [new Profiling.ProfilingIntegration()] : [],
+  integrations: getProfilingIntegration(),
   // Don't send events in test runs
   enabled: process.env.NODE_ENV !== 'test',
 });
@@ -45,22 +58,22 @@ const { startRentScheduler } = require('./schedulers/rentScheduler');
 const notificationWorker = require('./workers/notificationWorker');
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
-const authRoutes              = require('./routes/authRoutes');
-const userRoutes              = require('./routes/userRoutes');
-const propertyRoutes          = require('./routes/propertyRoutes');
-const agreementRoutes         = require('./routes/agreementRoutes');
-const paymentRoutes           = require('./routes/paymentRoutes');
-const maintenanceRoutes       = require('./routes/maintenanceRoutes');
-const messageRoutes           = require('./routes/messageRoutes');
-const listingRoutes           = require('./routes/listingRoutes');
-const disputeRoutes           = require('./routes/disputeRoutes');
-const uploadRoutes            = require('./routes/uploadRoutes');
-const adminRoutes             = require('./routes/adminRoutes');
-const notificationRoutes      = require('./routes/notificationRoutes');
-const offerRoutes             = require('./routes/offerRoutes');
+const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
+const propertyRoutes = require('./routes/propertyRoutes');
+const agreementRoutes = require('./routes/agreementRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
+const maintenanceRoutes = require('./routes/maintenanceRoutes');
+const messageRoutes = require('./routes/messageRoutes');
+const listingRoutes = require('./routes/listingRoutes');
+const disputeRoutes = require('./routes/disputeRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const offerRoutes = require('./routes/offerRoutes');
 const agreementTemplateRoutes = require('./routes/agreementTemplateRoutes');
-const billingRoutes           = require('./routes/billingRoutes');
-const dataDeletionRoutes      = require('./routes/dataDeletionRoutes');
+const billingRoutes = require('./routes/billingRoutes');
+const dataDeletionRoutes = require('./routes/dataDeletionRoutes');
 const { handleBillingWebhook } = require('./controllers/billingController');
 const {
   loginLimiter, propertyLimiter, uploadLimiter,
@@ -109,8 +122,8 @@ app.use(morganMiddleware);
 // ─── Stripe webhooks (raw body — before express.json) ────────────────────────
 const stripeWebhookMiddleware = [express.raw({ type: 'application/json' }), handleStripeWebhook];
 app.post('/api/payments/webhook', ...stripeWebhookMiddleware);
-app.post('/api/webhooks',         ...stripeWebhookMiddleware);
-app.post('/api/billing/webhook',  express.raw({ type: 'application/json' }), handleBillingWebhook);
+app.post('/api/webhooks', ...stripeWebhookMiddleware);
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleBillingWebhook);
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json());
@@ -124,22 +137,22 @@ app.use(passport.initialize());
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
-app.use('/api/auth',               loginLimiter,    authRoutes);
-app.use('/api/users',              generalLimiter,  userRoutes);
-app.use('/api/properties',         propertyLimiter, propertyRoutes);
-app.use('/api/agreements',         generalLimiter,  agreementRoutes);
-app.use('/api/payments',           generalLimiter,  paymentRoutes);
-app.use('/api/maintenance',        generalLimiter,  maintenanceRoutes);
-app.use('/api/messages',           messageLimiter,  messageRoutes);
-app.use('/api/listings',           generalLimiter,  listingRoutes);
-app.use('/api/disputes',           generalLimiter,  disputeRoutes);
-app.use('/api/upload',             uploadLimiter,   uploadRoutes);
-app.use('/api/admin',              generalLimiter,  adminRoutes);
-app.use('/api/notifications',      generalLimiter,  notificationRoutes);
-app.use('/api/offers',             offerLimiter,    offerRoutes);
-app.use('/api/agreement-templates',generalLimiter,  agreementTemplateRoutes);
-app.use('/api/billing',            generalLimiter,  billingRoutes);
-app.use('/api/data-deletion',      generalLimiter,  dataDeletionRoutes);
+app.use('/api/auth', loginLimiter, authRoutes);
+app.use('/api/users', generalLimiter, userRoutes);
+app.use('/api/properties', propertyLimiter, propertyRoutes);
+app.use('/api/agreements', generalLimiter, agreementRoutes);
+app.use('/api/payments', generalLimiter, paymentRoutes);
+app.use('/api/maintenance', generalLimiter, maintenanceRoutes);
+app.use('/api/messages', messageLimiter, messageRoutes);
+app.use('/api/listings', generalLimiter, listingRoutes);
+app.use('/api/disputes', generalLimiter, disputeRoutes);
+app.use('/api/upload', uploadLimiter, uploadRoutes);
+app.use('/api/admin', generalLimiter, adminRoutes);
+app.use('/api/notifications', generalLimiter, notificationRoutes);
+app.use('/api/offers', offerLimiter, offerRoutes);
+app.use('/api/agreement-templates', generalLimiter, agreementTemplateRoutes);
+app.use('/api/billing', generalLimiter, billingRoutes);
+app.use('/api/data-deletion', generalLimiter, dataDeletionRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
@@ -159,10 +172,10 @@ Sentry.setupExpressErrorHandler(app);
 app.use((err, req, res, _next) => {
   logger.error('Unhandled error', {
     message: err.message,
-    stack:   err.stack,
-    method:  req.method,
-    url:     req.originalUrl,
-    userId:  req.user?._id,
+    stack: err.stack,
+    method: req.method,
+    url: req.originalUrl,
+    userId: req.user?._id,
   });
   res.status(err.status || 500).json({ message: err.message || 'Internal server error' });
 });
