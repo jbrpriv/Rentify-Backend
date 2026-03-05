@@ -40,7 +40,7 @@ const createProperty = async (landlordId, overrides = {}) => {
         landlord: landlordId,
         title: 'Test Property',
         type: 'apartment',
-        address: { street: '123 Main St', city: 'Karachi', state: 'Sindh', country: 'Pakistan' },
+        address: { street: '123 Main St', city: 'Karachi', state: 'Sindh', zip: '75000', country: 'Pakistan' },
         specs: { bedrooms: 2, bathrooms: 1, areaSqft: 900 },
         financials: {
             monthlyRent: 25000,

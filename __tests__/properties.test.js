@@ -14,7 +14,7 @@ describe('POST /api/properties', () => {
     const validProperty = {
         title: 'My Apartment',
         type: 'apartment',
-        address: { street: '1 Test St', city: 'Lahore', state: 'Punjab', country: 'Pakistan' },
+        address: { street: '1 Test St', city: 'Lahore', state: 'Punjab', zip: '54000', country: 'Pakistan' },
         specs: { bedrooms: 3, bathrooms: 2, areaSqft: 1200 },
         financials: { monthlyRent: 30000, securityDeposit: 60000 },
         leaseTerms: { defaultDurationMonths: 12 },
@@ -190,7 +190,7 @@ describe('GET /api/listings (public browse)', () => {
         const landlord = await createLandlord();
         await createProperty(landlord._id, {
             isListed: true, status: 'vacant',
-            address: { street: '1 Road', city: 'Islamabad', state: 'ICT', country: 'Pakistan' },
+            address: { street: '1 Road', city: 'Islamabad', state: 'ICT', zip: '44000', country: 'Pakistan' },
         });
         const res = await request(app).get('/api/listings?city=Islamabad');
         expect(res.status).toBe(200);
