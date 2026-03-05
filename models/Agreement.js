@@ -13,7 +13,7 @@ const rentScheduleEntrySchema = new mongoose.Schema({
   lateFeeApplied: { type: Boolean, default: false },
   lateFeeAmount: { type: Number, default: 0 },
   stripePaymentIntent: { type: String, default: null },
-  checkoutUrl:         { type: String, default: null }, // Pre-generated Stripe URL for this month
+  checkoutUrl: { type: String, default: null }, // Pre-generated Stripe URL for this month
 }, { _id: false });
 
 const agreementSchema = mongoose.Schema(
@@ -35,7 +35,7 @@ const agreementSchema = mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['draft', 'sent', 'signed', 'active', 'expired', 'terminated'],
+      enum: ['draft', 'sent', 'pending_signature', 'signed', 'active', 'expired', 'terminated'],
       default: 'draft',
     },
 
@@ -117,20 +117,20 @@ const agreementSchema = mongoose.Schema(
 
     // ─── Renewal Proposal ──────────────────────────────────────────
     renewalProposal: {
-      proposedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-      newEndDate:    { type: Date,   default: null },
+      proposedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+      newEndDate: { type: Date, default: null },
       newRentAmount: { type: Number, default: null },
-      notes:         { type: String, default: '' },
-      status:        { type: String, enum: ['pending','accepted','rejected'], default: 'pending' },
-      proposedAt:    { type: Date,   default: null },
+      notes: { type: String, default: '' },
+      status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
+      proposedAt: { type: Date, default: null },
     },
 
     // ─── Rent Escalation ───────────────────────────────────────────
     // If enabled, rent is automatically increased each year on the anniversary date.
     rentEscalation: {
-      enabled:         { type: Boolean, default: false },
-      percentage:      { type: Number, default: 0 },    // e.g. 5 = 5% per year
-      lastAppliedAt:   { type: Date, default: null },   // Date escalation was last applied
+      enabled: { type: Boolean, default: false },
+      percentage: { type: Number, default: 0 },    // e.g. 5 = 5% per year
+      lastAppliedAt: { type: Date, default: null },   // Date escalation was last applied
       nextScheduledAt: { type: Date, default: null },   // Next anniversary date
     },
 
@@ -155,15 +155,15 @@ const agreementSchema = mongoose.Schema(
     // ─── Version Snapshots (full agreement content at each key event) ──
     versionHistory: [
       {
-        version:   { type: Number, required: true },
-        savedAt:   { type: Date, default: Date.now },
-        savedBy:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-        reason:    { type: String, default: '' },
+        version: { type: Number, required: true },
+        savedAt: { type: Date, default: Date.now },
+        savedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        reason: { type: String, default: '' },
         snapshot: {
-          clauses:    [String],   // clause titles at this version
+          clauses: [String],   // clause titles at this version
           financials: mongoose.Schema.Types.Mixed,
-          term:       mongoose.Schema.Types.Mixed,
-          status:     String,
+          term: mongoose.Schema.Types.Mixed,
+          status: String,
         },
       },
     ],
@@ -171,22 +171,22 @@ const agreementSchema = mongoose.Schema(
     // ─── DocuSign-style signing tokens ─────────────────────────────
     signingTokens: [
       {
-        party:     { type: String, enum: ['landlord', 'tenant'] },
-        token:     { type: String },   // UUID sent via email
+        party: { type: String, enum: ['landlord', 'tenant'] },
+        token: { type: String },   // UUID sent via email
         expiresAt: { type: Date },
-        used:      { type: Boolean, default: false },
-        usedAt:    { type: Date, default: null },
+        used: { type: Boolean, default: false },
+        usedAt: { type: Date, default: null },
       },
     ],
 
     // ─── Document Retention ────────────────────────────────────────
     retentionExpiry: {
-      type:    Date,
+      type: Date,
       default: null, // Set when lease expires: expiry + 7 years
     },
 
     documentsArchivedAt: {
-      type:    Date,
+      type: Date,
       default: null,
     },
   },
