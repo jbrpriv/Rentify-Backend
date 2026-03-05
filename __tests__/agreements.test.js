@@ -374,7 +374,7 @@ describe('POST /api/agreements/:id/sign-via-token', () => {
 
         const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000);
         const agreement = await createAgreement(landlord._id, tenant._id, property._id, {
-            status: 'pending_signature',
+            status: 'sent',
             signingTokens: [
                 { party: 'tenant', token: 'validtoken123', expiresAt, used: false },
             ],
@@ -392,7 +392,7 @@ describe('POST /api/agreements/:id/sign-via-token', () => {
         const tenant = await createTenant();
         const property = await createProperty(landlord._id);
         const agreement = await createAgreement(landlord._id, tenant._id, property._id, {
-            status: 'pending_signature',
+            status: 'sent',
             signingTokens: [],
         });
 
