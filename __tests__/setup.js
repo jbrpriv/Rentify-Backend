@@ -1,6 +1,3 @@
-const { MongoMemoryServer } = require('mongodb-memory-server');
-const mongoose = require('mongoose');
-
 // ── Env vars must be set before ANY module is required ───────────────────────
 process.env.JWT_SECRET = 'test_jwt_secret_key_rentify_2024';
 process.env.JWT_REFRESH_SECRET = 'test_refresh_secret_key_rentify_2024';
@@ -9,6 +6,7 @@ process.env.NODE_ENV = 'test';
 process.env.CLIENT_URL = 'http://localhost:3000';
 process.env.STRIPE_SECRET_KEY = 'sk_test_placeholder';
 process.env.STRIPE_CURRENCY = 'pkr';
+process.env.MONGO_URI = 'mongodb://localhost:27017/rentify_test';
 
 // ── Mock all external-connecting modules ─────────────────────────────────────
 
@@ -42,18 +40,19 @@ jest.mock('../utils/firebaseService', () => ({
     sendPushNotification: jest.fn().mockResolvedValue(true),
 }));
 
-// ── In-memory MongoDB lifecycle ───────────────────────────────────────────────
-let mongod;
+// ── Use real mongoose against the live MongoDB on EC2 ────────────────────────
+// (MongoMemoryServer requires too much RAM on t2.micro)
+const mongoose = require('mongoose');
 
 beforeAll(async () => {
-    mongod = await MongoMemoryServer.create();
-    await mongoose.connect(mongod.getUri());
+    if (mongoose.connection.readyState === 0) {
+        await mongoose.connect(process.env.MONGO_URI);
+    }
 });
 
 afterAll(async () => {
     await mongoose.connection.dropDatabase();
     await mongoose.connection.close();
-    await mongod.stop();
 });
 
 afterEach(async () => {
