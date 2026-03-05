@@ -1,9 +1,7 @@
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 
-let mongod;
-
-// Set required env vars before any modules load
+// ── Env vars must be set before ANY module is required ───────────────────────
 process.env.JWT_SECRET = 'test_jwt_secret_key_rentify_2024';
 process.env.JWT_REFRESH_SECRET = 'test_refresh_secret_key_rentify_2024';
 process.env.RECAPTCHA_DISABLED = 'true';
@@ -12,10 +10,30 @@ process.env.CLIENT_URL = 'http://localhost:3000';
 process.env.STRIPE_SECRET_KEY = 'sk_test_placeholder';
 process.env.STRIPE_CURRENCY = 'pkr';
 
+// ── Mock modules that connect to external services on import ─────────────────
+jest.mock('../config/db', () => jest.fn());
+
+jest.mock('../config/redis', () => ({
+    redisConnection: {},
+    redisClient: { get: jest.fn(), set: jest.fn(), del: jest.fn(), on: jest.fn() },
+}));
+
+jest.mock('../utils/firebaseService', () => ({
+    sendPushNotification: jest.fn().mockResolvedValue(true),
+}));
+
+jest.mock('../workers/notificationWorker', () => ({}));
+
+jest.mock('../schedulers/rentScheduler', () => ({
+    startRentScheduler: jest.fn(),
+}));
+
+// ── In-memory MongoDB lifecycle ───────────────────────────────────────────────
+let mongod;
+
 beforeAll(async () => {
     mongod = await MongoMemoryServer.create();
-    const uri = mongod.getUri();
-    await mongoose.connect(uri);
+    await mongoose.connect(mongod.getUri());
 });
 
 afterAll(async () => {
@@ -25,8 +43,7 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-    const collections = mongoose.connection.collections;
-    for (const key in collections) {
-        await collections[key].deleteMany({});
+    for (const key in mongoose.connection.collections) {
+        await mongoose.connection.collections[key].deleteMany({});
     }
 });
