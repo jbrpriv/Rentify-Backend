@@ -61,9 +61,6 @@ async function uploadAgreementPDF(pdfBuffer, agreementId) {
     Key: key,
     Body: pdfBuffer,
     ContentType: 'application/pdf',
-    // Tag for lifecycle policies
-    Tagging: 'Type=SignedAgreement',
-    // Server-side encryption
     ServerSideEncryption: 'AES256',
     Metadata: {
       agreementId,
@@ -124,7 +121,6 @@ async function uploadReceiptPDF(pdfBuffer, paymentId) {
     Key: key,
     Body: pdfBuffer,
     ContentType: 'application/pdf',
-    Tagging: 'Type=PaymentReceipt',
     ServerSideEncryption: 'AES256',
     Metadata: { paymentId, uploadedAt: new Date().toISOString() },
   });
@@ -165,7 +161,6 @@ async function uploadTenantDocument(fileBuffer, userId, originalName, mimeType) 
     Key: key,
     Body: fileBuffer,
     ContentType: mimeType,
-    Tagging: 'Type=TenantDocument',
     ServerSideEncryption: 'AES256',
     Metadata: { userId, uploadedAt: new Date().toISOString() },
   });
