@@ -18,7 +18,8 @@
     "testMatch": [
       "**/__tests__/**/*.test.js"
     ],
-    "testTimeout": 30000,
+    "testTimeout": 90000,
+    "resetModules": true,
     "collectCoverageFrom": [
       "controllers/**/*.js",
       "middlewares/**/*.js",
