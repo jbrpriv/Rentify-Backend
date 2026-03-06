@@ -39,8 +39,31 @@ jest.mock('../utils/firebaseService', () => ({
     sendPushNotification: jest.fn().mockResolvedValue(true),
 }));
 
-// ── Use real mongoose against the live MongoDB on EC2 ────────────────────────
-// (MongoMemoryServer requires too much RAM on t2.micro)
+// ── Single persistent connection for the entire test run ─────────────────────
+// We connect once and never close/drop between files. Here is why:
+//
+// setup.js runs as setupFilesAfterEnv, so its beforeAll/afterAll run for every
+// test file. With --runInBand all files share one process.
+//
+// Original code called dropDatabase() + close() in afterAll. This caused two
+// cascading problems:
+//
+//   1. Sentry bug (now fixed): Sentry.init() installed Proxy objects on globals.
+//      Jest 30's between-file cleanup hit these Proxies → infinite Reflect.set
+//      recursion → RangeError. Tests from the second file onward never ran.
+//
+//   2. After fixing Sentry: Jest re-orders files (failed files run first).
+//      dropDatabase() on Atlas M0 forces the driver to renegotiate the primary
+//      and re-create the DB namespace (~100-500 ms latency on shared-tier Atlas).
+//      close() + reconnect adds another round-trip. If a test's User.findById()
+//      fires during that window, mongoose buffers the command; a buffer timeout
+//      throws → protect() catches it → 401 "token failed" even for valid tokens.
+//      Keeping the connection open AND skipping dropDatabase() eliminates both
+//      race conditions entirely.
+//
+// Data isolation is already provided by the afterEach deleteMany loop below.
+// The beforeAll cleanup handles any leftovers from interrupted runs.
+// Jest's --forceExit flag terminates the process when all tests finish.
 const mongoose = require('mongoose');
 
 beforeAll(async () => {
@@ -53,22 +76,10 @@ beforeAll(async () => {
     }
 });
 
-afterAll(async () => {
-    // Drop the test database to clean up between files.
-    // Do NOT call mongoose.connection.close() here.
-    //
-    // Why: Jest runs test files sequentially (--runInBand). It re-runs previously
-    // failed files first. After this Sentry fix, all 5 files run to completion.
-    // If we close the connection after each file, the next file's beforeAll must
-    // reconnect to MongoDB Atlas. During that reconnect window (~hundreds of ms),
-    // mongoose buffers commands. If a test's User.findById() lands in that buffer
-    // and the buffer times out, mongoose throws → protect() catches it → 401.
-    // Keeping the connection alive across files eliminates that race entirely.
-    // Jest's --forceExit flag terminates the process after all tests complete.
-    if (mongoose.connection.readyState !== 0) {
-        await mongoose.connection.dropDatabase();
-    }
-});
+// afterAll intentionally does nothing.
+// - No dropDatabase(): avoids Atlas topology renegotiation latency between files.
+// - No close(): avoids reconnect races on subsequent files.
+// The test DB (rentify_test) is cleaned by afterEach after every single test.
 
 afterEach(async () => {
     // Reset mock call counts between tests so assertions like toHaveBeenCalled()
