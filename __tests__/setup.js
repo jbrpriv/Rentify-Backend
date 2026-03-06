@@ -19,14 +19,14 @@ jest.mock('../config/redis', () => ({
     redisClient: { get: jest.fn(), set: jest.fn(), del: jest.fn(), on: jest.fn() },
 }));
 
-jest.mock('../middlewares/rateLimiter', () => ({
-    loginLimiter: (req, res, next) => next(),
-    propertyLimiter: (req, res, next) => next(),
-    uploadLimiter: (req, res, next) => next(),
-    messageLimiter: (req, res, next) => next(),
-    offerLimiter: (req, res, next) => next(),
-    generalLimiter: (req, res, next) => next(),
-}));
+jest.mock('../middlewares/rateLimiter', () => {
+    return new Proxy({}, {
+        get: function () {
+            // No matter what limiter the app asks for, return a pass-through middleware
+            return (req, res, next) => next();
+        }
+    });
+});
 
 jest.mock('../queues/notificationQueue', () => ({
     add: jest.fn().mockResolvedValue(true),
@@ -84,11 +84,19 @@ beforeAll(async () => {
 // - No close(): avoids reconnect races on subsequent files.
 // The test DB (rentify_test) is cleaned by afterEach after every single test.
 
-afterEach(async () => {
-    // Reset mock call counts between tests so assertions like toHaveBeenCalled()
-    // only reflect the current test, not accumulated calls from previous tests.
+beforeEach(async () => {
     jest.clearAllMocks();
-    for (const key in mongoose.connection.collections) {
-        await mongoose.connection.collections[key].deleteMany({});
+    // Only wipe if connected, and wipe right BEFORE the test runs
+    if (mongoose.connection.readyState === 1) {
+        for (const key in mongoose.models) {
+            await mongoose.models[key].deleteMany({});
+        }
+    }
+});
+
+afterAll(async () => {
+    // Cleanly close the connection so Jest doesn't hang!
+    if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
     }
 });
