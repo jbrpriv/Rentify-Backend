@@ -55,6 +55,7 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+    jest.clearAllMocks();
     for (const key in mongoose.connection.collections) {
         await mongoose.connection.collections[key].deleteMany({});
     }
