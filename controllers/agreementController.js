@@ -1,15 +1,56 @@
 const Agreement = require('../models/Agreement');
-const Property  = require('../models/Property');
-const User      = require('../models/User');
-const Clause    = require('../models/Clause');
-const crypto    = require('crypto');
-const logger    = require('../utils/logger');
+const Property = require('../models/Property');
+const User = require('../models/User');
+const Clause = require('../models/Clause');
+const crypto = require('crypto');
+const logger = require('../utils/logger');
 const { generateAgreementPDF, generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
-const { sendEmail }                                         = require('../utils/emailService');
-const { uploadAgreementPDF, isS3Configured }               = require('../utils/s3Service');
+const { sendEmail } = require('../utils/emailService');
+const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
 
-// createAgreement has been removed.
-// Agreements are now drafted strictly by accepting an Offer (offerController.js → acceptOffer)
+// @desc    Create a draft agreement directly (landlord only)
+// @route   POST /api/agreements
+// @access  Private (Landlord)
+const createAgreement = async (req, res) => {
+  try {
+    const { tenantId, propertyId, startDate, endDate, rentAmount, depositAmount, signerOrder } = req.body;
+
+    // Validate tenant exists and has tenant role
+    const tenant = await User.findById(tenantId);
+    if (!tenant || tenant.role !== 'tenant') {
+      return res.status(400).json({ message: 'tenantId must refer to a valid tenant account' });
+    }
+
+    // Validate property ownership
+    const property = await Property.findById(propertyId);
+    if (!property) return res.status(404).json({ message: 'Property not found' });
+    if (property.landlord.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'You do not own this property' });
+    }
+
+    // Validate dates
+    if (new Date(endDate) <= new Date(startDate)) {
+      return res.status(400).json({ message: 'endDate must be after startDate' });
+    }
+
+    const agreement = await Agreement.create({
+      landlord: req.user._id,
+      tenant: tenantId,
+      property: propertyId,
+      status: 'draft',
+      signerOrder: signerOrder || 'landlord_first',
+      term: { startDate: new Date(startDate), endDate: new Date(endDate) },
+      financials: { rentAmount, depositAmount },
+      signatures: { landlord: { signed: false }, tenant: { signed: false } },
+      auditLog: [{ action: 'CREATED', actor: req.user._id, details: 'Agreement created directly by landlord' }],
+    });
+
+    return res.status(201).json(agreement);
+  } catch (error) {
+    logger.error('createAgreement error', { message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
 
 
 // @desc    Sign an agreement
@@ -20,16 +61,16 @@ const signAgreement = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('landlord', 'name email')
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('property', 'title');
 
     if (!agreement) {
       return res.status(404).json({ message: 'Agreement not found' });
     }
 
-    const userId     = req.user._id.toString();
+    const userId = req.user._id.toString();
     const isLandlord = agreement.landlord._id.toString() === userId;
-    const isTenant   = agreement.tenant._id.toString()   === userId;
+    const isTenant = agreement.tenant._id.toString() === userId;
 
     if (!isLandlord && !isTenant) {
       return res.status(403).json({ message: 'Not authorized to sign this agreement' });
@@ -60,10 +101,10 @@ const signAgreement = async (req, res) => {
 
     // ─── Stamp the signature ─────────────────────────────────────────────
     const signatureData = {
-      signed:    true,
-      signedAt:  new Date(),
+      signed: true,
+      signedAt: new Date(),
       ipAddress: req.ip,
-      drawData:  req.body?.drawData || null,
+      drawData: req.body?.drawData || null,
     };
 
     if (isLandlord) {
@@ -79,7 +120,7 @@ const signAgreement = async (req, res) => {
 
     // ─── Both signed → awaiting payment ──────────────────────────────────
     const landlordSigned = isLandlord ? true : agreement.signatures.landlord.signed;
-    const tenantSigned   = isTenant   ? true : agreement.signatures.tenant.signed;
+    const tenantSigned = isTenant ? true : agreement.signatures.tenant.signed;
 
     if (landlordSigned && tenantSigned) {
       agreement.status = 'signed';
@@ -93,10 +134,10 @@ const signAgreement = async (req, res) => {
       );
 
       agreement.auditLog.push({
-        action:    'FULLY_SIGNED',
-        actor:     req.user._id,
+        action: 'FULLY_SIGNED',
+        actor: req.user._id,
         ipAddress: req.ip,
-        details:   'Both parties signed. Awaiting security deposit payment to activate.',
+        details: 'Both parties signed. Awaiting security deposit payment to activate.',
       });
 
       // Async S3 upload — does not block response
@@ -105,7 +146,7 @@ const signAgreement = async (req, res) => {
           .then((pdfBuffer) => uploadAgreementPDF(pdfBuffer, agreement._id.toString()))
           .then((s3Key) =>
             Agreement.findByIdAndUpdate(agreement._id, {
-              documentUrl:     s3Key,
+              documentUrl: s3Key,
               documentVersion: (agreement.documentVersion || 1) + 1,
             })
           )
@@ -115,20 +156,20 @@ const signAgreement = async (req, res) => {
       }
     } else {
       agreement.auditLog.push({
-        action:    isLandlord ? 'SIGNED_LANDLORD' : 'SIGNED_TENANT',
-        actor:     req.user._id,
+        action: isLandlord ? 'SIGNED_LANDLORD' : 'SIGNED_TENANT',
+        actor: req.user._id,
         ipAddress: req.ip,
-        details:   `Signed by ${req.user.name} at ${new Date().toISOString()}`,
+        details: `Signed by ${req.user.name} at ${new Date().toISOString()}`,
       });
     }
 
     await agreement.save();
 
     res.json({
-      message:    landlordSigned && tenantSigned
+      message: landlordSigned && tenantSigned
         ? 'Agreement fully signed. Awaiting payment to activate.'
         : 'Agreement signed successfully',
-      status:     agreement.status,
+      status: agreement.status,
       signatures: agreement.signatures,
     });
   } catch (error) {
@@ -153,7 +194,7 @@ const getAgreements = async (req, res) => {
     const agreements = await Agreement.find(query)
       .populate('property', 'title address')
       .populate('landlord', 'name email')
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .sort('-createdAt');
 
     res.json(agreements);
@@ -170,7 +211,7 @@ const downloadAgreementPDF = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('landlord', 'name email')
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('property');
 
     if (!agreement) {
@@ -181,20 +222,20 @@ const downloadAgreementPDF = async (req, res) => {
     if (
       !isAdmin &&
       agreement.landlord._id.toString() !== req.user._id.toString() &&
-      agreement.tenant._id.toString()   !== req.user._id.toString()
+      agreement.tenant._id.toString() !== req.user._id.toString()
     ) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
     agreement.auditLog.push({
-      action:    'PDF_DOWNLOADED',
-      actor:     req.user._id,
+      action: 'PDF_DOWNLOADED',
+      actor: req.user._id,
       ipAddress: req.ip,
-      details:   'PDF Document Generated',
+      details: 'PDF Document Generated',
     });
     await agreement.save();
 
-    res.setHeader('Content-Type',        'application/pdf');
+    res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
 
     generateAgreementPDF(agreement, agreement.landlord, agreement.tenant, agreement.property, res);
@@ -213,7 +254,7 @@ const proposeRenewal = async (req, res) => {
   try {
     const { newEndDate, newRentAmount, notes } = req.body;
     const agreement = await Agreement.findById(req.params.id)
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('property', 'title');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
@@ -225,19 +266,19 @@ const proposeRenewal = async (req, res) => {
     }
 
     agreement.renewalProposal = {
-      proposedBy:    req.user._id,
-      newEndDate:    newEndDate    || null,
+      proposedBy: req.user._id,
+      newEndDate: newEndDate || null,
       newRentAmount: newRentAmount || agreement.financials.rentAmount,
-      notes:         notes        || '',
-      status:        'pending',
-      proposedAt:    new Date(),
+      notes: notes || '',
+      status: 'pending',
+      proposedAt: new Date(),
     };
 
     agreement.auditLog.push({
-      action:    'RENEWAL_PROPOSED',
-      actor:     req.user._id,
+      action: 'RENEWAL_PROPOSED',
+      actor: req.user._id,
       ipAddress: req.ip,
-      details:   `Renewal proposed until ${newEndDate}. New rent: Rs. ${newRentAmount || agreement.financials.rentAmount}`,
+      details: `Renewal proposed until ${newEndDate}. New rent: Rs. ${newRentAmount || agreement.financials.rentAmount}`,
     });
 
     await agreement.save();
@@ -279,27 +320,27 @@ const respondToRenewal = async (req, res) => {
     if (accept) {
       const proposal = agreement.renewalProposal;
 
-      agreement.term.endDate             = proposal.newEndDate    || agreement.term.endDate;
-      agreement.financials.rentAmount    = proposal.newRentAmount || agreement.financials.rentAmount;
-      agreement.status                   = 'active';
-      agreement.renewalProposal.status   = 'accepted';
+      agreement.term.endDate = proposal.newEndDate || agreement.term.endDate;
+      agreement.financials.rentAmount = proposal.newRentAmount || agreement.financials.rentAmount;
+      agreement.status = 'active';
+      agreement.renewalProposal.status = 'accepted';
 
       const newStart = new Date(agreement.term.startDate);
-      const newEnd   = new Date(agreement.term.endDate);
+      const newEnd = new Date(agreement.term.endDate);
       agreement.term.durationMonths =
         (newEnd.getFullYear() - newStart.getFullYear()) * 12 +
-        (newEnd.getMonth()   - newStart.getMonth());
+        (newEnd.getMonth() - newStart.getMonth());
 
       agreement.auditLog.push({
-        action:  'RENEWAL_ACCEPTED',
-        actor:   req.user._id,
+        action: 'RENEWAL_ACCEPTED',
+        actor: req.user._id,
         details: `Tenant accepted renewal until ${agreement.term.endDate}. Duration updated to ${agreement.term.durationMonths} months.`,
       });
     } else {
       agreement.renewalProposal.status = 'rejected';
       agreement.auditLog.push({
-        action:  'RENEWAL_REJECTED',
-        actor:   req.user._id,
+        action: 'RENEWAL_REJECTED',
+        actor: req.user._id,
         details: 'Tenant declined renewal proposal',
       });
     }
@@ -319,7 +360,7 @@ const getAvailableClauses = async (req, res) => {
   try {
     const { category, jurisdiction } = req.query;
     const filter = { isApproved: true, isArchived: false };
-    if (category)     filter.category     = category;
+    if (category) filter.category = category;
     if (jurisdiction) filter.jurisdiction = jurisdiction;
 
     const clauses = await Clause.find(filter)
@@ -359,19 +400,19 @@ const updateAgreementClauses = async (req, res) => {
 
     // [FIX #4] Snapshot the condition alongside title + body
     agreement.clauseSet = clauses.map((c) => ({
-      clauseId:  c._id,
-      title:     c.title,
-      body:      c.body,
+      clauseId: c._id,
+      title: c.title,
+      body: c.body,
       condition: c.condition || null,
     }));
 
     await Clause.updateMany({ _id: { $in: clauseIds } }, { $inc: { usageCount: 1 } });
 
     agreement.auditLog.push({
-      action:    'CLAUSES_UPDATED',
-      actor:     req.user._id,
+      action: 'CLAUSES_UPDATED',
+      actor: req.user._id,
       ipAddress: req.ip,
-      details:   `${clauses.length} clause(s) attached to agreement`,
+      details: `${clauses.length} clause(s) attached to agreement`,
     });
 
     await agreement.save();
@@ -392,7 +433,7 @@ const getDocumentUrl = async (req, res) => {
     const agreement = await Agreement.findById(req.params.id);
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
-    const userId  = req.user._id.toString();
+    const userId = req.user._id.toString();
     const isParty = agreement.landlord.toString() === userId || agreement.tenant.toString() === userId;
     if (!isParty && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized' });
@@ -420,7 +461,7 @@ const getDocumentUrl = async (req, res) => {
 const sendSigningInvites = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('landlord', 'name email')
       .populate('property', 'title');
 
@@ -436,23 +477,23 @@ const sendSigningInvites = async (req, res) => {
     }
 
     const landlordToken = crypto.randomBytes(32).toString('hex');
-    const tenantToken   = crypto.randomBytes(32).toString('hex');
-    const expiresAt     = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const tenantToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     agreement.signingTokens = agreement.signingTokens.filter(
       (t) => !['landlord', 'tenant'].includes(t.party)
     );
     agreement.signingTokens.push(
       { party: 'landlord', token: landlordToken, expiresAt, used: false },
-      { party: 'tenant',   token: tenantToken,   expiresAt, used: false }
+      { party: 'tenant', token: tenantToken, expiresAt, used: false }
     );
 
     agreement.status = 'pending_signature';
     agreement.auditLog.push({
-      action:    'SIGNING_INVITES_SENT',
-      actor:     req.user._id,
+      action: 'SIGNING_INVITES_SENT',
+      actor: req.user._id,
       timestamp: new Date(),
-      details:   `Signing invitations sent to ${agreement.landlord.email} and ${agreement.tenant.email}`,
+      details: `Signing invitations sent to ${agreement.landlord.email} and ${agreement.tenant.email}`,
     });
     await agreement.save();
 
@@ -475,8 +516,8 @@ const sendSigningInvites = async (req, res) => {
     );
 
     res.json({
-      message:  'Signing invitations sent successfully',
-      sentTo:   [agreement.landlord.email, agreement.tenant.email],
+      message: 'Signing invitations sent successfully',
+      sentTo: [agreement.landlord.email, agreement.tenant.email],
       expiresAt,
     });
   } catch (error) {
@@ -494,7 +535,7 @@ const signViaToken = async (req, res) => {
     if (!token || !party) return res.status(400).json({ message: 'Token and party are required' });
 
     const agreement = await Agreement.findById(req.params.id)
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('landlord', 'name email')
       .populate('property', 'title');
 
@@ -512,37 +553,37 @@ const signViaToken = async (req, res) => {
       return res.status(400).json({ message: 'Signing link has expired. Please request a new invitation.' });
     }
 
-    signingToken.used   = true;
+    signingToken.used = true;
     signingToken.usedAt = new Date();
 
-    const sig       = agreement.signatures[party];
-    sig.signed      = true;
-    sig.signedAt    = new Date();
-    sig.ipAddress   = req.ip || req.headers['x-forwarded-for'] || 'unknown';
-    sig.drawData    = req.body?.drawData || null;
+    const sig = agreement.signatures[party];
+    sig.signed = true;
+    sig.signedAt = new Date();
+    sig.ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    sig.drawData = req.body?.drawData || null;
 
     const bothSigned = agreement.signatures.landlord.signed && agreement.signatures.tenant.signed;
     if (bothSigned) {
       agreement.status = 'signed';
       agreement.auditLog.push({
-        action:    'AGREEMENT_FULLY_SIGNED',
+        action: 'AGREEMENT_FULLY_SIGNED',
         timestamp: new Date(),
-        details:   'Both parties signed via secure token links. Agreement is fully executed.',
+        details: 'Both parties signed via secure token links. Agreement is fully executed.',
       });
     } else {
       agreement.status = 'pending_signature';
       agreement.auditLog.push({
-        action:    'PARTIAL_SIGNATURE',
+        action: 'PARTIAL_SIGNATURE',
         timestamp: new Date(),
-        details:   `${party} signed via secure token link.`,
+        details: `${party} signed via secure token link.`,
       });
     }
 
     await agreement.save();
 
     res.json({
-      message:    bothSigned ? 'Agreement fully signed by all parties' : `Signature recorded for ${party}`,
-      status:     agreement.status,
+      message: bothSigned ? 'Agreement fully signed by all parties' : `Signature recorded for ${party}`,
+      status: agreement.status,
       bothSigned,
     });
   } catch (error) {
@@ -558,24 +599,24 @@ const getVersionHistory = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('versionHistory.savedBy', 'name email role')
-      .populate('auditLog.actor',         'name email role');
+      .populate('auditLog.actor', 'name email role');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
-    const userId     = req.user._id.toString();
-    const isTenant   = agreement.tenant?.toString()   === userId;
+    const userId = req.user._id.toString();
+    const isTenant = agreement.tenant?.toString() === userId;
     const isLandlord = agreement.landlord?.toString() === userId;
-    const isAdmin    = req.user.role === 'admin';
+    const isAdmin = req.user.role === 'admin';
 
     if (!isTenant && !isLandlord && !isAdmin) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
     res.json({
-      agreementId:    agreement._id,
+      agreementId: agreement._id,
       currentVersion: agreement.versionHistory.length,
       versionHistory: agreement.versionHistory.sort((a, b) => b.version - a.version),
-      auditLog:       agreement.auditLog.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
+      auditLog: agreement.auditLog.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -595,10 +636,10 @@ const saveVersionSnapshot = async (agreementId, userId, reason = 'Manual save') 
     savedBy: userId,
     reason,
     snapshot: {
-      clauses:    (agreement.clauseSet || []).map((c) => c.title || c.clauseId?.toString() || ''),
+      clauses: (agreement.clauseSet || []).map((c) => c.title || c.clauseId?.toString() || ''),
       financials: agreement.financials,
-      term:       agreement.term,
-      status:     agreement.status,
+      term: agreement.term,
+      status: agreement.status,
     },
   });
   await agreement.save();
@@ -639,15 +680,15 @@ const getAgreementPreview = async (req, res) => {
   try {
     const agreement = await Agreement.findById(req.params.id)
       .populate('property', 'title address')
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('landlord', 'name email');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 
-    const userId     = req.user._id.toString();
-    const isTenant   = agreement.tenant?._id.toString()   === userId;
+    const userId = req.user._id.toString();
+    const isTenant = agreement.tenant?._id.toString() === userId;
     const isLandlord = agreement.landlord?._id.toString() === userId;
-    const isAdmin    = req.user.role === 'admin';
+    const isAdmin = req.user.role === 'admin';
 
     if (!isTenant && !isLandlord && !isAdmin) {
       return res.status(403).json({ message: 'Not authorized' });
@@ -660,10 +701,10 @@ const getAgreementPreview = async (req, res) => {
     }
 
     const pdfBuffer = await generateAgreementPDFBuffer(agreement, agreement.landlord, agreement.tenant, agreement.property);
-    const base64    = pdfBuffer.toString('base64');
+    const base64 = pdfBuffer.toString('base64');
 
     res.json({
-      source:   'generated',
+      source: 'generated',
       base64,
       mimeType: 'application/pdf',
       filename: `agreement-${agreement._id}.pdf`,
@@ -675,6 +716,7 @@ const getAgreementPreview = async (req, res) => {
 
 
 module.exports = {
+  createAgreement,
   getAgreements,
   downloadAgreementPDF,
   signAgreement,

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middlewares/authMiddleware');
 const {
+  createAgreement,
   downloadAgreementPDF, getAgreements, signAgreement,
   proposeRenewal, respondToRenewal,
   getAvailableClauses, updateAgreementClauses, getDocumentUrl,
@@ -9,9 +10,10 @@ const {
   getVersionHistory, snapshotAgreement, getAgreementPreview,
 } = require('../controllers/agreementController');
 
-// List agreements
+// List agreements / create agreement
 router.route('/')
-  .get(protect, getAgreements);
+  .get(protect, getAgreements)
+  .post(protect, createAgreement);
 
 // Clause picker — get approved clauses for the agreement builder (H4)
 router.get('/clauses', protect, getAvailableClauses);

@@ -38,6 +38,11 @@ const agreementSchema = mongoose.Schema(
       enum: ['draft', 'sent', 'pending_signature', 'signed', 'active', 'expired', 'terminated'],
       default: 'draft',
     },
+    signerOrder: {
+      type: String,
+      enum: ['landlord_first', 'tenant_first', 'any'],
+      default: 'landlord_first',
+    },
 
     // ─── Lease Term ────────────────────────────────────────────────
     term: {

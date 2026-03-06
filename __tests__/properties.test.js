@@ -5,6 +5,15 @@ jest.mock('../utils/emailService', () => ({ sendEmail: jest.fn().mockResolvedVal
 jest.mock('../utils/smsService', () => ({ sendOTP: jest.fn(), verifyOTP: jest.fn() }));
 jest.mock('../utils/firebaseService', () => ({ sendPushNotification: jest.fn() }));
 jest.mock('../config/redis', () => ({ redisConnection: {}, redisClient: { get: jest.fn(), set: jest.fn(), del: jest.fn() } }));
+jest.mock('stripe', () => () => ({
+    checkout: { sessions: { create: jest.fn().mockResolvedValue({ url: 'https://stripe.test/pay' }) } },
+    customers: {
+        create: jest.fn().mockResolvedValue({ id: 'cus_test123' }),
+        retrieve: jest.fn().mockResolvedValue({ metadata: {} }),
+    },
+    webhooks: { constructEvent: jest.fn() },
+    billingPortal: { sessions: { create: jest.fn().mockResolvedValue({ url: 'https://billing.test' }) } },
+}));
 
 let app;
 beforeAll(() => { app = require('../server').app; });

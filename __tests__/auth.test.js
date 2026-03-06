@@ -19,6 +19,15 @@ jest.mock('../config/redis', () => ({
     redisConnection: {},
     redisClient: { get: jest.fn(), set: jest.fn(), del: jest.fn() },
 }));
+jest.mock('stripe', () => () => ({
+    checkout: { sessions: { create: jest.fn().mockResolvedValue({ url: 'https://stripe.test/pay' }) } },
+    customers: {
+        create: jest.fn().mockResolvedValue({ id: 'cus_test123' }),
+        retrieve: jest.fn().mockResolvedValue({ metadata: {} }),
+    },
+    webhooks: { constructEvent: jest.fn() },
+    billingPortal: { sessions: { create: jest.fn().mockResolvedValue({ url: 'https://billing.test' }) } },
+}));
 
 // Build the Express app without starting the HTTP server
 let app;
