@@ -1,0 +1,963 @@
+
+> server@1.0.0 test
+> jest --runInBand --forceExit
+
+PASS __tests__/admin-offers-billing.test.js (74.517 s)
+  ● Console
+
+    console.log
+      [dotenv@17.3.1] injecting env (33) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+(node:172961) [JEST-01] DeprecationWarning: '10.42.0' property was accessed on [Object] after it was soft deleted
+  Jest deletes objects that were set on the global scope between test files to reduce memory leaks.
+  Currently it only "soft" deletes them and emits this warning if those objects were accessed after their deletion.
+  In future versions of Jest, this behavior will change to "on", which will likely fail tests.
+  You can change the behavior in your test configuration now to reduce memory usage.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+FAIL __tests__/payments-disputes-maintenance-messages.test.js (71.257 s)
+  ● Console
+
+    console.log
+      [dotenv@17.3.1] injecting env (33) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+    console.log
+      {
+        _id: '69aacc63eacba35831bac330',
+        agreement: '69aacc62eacba35831bac327',
+        filedBy: {
+          _id: '69aacc62eacba35831bac323',
+          name: 'Test Tenant',
+          email: 'user_1772801122258_oq7z2c16u7@test.com'
+        },
+        against: {
+          _id: '69aacc62eacba35831bac321',
+          name: 'Test Landlord',
+          email: 'user_1772801122016_8hm80gi326@test.com'
+        },
+        property: { _id: '69aacc62eacba35831bac325', title: 'Test Property' },
+        title: 'Landlord not fixing AC',
+        description: 'The AC has been broken for 3 weeks and landlord is not responding.',
+        category: 'maintenance',
+        status: 'open',
+        resolvedBy: null,
+        resolutionNote: '',
+        resolvedAt: null,
+        attachments: [],
+        comments: [],
+        createdAt: '2026-03-06T12:45:23.273Z',
+        updatedAt: '2026-03-06T12:45:23.273Z',
+        __v: 0
+      }
+
+      at Object.log (__tests__/payments-disputes-maintenance-messages.test.js:168:17)
+
+    console.log
+      {
+        _id: '69aacc73eacba35831bac3cd',
+        property: {
+          address: {
+            street: '123 Main St',
+            city: 'Karachi',
+            state: 'Sindh',
+            zip: '75000',
+            country: 'Pakistan',
+            unitNumber: ''
+          },
+          _id: '69aacc72eacba35831bac3c3',
+          title: 'Test Property'
+        },
+        tenant: {
+          _id: '69aacc72eacba35831bac3c1',
+          name: 'Test Tenant',
+          email: 'user_1772801138027_q1osh7u9wla@test.com'
+        },
+        landlord: {
+          _id: '69aacc71eacba35831bac3bf',
+          name: 'Test Landlord',
+          email: 'user_1772801137786_m96etknfwm@test.com'
+        },
+        assignedTo: null,
+        title: 'Broken pipe',
+        description: 'The kitchen pipe is leaking.',
+        category: 'plumbing',
+        priority: 'urgent',
+        status: 'open',
+        images: [],
+        resolutionNotes: '',
+        resolvedAt: null,
+        statusHistory: [
+          {
+            status: 'open',
+            changedBy: '69aacc72eacba35831bac3c1',
+            note: 'Request submitted by tenant',
+            _id: '69aacc73eacba35831bac3ce',
+            changedAt: '2026-03-06T12:45:39.181Z'
+          }
+        ],
+        createdAt: '2026-03-06T12:45:39.182Z',
+        updatedAt: '2026-03-06T12:45:39.182Z',
+        __v: 0
+      }
+
+      at Object.log (__tests__/payments-disputes-maintenance-messages.test.js:255:17)
+
+    console.log
+      [dotenv@17.3.1] injecting env (0) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+    console.log
+      [dotenv@17.3.1] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+    console.log
+      [dotenv@17.3.1] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+  ● Maintenance Requests › landlord can update maintenance request status
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+(node:172961) [JEST-01] DeprecationWarning: '10.42.0' property was accessed on [Object] after it was soft deleted
+  Jest deletes objects that were set on the global scope between test files to reduce memory leaks.
+  Currently it only "soft" deletes them and emits this warning if those objects were accessed after their deletion.
+  In future versions of Jest, this behavior will change to "on", which will likely fail tests.
+  You can change the behavior in your test configuration now to reduce memory usage.
+FAIL __tests__/agreements.test.js (66.235 s)
+  ● Console
+
+    console.log
+      [dotenv@17.3.1] injecting env (33) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+    console.log
+      {
+        message: 'Signature recorded for tenant',
+        status: 'pending_signature',
+        bothSigned: false
+      }
+
+      at Object.log (__tests__/agreements.test.js:395:17)
+
+  ● PUT /api/agreements/:id/sign › cannot sign twice
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● Agreement renewal workflow › landlord can propose renewal on active agreement
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● Agreement renewal workflow › tenant can accept a renewal proposal
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● Agreement renewal workflow › tenant can reject a renewal proposal
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● GET /api/agreements/:id/version-history › landlord can view version history
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+FAIL __tests__/auth.test.js (54.143 s)
+  ● Console
+
+    console.log
+      [dotenv@17.3.1] injecting env (33) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+    console.error
+      JsonWebTokenError {
+        name: 'JsonWebTokenError',
+        message: 'jwt malformed'
+      }
+
+      33 |       next();
+      34 |     } catch (error) {
+    > 35 |       console.error(error);
+         |               ^
+      36 |       return res.status(401).json({ message: 'Not authorized, token failed' });
+      37 |     }
+      38 |   }
+
+      at error (middlewares/authMiddleware.js:35:15)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at next (node_modules/router/lib/route.js:157:13)
+      at Route.dispatch (node_modules/router/lib/route.js:117:3)
+      at handle (node_modules/router/index.js:435:11)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at node_modules/router/index.js:295:15
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at Function.handle (node_modules/router/index.js:186:3)
+      at router (node_modules/router/index.js:60:12)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at next (__tests__/setup.js:25:41)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at initialize (node_modules/passport/lib/middleware/initialize.js:98:5)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at cookieParser (node_modules/cookie-parser/index.js:57:14)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at read (node_modules/body-parser/lib/read.js:53:5)
+      at urlencodedParser (node_modules/body-parser/lib/types/urlencoded.js:57:5)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at read (node_modules/body-parser/lib/read.js:53:5)
+      at jsonParser (node_modules/body-parser/lib/types/json.js:88:5)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at logger (node_modules/morgan/index.js:144:5)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at cors (node_modules/cors/lib/index.js:188:7)
+      at node_modules/cors/lib/index.js:224:17
+      at originCallback (node_modules/cors/lib/index.js:214:15)
+      at node_modules/cors/lib/index.js:219:13
+      at optionsCallback (node_modules/cors/lib/index.js:199:9)
+      at corsMiddleware (node_modules/cors/lib/index.js:204:7)
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at Function.handle (node_modules/router/index.js:186:3)
+      at Function.handle (node_modules/express/lib/application.js:177:15)
+      at Server.app (node_modules/express/lib/express.js:38:9)
+
+  ● POST /api/auth/register › sends verification email on register
+
+    expect(jest.fn()).toHaveBeenCalled()
+
+    Expected number of calls: >= 1
+    Received number of calls:    0
+
+      87 |         const { sendEmail } = require('../utils/emailService');
+      88 |         await request(app).post('/api/auth/register').send({ ...validPayload, email: 'email2@test.com' });
+    > 89 |         expect(sendEmail).toHaveBeenCalled();
+         |                           ^
+      90 |     });
+      91 | });
+      92 |
+
+      at Object.toHaveBeenCalled (__tests__/auth.test.js:89:27)
+
+  ● POST /api/auth/verify-email › returns 400 for wrong OTP
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● POST /api/auth/reset-password › resets password with valid token
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● POST /api/auth/refresh › returns a new access token with valid refresh cookie
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● POST /api/auth/refresh › returns a new access token with valid refresh cookie
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● Auth middleware (protect) › rejects requests from suspended accounts (valid token, banned user)
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+(node:172961) [JEST-01] DeprecationWarning: '10.42.0' property was accessed on [Object] after it was soft deleted
+  Jest deletes objects that were set on the global scope between test files to reduce memory leaks.
+  Currently it only "soft" deletes them and emits this warning if those objects were accessed after their deletion.
+  In future versions of Jest, this behavior will change to "on", which will likely fail tests.
+  You can change the behavior in your test configuration now to reduce memory usage.
+(node:172961) [JEST-01] DeprecationWarning: '10.42.0' property was accessed on [Object] after it was soft deleted
+  Jest deletes objects that were set on the global scope between test files to reduce memory leaks.
+  Currently it only "soft" deletes them and emits this warning if those objects were accessed after their deletion.
+  In future versions of Jest, this behavior will change to "on", which will likely fail tests.
+  You can change the behavior in your test configuration now to reduce memory usage.
+FAIL __tests__/properties.test.js (49.879 s)
+  ● Console
+
+    console.log
+      [dotenv@17.3.1] injecting env (33) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+    console.log
+      ✅ Facebook OAuth strategy registered
+
+      at Object.log (config/passport.js:139:11)
+
+    console.log
+      {
+        message: 'Property archived successfully',
+        property: {
+          pmInvitation: { invitedManager: null, status: null, invitedAt: null },
+          address: {
+            street: '123 Main St',
+            city: 'Karachi',
+            state: 'Sindh',
+            zip: '75000',
+            country: 'Pakistan',
+            unitNumber: ''
+          },
+          specs: { bedrooms: 2, bathrooms: 1 },
+          financials: {
+            monthlyRent: 25000,
+            securityDeposit: 50000,
+            lateFeeAmount: 1000,
+            lateFeeGracePeriodDays: 5,
+            maintenanceFee: 0,
+            taxId: ''
+          },
+          leaseTerms: { defaultDurationMonths: 12 },
+          _id: '69aacd3641685a91ad564276',
+          landlord: '69aacd3541685a91ad564274',
+          managedBy: null,
+          title: 'Test Property',
+          type: 'apartment',
+          amenities: [],
+          status: 'vacant',
+          isListed: false,
+          isArchived: true,
+          archivedAt: '2026-03-06T12:48:54.584Z',
+          archivedReason: 'Archived by owner',
+          listingDescription: '',
+          images: [],
+          views: 0,
+          applications: [],
+          createdAt: '2026-03-06T12:48:54.132Z',
+          updatedAt: '2026-03-06T12:48:54.585Z',
+          __v: 0
+        }
+      }
+
+      at Object.log (__tests__/properties.test.js:218:17)
+
+  ● POST /api/properties › tenant cannot create a property
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● DELETE /api/properties/:id › cannot delete an occupied property
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+  ● Property archive & restore › landlord can archive a vacant property
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+
+  ● Test suite failed to run
+
+    RangeError: Maximum call stack size exceeded
+        at Reflect.set (<anonymous>)
+
+      at originalSetter (node_modules/jest-util/build/index.js:504:62)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+          at Reflect.set (<anonymous>)
+
+Test Suites: 4 failed, 1 passed, 5 total
+Tests:       14 failed, 93 passed, 107 total
+Snapshots:   0 total
+Time:        316.161 s
+Ran all test suites.
+Force exiting Jest: Have you considered using `--detectOpenHandles` to detect async operations that kept running after all tests finished?
