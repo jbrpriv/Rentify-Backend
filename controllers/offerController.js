@@ -1,9 +1,9 @@
-const Offer              = require('../models/Offer');
-const Property           = require('../models/Property');
-const Agreement          = require('../models/Agreement');
-const AgreementTemplate  = require('../models/AgreementTemplate');
-const Clause             = require('../models/Clause');
-const { sendEmail }      = require('../utils/emailService');
+const Offer = require('../models/Offer');
+const Property = require('../models/Property');
+const Agreement = require('../models/Agreement');
+const AgreementTemplate = require('../models/AgreementTemplate');
+const Clause = require('../models/Clause');
+const { sendEmail } = require('../utils/emailService');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,16 +23,16 @@ const getOffers = async (req, res) => {
     const { status, propertyId, page = 1, limit = 50 } = req.query;
     const filter = {};
 
-    if (req.user.role === 'tenant')   filter.tenant   = req.user._id;
+    if (req.user.role === 'tenant') filter.tenant = req.user._id;
     if (req.user.role === 'landlord') filter.landlord = req.user._id;
-    if (status)     filter.status   = status;
+    if (status) filter.status = status;
     if (propertyId) filter.property = propertyId;
 
     const skip = (Number(page) - 1) * Number(limit);
 
     const [offers, total] = await Promise.all([
       Offer.find(filter)
-        .populate('tenant',   'name email phoneNumber profilePhoto')
+        .populate('tenant', 'name email phoneNumber profilePhoto')
         .populate('landlord', 'name email')
         .populate('property', 'title address financials status images leaseTerms')
         .populate('agreement', 'status term financials')
@@ -52,7 +52,7 @@ const getOffers = async (req, res) => {
 const getOfferById = async (req, res) => {
   try {
     const offer = await Offer.findById(req.params.id)
-      .populate('tenant',   'name email phoneNumber profilePhoto')
+      .populate('tenant', 'name email phoneNumber profilePhoto')
       .populate('landlord', 'name email phoneNumber')
       .populate('property', 'title address financials status images leaseTerms')
       .populate('agreement', 'status term financials signatures documentUrl');
@@ -87,30 +87,30 @@ const createOffer = async (req, res) => {
     // Block only if an active (non-terminal) offer already exists
     const existing = await Offer.findOne({
       property: propertyId,
-      tenant:   req.user._id,
-      status:   { $in: ['pending', 'countered', 'accepted'] },
+      tenant: req.user._id,
+      status: { $in: ['pending', 'countered', 'accepted'] },
     });
     if (existing)
       return res.status(409).json({ message: 'You already have an active offer on this property', offerId: existing._id });
 
     const offer = await Offer.create({
-      property:    propertyId,
-      landlord:    property.landlord._id,
-      tenant:      req.user._id,
+      property: propertyId,
+      landlord: property.landlord._id,
+      tenant: req.user._id,
       listedTerms: {
-        monthlyRent:         property.financials.monthlyRent,
-        securityDeposit:     property.financials.securityDeposit,
+        monthlyRent: property.financials?.monthlyRent || 0,
+        securityDeposit: property.financials?.securityDeposit || 0,
         leaseDurationMonths: property.leaseTerms?.defaultDurationMonths || 12,
       },
       history: [{
-        round:               1,
-        offeredBy:           'tenant',
-        monthlyRent:         Number(monthlyRent),
-        securityDeposit:     Number(securityDeposit),
+        round: 1,
+        offeredBy: 'tenant',
+        monthlyRent: Number(monthlyRent),
+        securityDeposit: Number(securityDeposit),
         leaseDurationMonths: Number(leaseDurationMonths),
       }],
       applicantDetails: {
-        name:  req.user.name,
+        name: req.user.name,
         email: req.user.email,
         phone: req.user.phoneNumber || '',
       },
@@ -119,7 +119,7 @@ const createOffer = async (req, res) => {
     const populated = await Offer.findById(offer._id)
       .populate('property', 'title address')
       .populate('landlord', 'name email')
-      .populate('tenant',   'name email');
+      .populate('tenant', 'name email');
 
     res.status(201).json(populated);
   } catch (err) {
@@ -136,11 +136,11 @@ const counterOffer = async (req, res) => {
     const offer = await Offer.findById(req.params.id);
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
 
-    const uid  = req.user._id.toString();
+    const uid = req.user._id.toString();
     const role = req.user.role;
 
     const isLandlord = offer.landlord.toString() === uid;
-    const isTenant   = offer.tenant.toString()   === uid;
+    const isTenant = offer.tenant.toString() === uid;
 
     if (!isLandlord && !isTenant)
       return res.status(403).json({ message: 'Not authorised' });
@@ -158,18 +158,18 @@ const counterOffer = async (req, res) => {
     const { monthlyRent, securityDeposit, leaseDurationMonths, note } = req.body;
 
     offer.history.push({
-      round:               offer.history.length + 1,
-      offeredBy:           isLandlord ? 'landlord' : 'tenant',
-      monthlyRent:         Number(monthlyRent),
-      securityDeposit:     Number(securityDeposit),
+      round: offer.history.length + 1,
+      offeredBy: isLandlord ? 'landlord' : 'tenant',
+      monthlyRent: Number(monthlyRent),
+      securityDeposit: Number(securityDeposit),
       leaseDurationMonths: Number(leaseDurationMonths),
-      note:                isLandlord ? (note || '') : '', // only landlord can add note
+      note: isLandlord ? (note || '') : '', // only landlord can add note
     });
     offer.status = 'countered';
     await offer.save();
 
     const populated = await Offer.findById(offer._id)
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('landlord', 'name email')
       .populate('property', 'title address financials');
 
@@ -185,7 +185,7 @@ const acceptOffer = async (req, res) => {
   try {
     const offer = await Offer.findById(req.params.id)
       .populate('property', 'title address financials leaseTerms status')
-      .populate('tenant',   'name email phoneNumber')
+      .populate('tenant', 'name email phoneNumber')
       .populate('landlord', 'name email');
 
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
@@ -219,8 +219,8 @@ const acceptOffer = async (req, res) => {
       }
       clauseSet = (tmpl.clauseIds || []).map((c) => ({
         clauseId: c._id,
-        title:    c.title,
-        body:     c.body,
+        title: c.title,
+        body: c.body,
       }));
       // Bump usage count on each clause
       const approvedIds = tmpl.clauseIds.filter(c => c.isApproved).map(c => c._id);
@@ -230,30 +230,30 @@ const acceptOffer = async (req, res) => {
     }
 
     const agreement = await Agreement.create({
-      landlord:   offer.landlord._id,
-      tenant:     offer.tenant._id,
-      property:   offer.property._id,
+      landlord: offer.landlord._id,
+      tenant: offer.tenant._id,
+      property: offer.property._id,
       term: {
         startDate,
         endDate,
         durationMonths,
       },
       financials: {
-        rentAmount:    agreed.monthlyRent,
+        rentAmount: agreed.monthlyRent,
         depositAmount: agreed.securityDeposit,
         lateFeeAmount: offer.property.financials?.lateFeeAmount || 0,
         lateFeeGracePeriodDays: offer.property.financials?.lateFeeGracePeriodDays || 5,
       },
       clauseSet,
       auditLog: [{
-        action:  'CREATED_FROM_OFFER',
-        actor:   req.user._id,
+        action: 'CREATED_FROM_OFFER',
+        actor: req.user._id,
         details: `Agreement drafted from accepted offer (round ${agreed.round})${templateId ? ` using template ${templateId}` : ''}`,
       }],
     });
 
     // ── Update this offer ─────────────────────────────────────────────────────
-    offer.status    = 'accepted';
+    offer.status = 'accepted';
     offer.agreement = agreement._id;
     await offer.save();
 
@@ -274,8 +274,8 @@ const acceptOffer = async (req, res) => {
     await Offer.updateMany(
       {
         property: offer.property._id,
-        _id:      { $ne: offer._id },
-        status:   { $in: ['pending', 'countered'] },
+        _id: { $ne: offer._id },
+        status: { $in: ['pending', 'countered'] },
       },
       { $set: { status: 'declined' } }
     );
