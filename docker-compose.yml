@@ -1,0 +1,38 @@
+version: '3.9'
+
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    container_name: rentifypro-api
+    restart: unless-stopped
+    ports:
+      - '5000:5000'
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - rentify-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: rentifypro-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rentify-net
+
+networks:
+  rentify-net:
+    driver: bridge

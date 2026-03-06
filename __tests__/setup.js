@@ -47,6 +47,10 @@ beforeAll(async () => {
     if (mongoose.connection.readyState === 0) {
         await mongoose.connect(process.env.MONGO_URI);
     }
+    // Clean any leftover data from a previously interrupted test run
+    for (const key in mongoose.connection.collections) {
+        await mongoose.connection.collections[key].deleteMany({});
+    }
 });
 
 afterAll(async () => {
@@ -55,6 +59,8 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
+    // Reset mock call counts between tests so assertions like toHaveBeenCalled()
+    // only reflect the current test, not accumulated calls from previous tests.
     jest.clearAllMocks();
     for (const key in mongoose.connection.collections) {
         await mongoose.connection.collections[key].deleteMany({});

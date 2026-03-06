@@ -66,7 +66,7 @@ const createAgreement = async (landlordId, tenantId, propertyId, overrides = {})
         tenant: tenantId,
         property: propertyId,
         status: 'draft',
-        signerOrder: 'any',
+        signerOrder: 'any', // allow either party to sign first in tests
         term: { startDate, endDate, durationMonths: 12 },
         financials: { rentAmount: 25000, depositAmount: 50000, lateFeeAmount: 1000, lateFeeGracePeriodDays: 5 },
         signatures: {
