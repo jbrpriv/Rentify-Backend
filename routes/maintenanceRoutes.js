@@ -33,3 +33,59 @@ router.route('/:id')
   .delete(protect, deleteRequest);
 
 module.exports = router;
+/**
+ * @swagger
+ * tags:
+ *   name: Maintenance
+ *   description: Maintenance request management
+ *
+ * /api/maintenance:
+ *   get:
+ *     summary: Get maintenance requests (role-filtered)
+ *     tags: [Maintenance]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Array of maintenance requests }
+ *   post:
+ *     summary: Submit a maintenance request (tenant only)
+ *     tags: [Maintenance]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [propertyId, title, description, category]
+ *             properties:
+ *               propertyId: { type: string }
+ *               title: { type: string }
+ *               description: { type: string }
+ *               category: { type: string, enum: [plumbing, electrical, structural, appliance, other] }
+ *               priority: { type: string, enum: [low, medium, urgent] }
+ *     responses:
+ *       201: { description: Request created }
+ *
+ * /api/maintenance/{id}:
+ *   put:
+ *     summary: Update a maintenance request status or notes
+ *     tags: [Maintenance]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Request updated }
+ *   delete:
+ *     summary: Delete a maintenance request (creator only)
+ *     tags: [Maintenance]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Request deleted }
+ */

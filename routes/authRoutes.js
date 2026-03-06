@@ -1,5 +1,5 @@
-const express  = require('express');
-const router   = express.Router();
+const express = require('express');
+const router = express.Router();
 const passport = require('../config/passport');
 const { body } = require('express-validator');
 const { protect } = require('../middlewares/authMiddleware');
@@ -139,14 +139,14 @@ function makeOAuthCallback(providerName) {
         }
 
         // ── Fully resolved user — issue tokens ────────────────────────────────
-        const accessToken       = generateAccessToken(user._id);
+        const accessToken = generateAccessToken(user._id);
         const refreshTokenValue = generateRefreshToken(user._id);
 
         res.cookie('refreshToken', refreshTokenValue, {
           httpOnly: true,
-          secure:   process.env.NODE_ENV === 'production',
+          secure: process.env.NODE_ENV === 'production',
           sameSite: 'strict',
-          maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days
+          maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
         });
 
         // A user needs the onboarding flow if:
@@ -156,22 +156,22 @@ function makeOAuthCallback(providerName) {
         // In case (b) we pass skipToOTP=true so the complete-profile page jumps
         // directly to the OTP step without asking them to re-enter their details.
         const hasPlaceholderPhone = user.phoneNumber === '0000000000';
-        const isNewUser           = hasPlaceholderPhone || !user.isPhoneVerified;
+        const isNewUser = hasPlaceholderPhone || !user.isPhoneVerified;
 
         const params = new URLSearchParams({
-          token:           accessToken,
-          name:            user.name,
-          role:            user.role,
-          id:              user._id.toString(),
-          email:           user.email,
+          token: accessToken,
+          name: user.name,
+          role: user.role,
+          id: user._id.toString(),
+          email: user.email,
           isPhoneVerified: String(user.isPhoneVerified),
-          isNewUser:       String(isNewUser),
-          provider:        providerName,
+          isNewUser: String(isNewUser),
+          provider: providerName,
           // Pass existing phone so complete-profile can pre-populate the field.
           // skipToOTP signals the profile form should lock name/role but keep
           // phone editable — the user may want to correct their number.
-          phoneNumber:     hasPlaceholderPhone ? '' : user.phoneNumber,
-          skipToOTP:       String(!hasPlaceholderPhone && !user.isPhoneVerified),
+          phoneNumber: hasPlaceholderPhone ? '' : user.phoneNumber,
+          skipToOTP: String(!hasPlaceholderPhone && !user.isPhoneVerified),
         });
 
         return res.redirect(
@@ -199,3 +199,114 @@ if (process.env.FACEBOOK_APP_ID && process.env.FACEBOOK_APP_SECRET) {
 }
 
 module.exports = router;
+/**
+ * @swagger
+ * tags:
+ *   name: Auth
+ *   description: Authentication and account management
+ *
+ * /api/auth/register:
+ *   post:
+ *     summary: Register a new user
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, email, password, role]
+ *             properties:
+ *               name: { type: string, example: "Ali Hassan" }
+ *               email: { type: string, example: "ali@example.com" }
+ *               password: { type: string, example: "Password123!" }
+ *               role: { type: string, enum: [landlord, tenant] }
+ *               phoneNumber: { type: string, example: "03001234567" }
+ *     responses:
+ *       201: { description: User registered, email verification OTP sent }
+ *       400: { description: Validation error or email already in use }
+ *
+ * /api/auth/login:
+ *   post:
+ *     summary: Login with email and password
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email: { type: string }
+ *               password: { type: string }
+ *     responses:
+ *       200: { description: Login successful, returns access token }
+ *       401: { description: Invalid credentials }
+ *       403: { description: Account suspended }
+ *
+ * /api/auth/logout:
+ *   post:
+ *     summary: Logout and clear refresh token cookie
+ *     tags: [Auth]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Logged out }
+ *
+ * /api/auth/refresh:
+ *   post:
+ *     summary: Refresh access token using httpOnly refresh cookie
+ *     tags: [Auth]
+ *     responses:
+ *       200: { description: New access token returned }
+ *       401: { description: Refresh token invalid or expired }
+ *
+ * /api/auth/verify-email:
+ *   post:
+ *     summary: Verify email with OTP code
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email: { type: string }
+ *               code: { type: string, example: "123456" }
+ *     responses:
+ *       200: { description: Email verified }
+ *       400: { description: Invalid or expired OTP }
+ *
+ * /api/auth/forgot-password:
+ *   post:
+ *     summary: Send password reset link
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email: { type: string }
+ *     responses:
+ *       200: { description: Reset link sent if email exists }
+ *
+ * /api/auth/reset-password:
+ *   post:
+ *     summary: Reset password using token from email
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               token: { type: string }
+ *               password: { type: string }
+ *     responses:
+ *       200: { description: Password reset successful }
+ *       400: { description: Invalid or expired token }
+ */

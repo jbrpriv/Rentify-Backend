@@ -41,3 +41,48 @@ router.get('/:propertyId/:otherUserId', protect, getConversation);
 router.delete('/:id', protect, deleteMessage);
 
 module.exports = router;
+/**
+ * @swagger
+ * tags:
+ *   name: Messages
+ *   description: Real-time messaging between landlords and tenants
+ *
+ * /api/messages:
+ *   post:
+ *     summary: Send a message
+ *     tags: [Messages]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [receiverId, content]
+ *             properties:
+ *               receiverId: { type: string }
+ *               content: { type: string }
+ *               agreementId: { type: string }
+ *     responses:
+ *       201: { description: Message sent }
+ *
+ * /api/messages/inbox:
+ *   get:
+ *     summary: Get inbox (list of conversations)
+ *     tags: [Messages]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Array of conversation summaries }
+ *
+ * /api/messages/conversation/{userId}:
+ *   get:
+ *     summary: Get full conversation with a specific user
+ *     tags: [Messages]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Array of messages }
+ */

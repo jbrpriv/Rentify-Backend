@@ -715,9 +715,85 @@ const getAgreementPreview = async (req, res) => {
 };
 
 
+// @desc    Get a single agreement by ID (party or admin only)
+// @route   GET /api/agreements/:id
+// @access  Private
+const getAgreementById = async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id)
+      .populate('landlord', 'name email phoneNumber')
+      .populate('tenant', 'name email phoneNumber')
+      .populate('property', 'title address financials specs type images');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    const userId = req.user._id.toString();
+    const isLandlord = agreement.landlord?._id?.toString() === userId;
+    const isTenant = agreement.tenant?._id?.toString() === userId;
+    const isAdmin = req.user.role === 'admin';
+    const isPM = req.user.role === 'property_manager';
+
+    if (!isLandlord && !isTenant && !isAdmin && !isPM) {
+      return res.status(403).json({ message: 'Not authorized to view this agreement' });
+    }
+
+    return res.json(agreement);
+  } catch (error) {
+    logger.error('getAgreementById error', { message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Update rent escalation settings for an agreement
+// @route   PUT /api/agreements/:id/escalation
+// @access  Private (Landlord only)
+const updateEscalation = async (req, res) => {
+  try {
+    const agreement = await Agreement.findById(req.params.id);
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    if (agreement.landlord.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the landlord can update escalation settings' });
+    }
+
+    const { enabled, percentage } = req.body;
+
+    if (typeof enabled === 'boolean') agreement.rentEscalation.enabled = enabled;
+
+    if (percentage !== undefined) {
+      const pct = Number(percentage);
+      if (isNaN(pct) || pct < 0 || pct > 50) {
+        return res.status(400).json({ message: 'Percentage must be between 0 and 50' });
+      }
+      agreement.rentEscalation.percentage = pct;
+    }
+
+    // If enabling, set next scheduled date to one year from the lease start
+    if (enabled && !agreement.rentEscalation.nextScheduledAt) {
+      const nextDate = new Date(agreement.term.startDate);
+      nextDate.setFullYear(nextDate.getFullYear() + 1);
+      agreement.rentEscalation.nextScheduledAt = nextDate;
+    }
+
+    agreement.auditLog.push({
+      action: 'ESCALATION_UPDATED',
+      actor: req.user._id,
+      ipAddress: req.ip,
+      details: `Rent escalation ${enabled ? 'enabled' : 'updated'} at ${percentage ?? agreement.rentEscalation.percentage}%`,
+    });
+
+    await agreement.save();
+    return res.json({ message: 'Escalation settings updated', rentEscalation: agreement.rentEscalation });
+  } catch (error) {
+    logger.error('updateEscalation error', { message: error.message });
+    return res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   createAgreement,
   getAgreements,
+  getAgreementById,
   downloadAgreementPDF,
   signAgreement,
   proposeRenewal,
@@ -731,4 +807,5 @@ module.exports = {
   snapshotAgreement,
   getAgreementPreview,
   saveVersionSnapshot,
+  updateEscalation,
 };

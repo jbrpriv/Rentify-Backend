@@ -1,23 +1,24 @@
 const { Worker } = require('bullmq');
+const logger = require('../utils/logger');
 const redisConnection = require('../config/redis');
 const { sendEmail } = require('../utils/emailService');
 const { sendSMS } = require('../utils/smsService');
-const Agreement      = require('../models/Agreement');
-const User           = require('../models/User');
-const { sendPush }   = require('../utils/firebaseService');
+const Agreement = require('../models/Agreement');
+const User = require('../models/User');
+const { sendPush } = require('../utils/firebaseService');
 
 const notificationWorker = new Worker(
   'notifications',
   async (job) => {
     const { type, data } = job.data;
-    console.log(`Processing job [${type}] - Job ID: ${job.id}`);
+    logger.info(`Processing job [${type}] - Job ID: ${job.id}`);
 
     // Helper: send push if user has FCM token
     const pushToUser = async (userId, template, ...args) => {
       try {
         const u = await User.findById(userId).select('fcmToken');
         if (u?.fcmToken) await sendPush(u.fcmToken, template, ...args);
-      } catch {}
+      } catch { }
     };
 
     switch (type) {
@@ -32,7 +33,7 @@ const notificationWorker = new Worker(
         if (!agreement) throw new Error(`Agreement ${agreementId} not found`);
 
         if (agreement.status !== 'active') {
-          console.log(`Skipping reminder — agreement ${agreementId} is ${agreement.status}`);
+          logger.info(`Skipping reminder — agreement ${agreementId} is ${agreement.status}`);
           return;
         }
 
@@ -248,7 +249,7 @@ const notificationWorker = new Worker(
           .populate('landlord', 'name email')
           .populate('property', 'title');
 
-        const tenant   = agreement?.tenant;
+        const tenant = agreement?.tenant;
         const landlord = agreement?.landlord;
 
         if (tenant) {
@@ -329,7 +330,7 @@ const notificationWorker = new Worker(
       }
 
       default:
-        console.warn(`Unknown job type: ${type}`);
+        logger.warn(`Unknown job type: ${type}`);
     }
   },
   {
@@ -340,11 +341,11 @@ const notificationWorker = new Worker(
 
 // ─── Worker event listeners ───────────────────────────────────────────────────
 notificationWorker.on('completed', (job) => {
-  console.log(`✅ Job completed [${job.data.type}] - ID: ${job.id}`);
+  logger.info(`✅ Job completed [${job.data.type}] - ID: ${job.id}`);
 });
 
 notificationWorker.on('failed', (job, err) => {
-  console.error(`❌ Job failed [${job.data.type}] - ID: ${job.id} - Error: ${err.message}`);
+  logger.error(`❌ Job failed [${job.data.type}] - ID: ${job.id} - Error: ${err.message}`);
 });
 
 module.exports = notificationWorker;
