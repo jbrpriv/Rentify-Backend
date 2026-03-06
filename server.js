@@ -27,15 +27,22 @@ function getProfilingIntegration() {
   return [];
 }
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,           // set SENTRY_DSN= in .env
-  environment: process.env.NODE_ENV || 'development',
-  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
-  profilesSampleRate: 0.1,
-  integrations: getProfilingIntegration(),
-  // Don't send events in test runs
-  enabled: process.env.NODE_ENV !== 'test',
-});
+// Sentry must not be initialised at all during tests.
+// Even with `enabled: false`, Sentry.init() installs deeply nested Proxy
+// objects on the Node.js global scope.  Jest 30's between-file global
+// cleanup (originalSetter in jest-util) intercepts Reflect.set on those
+// Proxy targets, which causes infinite recursion and a
+// "RangeError: Maximum call stack size exceeded" in every test suite
+// after the first one.
+if (process.env.NODE_ENV !== 'test') {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
+    profilesSampleRate: 0.1,
+    integrations: getProfilingIntegration(),
+  });
+}
 
 // ─── [FIX #2] Structured logger ───────────────────────────────────────────────
 const logger = require('./utils/logger');
@@ -165,7 +172,10 @@ app.use((req, res) => {
 });
 
 // ─── [FIX #1] Sentry error handler — must come AFTER routes, BEFORE custom handler
-Sentry.setupExpressErrorHandler(app);
+// Skipped in test mode (Sentry is not initialised there — see comment above).
+if (process.env.NODE_ENV !== 'test') {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 // ─── Global error handler ─────────────────────────────────────────────────────
 // [FIX #2] Uses logger.error instead of console.error
