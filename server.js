@@ -41,7 +41,7 @@ Sentry.init({
 const logger = require('./utils/logger');
 const { morganMiddleware } = require('./utils/logger');
 
-require('dotenv').config();
+require('dotenv').config({ override: false });
 const dns = require('node:dns');
 dns.setDefaultResultOrder('ipv4first');
 require('node:dns/promises').setServers(['8.8.8.8', '8.8.4.4']);
