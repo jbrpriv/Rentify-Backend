@@ -85,7 +85,12 @@ describe('POST /api/auth/register', () => {
 
     it('sends verification email on register', async () => {
         const { sendEmail } = require('../utils/emailService');
-        await request(app).post('/api/auth/register').send({ ...validPayload, email: 'email2@test.com' });
+        // FIX: Replaced phoneNumber with a unique one so it doesn't fail validation
+        const res = await request(app)
+            .post('/api/auth/register')
+            .send({ ...validPayload, email: 'email2@test.com', phoneNumber: '03009999999' });
+
+        if (res.status !== 201) console.log('[AUTH DEBUG]', res.body);
         expect(sendEmail).toHaveBeenCalled();
     });
 });
