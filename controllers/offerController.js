@@ -98,6 +98,7 @@ const createOffer = async (req, res) => {
       landlord: property.landlord._id,
       tenant: req.user._id,
       listedTerms: {
+        // FIX: Added optional chaining and fallbacks to prevent 500 crashes
         monthlyRent: property.financials?.monthlyRent || 0,
         securityDeposit: property.financials?.securityDeposit || 0,
         leaseDurationMonths: property.leaseTerms?.defaultDurationMonths || 12,
