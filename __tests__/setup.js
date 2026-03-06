@@ -6,7 +6,10 @@ process.env.NODE_ENV = 'test';
 process.env.CLIENT_URL = 'http://localhost:3000';
 process.env.STRIPE_SECRET_KEY = 'sk_test_placeholder';
 process.env.STRIPE_CURRENCY = 'pkr';
-process.env.MONGO_URI = 'mongodb+srv://jabbarpriv_db_user:MZNH2gYML0YYvrmq@development.n7b4xlz.mongodb.net/rentify_test?appName=Development';
+// 👇 DYNAMICALLY SANDBOX THE DATABASE PER WORKER
+const workerId = process.env.JEST_WORKER_ID || '1';
+process.env.MONGO_URI = `mongodb+srv://jabbarpriv_db_user:MZNH2gYML0YYvrmq@development.n7b4xlz.mongodb.net/rentify_test_${workerId}?appName=Development`;
+//process.env.MONGO_URI = 'mongodb+srv://jabbarpriv_db_user:MZNH2gYML0YYvrmq@development.n7b4xlz.mongodb.net/rentify_test?appName=Development';
 // ── Mock all external-connecting modules ─────────────────────────────────────
 
 jest.mock('../config/db', () => jest.fn().mockResolvedValue(true));
