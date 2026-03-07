@@ -55,11 +55,10 @@ const downloadReceipt = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to access this receipt' });
     }
 
-    // ── If we have an S3 key, return a signed URL (redirect) ────────────────
+    // ── If we have an S3 key, return a signed URL ────────────────────────────
     if (payment.receiptUrl && isS3Configured()) {
       try {
         const signedUrl = await getSignedReceiptUrl(payment.receiptUrl);
-        // Return the URL as JSON — frontend opens it in a new tab
         return res.json({ url: signedUrl });
       } catch (s3Err) {
         logger.warn('S3 signed URL failed, falling back to on-demand generation', { err: s3Err.message });
@@ -67,7 +66,7 @@ const downloadReceipt = async (req, res) => {
       }
     }
 
-    // ── On-demand generation (S3 not configured or key missing) ─────────────
+    // ── On-demand generation (receiptUrl missing or signed URL failed) ───────
     const tenant = payment.tenant;
     const property = payment.property;
 
@@ -77,6 +76,21 @@ const downloadReceipt = async (req, res) => {
 
     const pdfBuffer = await generateReceiptPDFBuffer(payment, tenant, property);
 
+    // If S3 is configured, upload now, backfill receiptUrl, and return a signed URL.
+    // This handles the common case where the webhook's fire-and-forget upload silently
+    // failed, leaving receiptUrl null on the Payment document.
+    if (isS3Configured()) {
+      try {
+        const key = await uploadReceiptPDF(pdfBuffer, payment._id.toString());
+        await Payment.findByIdAndUpdate(payment._id, { receiptUrl: key });
+        const signedUrl = await getSignedReceiptUrl(key);
+        return res.json({ url: signedUrl });
+      } catch (s3Err) {
+        logger.warn('On-demand S3 upload failed, falling back to inline stream', { err: s3Err.message });
+      }
+    }
+
+    // True last-resort fallback: stream binary PDF (S3 completely unavailable)
     const filename = `receipt-${payment.receiptNumber || payment._id}.pdf`;
     res.set({
       'Content-Type': 'application/pdf',
