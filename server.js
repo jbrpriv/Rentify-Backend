@@ -133,7 +133,7 @@ app.post('/api/webhooks', ...stripeWebhookMiddleware);
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleBillingWebhook);
 
 const helmet = require('helmet');
-const mongoSanitize = require('express-mongo-sanitize');
+const mongoSanitize = require('@exortek/express-mongo-sanitize');
 const xss = require('xss-clean');
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
@@ -144,8 +144,10 @@ app.use(cookieParser());
 // ─── Global Security Middlewares ─────────────────────────────────────────────
 // Set security HTTP headers
 app.use(helmet());
-// Data sanitization against NoSQL query injection
-app.use(mongoSanitize());
+// Data sanitization against NoSQL query injection (Configured for Express 5.x read-only query object)
+app.use(mongoSanitize({
+  replaceWith: '_'
+}));
 // Data sanitization against XSS
 app.use(xss());
 
