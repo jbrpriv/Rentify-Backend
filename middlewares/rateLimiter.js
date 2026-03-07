@@ -7,7 +7,7 @@ const loginLimiter = rateLimit({
   message: { message: 'Too many login attempts. Please try again in 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, forwaredHeader: false },
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
 });
 
 // ─── Property creation / update (prevent spam listings) ──────────────────────
@@ -17,7 +17,7 @@ const propertyLimiter = rateLimit({
   message: { message: 'Too many property requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, forwaredHeader: false },
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
 });
 
 // ─── File uploads ─────────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ const uploadLimiter = rateLimit({
   message: { message: 'Upload limit reached. Please try again in an hour.' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, forwaredHeader: false },
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
 });
 
 // ─── Messaging (prevent spam) ─────────────────────────────────────────────────
@@ -37,7 +37,7 @@ const messageLimiter = rateLimit({
   message: { message: 'Message rate limit exceeded. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, forwaredHeader: false },
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
 });
 
 // ─── Offer / application submissions ─────────────────────────────────────────
@@ -47,7 +47,7 @@ const offerLimiter = rateLimit({
   message: { message: 'Too many offer submissions. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, forwaredHeader: false },
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
 });
 
 // ─── General API (broad fallback) ────────────────────────────────────────────
@@ -57,7 +57,7 @@ const generalLimiter = rateLimit({
   message: { message: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, forwaredHeader: false },
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
 });
 
 module.exports = { loginLimiter, propertyLimiter, uploadLimiter, messageLimiter, offerLimiter, generalLimiter };
