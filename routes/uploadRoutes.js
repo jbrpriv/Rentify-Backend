@@ -159,7 +159,6 @@ router.post('/profile-photo', protect, upload.single('photo'), async (req, res) 
   }
 });
 
-module.exports = router;
 // @desc    Get a specific tenant's documents (landlord view — view URL only, no raw file served)
 // @route   GET /api/upload/landlord/tenant-documents/:tenantId
 // @access  Private (Landlord or Admin) — returns short-lived signed view URLs
@@ -172,14 +171,14 @@ router.get('/landlord/tenant-documents/:tenantId', protect, async (req, res) => 
       return res.status(403).json({ message: 'Only landlords and admins can access tenant documents' });
     }
 
-    const User     = require('../models/User');
+    const User = require('../models/User');
     const Agreement = require('../models/Agreement');
 
     // Verify the requesting landlord has (or had) an agreement with this tenant
     if (req.user.role === 'landlord') {
       const agreement = await Agreement.findOne({
         landlord: req.user._id,
-        tenant:   req.params.tenantId,
+        tenant: req.params.tenantId,
       });
       if (!agreement) {
         return res.status(403).json({ message: 'No agreement found with this tenant' });
@@ -203,19 +202,21 @@ router.get('/landlord/tenant-documents/:tenantId', protect, async (req, res) => 
     } else {
       // S3 not configured — strip raw URLs to avoid exposing local paths
       docs = docs.map(doc => ({
-        _id:          doc._id,
+        _id: doc._id,
         documentType: doc.documentType,
         originalName: doc.originalName,
-        uploadedAt:   doc.uploadedAt,
-        url:          null,
+        uploadedAt: doc.uploadedAt,
+        url: null,
       }));
     }
 
     res.json({
       tenantName: tenant.name,
-      documents:  docs,
+      documents: docs,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
+
+module.exports = router;
