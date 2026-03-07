@@ -1,237 +1,631 @@
 const PDFDocument = require('pdfkit');
 const { substituteClauses } = require('./clauseSubstitution');
 
-/**
- * Shared PDF body builder — populates a PDFDocument instance.
- * Used by both the streaming (HTTP download) and buffer (S3 upload) paths.
- */
-function _buildPDF(doc, agreement, landlord, tenant, property) {
-  // ─── HEADER ──────────────────────────────────────────────────────────────────
-  doc.fontSize(20).text('RESIDENTIAL RENTAL AGREEMENT', { align: 'center' });
-  doc.moveDown();
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const C = {
+  navy: '#0F2B5B',   // primary dark
+  blue: '#1A56DB',   // accent
+  lightBlue: '#EBF2FF',   // section bg tint
+  teal: '#0D9488',   // badge / highlight
+  gray900: '#111827',
+  gray700: '#374151',
+  gray500: '#6B7280',
+  gray300: '#D1D5DB',
+  gray100: '#F3F4F6',
+  white: '#FFFFFF',
+  green: '#059669',
+  amber: '#D97706',
+  red: '#DC2626',
+};
 
-  // ─── PARTIES ─────────────────────────────────────────────────────────────────
-  doc.fontSize(12).text(`This Agreement is made on ${new Date().toLocaleDateString()}`);
-  doc.moveDown();
-  doc.text(`BETWEEN: ${landlord.name} ("Landlord")`);
-  doc.text(`AND: ${tenant.name} ("Tenant")`);
-  doc.moveDown();
+const FONT = {
+  regular: 'Helvetica',
+  bold: 'Helvetica-Bold',
+  oblique: 'Helvetica-Oblique',
+};
 
-  // ─── PROPERTY ────────────────────────────────────────────────────────────────
-  doc.text('FOR THE PROPERTY AT:');
-  doc.text(`${property.address.street}, ${property.address.city}, ${property.address.state}`);
-  doc.moveDown();
+const PAGE = { width: 595.28, height: 841.89, margin: 50 };
+const CONTENT_W = PAGE.width - PAGE.margin * 2;
 
-  // ─── TERMS ───────────────────────────────────────────────────────────────────
-  doc.fontSize(14).text('TERMS AND CONDITIONS', { underline: true });
-  doc.fontSize(12);
-  doc.moveDown();
-  doc.text(`1. TERM: Commencing ${new Date(agreement.term.startDate).toDateString()} and ending ${new Date(agreement.term.endDate).toDateString()}.`);
-  doc.moveDown();
-  doc.text(`2. RENT: The Tenant agrees to pay Rs. ${agreement.financials.rentAmount.toLocaleString()} per month.`);
-  doc.moveDown();
-  doc.text(`3. SECURITY DEPOSIT: A refundable deposit of Rs. ${agreement.financials.depositAmount.toLocaleString()} shall be held by the Landlord.`);
-  doc.moveDown();
-  doc.text(`4. LATE FEE: A late fee of Rs. ${agreement.financials.lateFeeAmount || 0} applies after ${agreement.financials.lateFeeGracePeriodDays || 5} days grace period.`);
-  doc.moveDown();
+// ─── Low-level drawing helpers ────────────────────────────────────────────────
 
-  // Optional policy fields
-  if (agreement.utilitiesIncluded) {
-    doc.text(`5. UTILITIES: Utilities are included in the monthly rent.${agreement.utilitiesDetails ? ' ' + agreement.utilitiesDetails : ''}`);
-    doc.moveDown();
-  }
-  if (agreement.petPolicy?.allowed) {
-    doc.text(`6. PET POLICY: Pets are permitted with an additional deposit of Rs. ${agreement.petPolicy.deposit || 0}.`);
-    doc.moveDown();
+/** Filled rectangle */
+function rect(doc, x, y, w, h, color) {
+  doc.save().rect(x, y, w, h).fill(color).restore();
+}
+
+/** Horizontal rule */
+function hr(doc, y, color = C.gray300, x = PAGE.margin, w = CONTENT_W) {
+  doc.save().moveTo(x, y).lineTo(x + w, y).lineWidth(0.5).strokeColor(color).stroke().restore();
+}
+
+/** Text clipped to a width (no built-in truncation in PDFKit) */
+function safeText(doc, text, x, y, opts = {}) {
+  doc.text(String(text ?? ''), x, y, { lineBreak: false, ...opts });
+}
+
+/** Rounded-corner badge */
+function badge(doc, label, x, y, bgColor, textColor = C.white) {
+  const pad = 6;
+  const w = doc.widthOfString(label) + pad * 2;
+  doc.save().roundedRect(x, y - 1, w, 14, 3).fill(bgColor).restore();
+  doc.save().font(FONT.bold).fontSize(7).fillColor(textColor).text(label, x + pad, y + 1, { lineBreak: false }).restore();
+  return w;
+}
+
+// ─── Page furniture (header bar + footer) ────────────────────────────────────
+
+function addPageFurniture(doc, pageNum, totalPages, title = 'RENTAL AGREEMENT') {
+  const savedY = doc.y;
+
+  // ── Top bar ──
+  rect(doc, 0, 0, PAGE.width, 36, C.navy);
+  doc.save()
+    .font(FONT.bold).fontSize(11).fillColor(C.white)
+    .text('RentifyPro', PAGE.margin, 12, { lineBreak: false })
+    .restore();
+  doc.save()
+    .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
+    .text(title, 0, 14, { align: 'center', lineBreak: false, width: PAGE.width })
+    .restore();
+  doc.save()
+    .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
+    .text(`Page ${pageNum} of ${totalPages}`, PAGE.margin, 14, {
+      align: 'right', lineBreak: false, width: CONTENT_W,
+    })
+    .restore();
+
+  // ── Bottom bar ──
+  rect(doc, 0, PAGE.height - 28, PAGE.width, 28, C.navy);
+  doc.save()
+    .font(FONT.regular).fontSize(7).fillColor('#93C5FD')
+    .text(
+      'This document was generated by RentifyPro. Digital signatures constitute legally binding acceptance.',
+      PAGE.margin, PAGE.height - 17,
+      { align: 'center', lineBreak: false, width: CONTENT_W }
+    )
+    .restore();
+
+  doc.y = savedY;
+}
+
+// ─── Section heading ──────────────────────────────────────────────────────────
+
+function sectionHeading(doc, label, y) {
+  rect(doc, PAGE.margin, y, CONTENT_W, 24, C.lightBlue);
+  doc.save()
+    .rect(PAGE.margin, y, 4, 24).fill(C.blue).restore();
+  doc.save()
+    .font(FONT.bold).fontSize(9).fillColor(C.navy)
+    .text(label.toUpperCase(), PAGE.margin + 12, y + 7, { lineBreak: false })
+    .restore();
+  return y + 32;
+}
+
+// ─── Two-column info row ──────────────────────────────────────────────────────
+
+function infoRow(doc, label, value, x, y, colW = CONTENT_W / 2 - 6) {
+  doc.save().font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
+    .text(label.toUpperCase(), x, y, { lineBreak: false, width: colW })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
+    .text(String(value ?? '—'), x, y + 10, { lineBreak: false, width: colW })
+    .restore();
+  return y + 28;
+}
+
+// ─── Financial summary table ──────────────────────────────────────────────────
+
+function financialTable(doc, rows, y) {
+  const col0 = PAGE.margin;
+  const col1 = PAGE.margin + CONTENT_W * 0.65;
+  const rowH = 24;
+
+  rows.forEach((row, i) => {
+    const bg = row.highlight ? C.lightBlue : (i % 2 === 0 ? C.white : C.gray100);
+    rect(doc, col0, y, CONTENT_W, rowH, bg);
+
+    doc.save()
+      .font(row.highlight ? FONT.bold : FONT.regular)
+      .fontSize(9.5).fillColor(C.gray700)
+      .text(row.label, col0 + 10, y + 7, { lineBreak: false })
+      .restore();
+
+    doc.save()
+      .font(row.highlight ? FONT.bold : FONT.regular)
+      .fontSize(9.5).fillColor(row.highlight ? C.navy : C.gray900)
+      .text(row.value, col1, y + 7, { lineBreak: false, align: 'right', width: CONTENT_W * 0.35 - 10 })
+      .restore();
+
+    y += rowH;
+  });
+
+  // bottom border
+  hr(doc, y, C.gray300);
+  return y + 8;
+}
+
+// ─── Signature block ──────────────────────────────────────────────────────────
+
+function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
+  // Box
+  doc.save().roundedRect(x, y, blockW, 110, 6).stroke(C.gray300).restore();
+
+  // Label
+  rect(doc, x, y, blockW, 22, C.navy);
+  doc.save().font(FONT.bold).fontSize(8).fillColor(C.white)
+    .text(label, x + 10, y + 7, { lineBreak: false })
+    .restore();
+
+  let cy = y + 30;
+
+  if (sigData) {
+    try {
+      const base64 = sigData.replace(/^data:image\/\w+;base64,/, '');
+      const imgBuf = Buffer.from(base64, 'base64');
+      doc.image(imgBuf, x + 10, cy, { width: blockW - 20, height: 40 });
+    } catch (_) {
+      doc.save().font(FONT.oblique).fontSize(8).fillColor(C.gray500)
+        .text('[Signature image unavailable]', x + 10, cy + 14, { lineBreak: false })
+        .restore();
+    }
+    cy += 46;
   } else {
-    doc.text('6. PET POLICY: No pets are permitted on the premises.');
-    doc.moveDown();
+    // blank line
+    hr(doc, cy + 16, C.gray500, x + 10, blockW - 20);
+    cy += 24;
+  }
+
+  doc.save().font(FONT.bold).fontSize(8.5).fillColor(C.gray900)
+    .text(person?.name || '________________', x + 10, cy, { lineBreak: false })
+    .restore();
+  cy += 12;
+
+  if (signedAt) {
+    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.green)
+      .text(`✓ Signed  ${new Date(signedAt).toLocaleString('en-PK')}`, x + 10, cy, { lineBreak: false })
+      .restore();
+  } else {
+    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.amber)
+      .text('⚠ Pending Signature', x + 10, cy, { lineBreak: false })
+      .restore();
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AGREEMENT PDF
+// ═════════════════════════════════════════════════════════════════════════════
+
+function _buildPDF(doc, agreement, landlord, tenant, property) {
+  const fmt = {
+    money: n => `Rs. ${(n ?? 0).toLocaleString('en-PK')}`,
+    date: d => d ? new Date(d).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
+  };
+
+  const address = property?.address
+    ? [property.address.street, property.address.city, property.address.state].filter(Boolean).join(', ')
+    : '—';
+
+  // ── We'll do a 2-pass approach: build content first, then we know page count.
+  // PDFKit doesn't support total page count natively, so we track manually.
+  // We add furniture after each page via the 'pageAdded' event.
+  let pageNum = 1;
+
+  // Track page numbers via events
+  doc.on('pageAdded', () => { pageNum++; });
+
+  // We'll use a post-process trick: render furniture on every page.
+  // Because PDFKit doesn't expose totalPages, we write "Page N" and patch later.
+  // For simplicity, we render furniture inline at the start of each page.
+
+  // ════ PAGE 1 — COVER ═══════════════════════════════════════════════════════
+
+  // Full navy header banner
+  rect(doc, 0, 0, PAGE.width, 180, C.navy);
+
+  // Decorative circle accents
+  doc.save().circle(PAGE.width - 60, 40, 70).fillOpacity(0.07).fill(C.white).restore();
+  doc.save().circle(PAGE.width - 20, 160, 50).fillOpacity(0.05).fill(C.white).restore();
+
+  // Logo / brand
+  doc.save().font(FONT.bold).fontSize(22).fillColor(C.white).fillOpacity(1)
+    .text('RentifyPro', PAGE.margin, 36, { lineBreak: false })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(9).fillColor('#93C5FD')
+    .text('Property Management Platform', PAGE.margin, 62, { lineBreak: false })
+    .restore();
+
+  // Document title
+  doc.save().font(FONT.bold).fontSize(26).fillColor(C.white)
+    .text('RESIDENTIAL RENTAL', PAGE.margin, 98, { lineBreak: false })
+    .restore();
+  doc.save().font(FONT.bold).fontSize(26).fillColor('#60A5FA')
+    .text('AGREEMENT', PAGE.margin, 126, { lineBreak: false })
+    .restore();
+
+  // Date badge
+  const dateStr = `Generated: ${fmt.date(new Date())}`;
+  doc.save().font(FONT.regular).fontSize(8).fillColor('#93C5FD')
+    .text(dateStr, PAGE.margin, 158, { lineBreak: false })
+    .restore();
+
+  // Agreement ID
+  doc.save().font(FONT.regular).fontSize(8).fillColor('#93C5FD')
+    .text(`Agreement ID: ${agreement._id}`, 0, 158, { align: 'right', lineBreak: false, width: PAGE.width - PAGE.margin })
+    .restore();
+
+  let y = 200;
+
+  // ── Parties & Property cards ──
+  // Two side-by-side cards
+  const cardW = (CONTENT_W - 12) / 2;
+
+  // Landlord card
+  rect(doc, PAGE.margin, y, cardW, 80, C.gray100);
+  doc.save().rect(PAGE.margin, y, cardW, 80).stroke(C.gray300).restore();
+  doc.save().font(FONT.bold).fontSize(7).fillColor(C.blue)
+    .text('LANDLORD', PAGE.margin + 10, y + 10, { lineBreak: false })
+    .restore();
+  doc.save().font(FONT.bold).fontSize(11).fillColor(C.gray900)
+    .text(landlord?.name || '—', PAGE.margin + 10, y + 22, { lineBreak: false, width: cardW - 20 })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+    .text(landlord?.email || '—', PAGE.margin + 10, y + 38, { lineBreak: false, width: cardW - 20 })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+    .text(landlord?.phoneNumber || '—', PAGE.margin + 10, y + 52, { lineBreak: false, width: cardW - 20 })
+    .restore();
+
+  // Tenant card
+  const cx2 = PAGE.margin + cardW + 12;
+  rect(doc, cx2, y, cardW, 80, C.gray100);
+  doc.save().rect(cx2, y, cardW, 80).stroke(C.gray300).restore();
+  doc.save().font(FONT.bold).fontSize(7).fillColor(C.teal)
+    .text('TENANT', cx2 + 10, y + 10, { lineBreak: false })
+    .restore();
+  doc.save().font(FONT.bold).fontSize(11).fillColor(C.gray900)
+    .text(tenant?.name || '—', cx2 + 10, y + 22, { lineBreak: false, width: cardW - 20 })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+    .text(tenant?.email || '—', cx2 + 10, y + 38, { lineBreak: false, width: cardW - 20 })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+    .text(tenant?.phoneNumber || '—', cx2 + 10, y + 52, { lineBreak: false, width: cardW - 20 })
+    .restore();
+
+  y += 92;
+
+  // Property card (full width)
+  rect(doc, PAGE.margin, y, CONTENT_W, 56, C.lightBlue);
+  doc.save().rect(PAGE.margin, y, CONTENT_W, 56).stroke(C.blue).restore();
+  doc.save().rect(PAGE.margin, y, 4, 56).fill(C.blue).restore();
+  doc.save().font(FONT.bold).fontSize(7).fillColor(C.blue)
+    .text('PROPERTY', PAGE.margin + 12, y + 10, { lineBreak: false })
+    .restore();
+  doc.save().font(FONT.bold).fontSize(11.5).fillColor(C.navy)
+    .text(property?.title || '—', PAGE.margin + 12, y + 22, { lineBreak: false, width: CONTENT_W - 24 })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray700)
+    .text(address, PAGE.margin + 12, y + 38, { lineBreak: false, width: CONTENT_W - 24 })
+    .restore();
+
+  y += 68;
+
+  // ── Term summary strip ──
+  rect(doc, PAGE.margin, y, CONTENT_W, 48, C.navy);
+  const termCols = [
+    { label: 'START DATE', value: fmt.date(agreement.term?.startDate) },
+    { label: 'END DATE', value: fmt.date(agreement.term?.endDate) },
+    { label: 'DURATION', value: `${agreement.term?.durationMonths || '—'} months` },
+    { label: 'MONTHLY RENT', value: fmt.money(agreement.financials?.rentAmount) },
+  ];
+  const colW4 = CONTENT_W / 4;
+  termCols.forEach((col, i) => {
+    const cx = PAGE.margin + i * colW4 + 12;
+    doc.save().font(FONT.bold).fontSize(6.5).fillColor('#93C5FD')
+      .text(col.label, cx, y + 10, { lineBreak: false, width: colW4 - 16 })
+      .restore();
+    doc.save().font(FONT.bold).fontSize(10).fillColor(C.white)
+      .text(col.value, cx, y + 22, { lineBreak: false, width: colW4 - 16 })
+      .restore();
+    if (i < 3) {
+      doc.save().moveTo(PAGE.margin + (i + 1) * colW4, y + 8)
+        .lineTo(PAGE.margin + (i + 1) * colW4, y + 40)
+        .lineWidth(0.5).strokeColor('#1E40AF').stroke().restore();
+    }
+  });
+
+  y += 60;
+
+  // ════ PAGE 2 — FINANCIAL & TERMS ══════════════════════════════════════════
+  doc.addPage();
+  addPageFurniture(doc, 2, '—');
+  y = 56;
+
+  // ── Financials section ──
+  y = sectionHeading(doc, '01  Financial Terms', y);
+
+  const finRows = [
+    { label: 'Monthly Rent', value: fmt.money(agreement.financials?.rentAmount) },
+    { label: 'Security Deposit', value: fmt.money(agreement.financials?.depositAmount) },
+    { label: 'Late Fee', value: fmt.money(agreement.financials?.lateFeeAmount || 0) },
+    { label: 'Late Fee Grace Period', value: `${agreement.financials?.lateFeeGracePeriodDays || 5} days` },
+    { label: 'Total Move-In Cost', value: fmt.money((agreement.financials?.rentAmount || 0) + (agreement.financials?.depositAmount || 0)), highlight: true },
+  ];
+  y = financialTable(doc, finRows, y);
+  y += 12;
+
+  // ── Utilities & Policies section ──
+  y = sectionHeading(doc, '02  Utilities & Policies', y);
+
+  const col1x = PAGE.margin;
+  const col2x = PAGE.margin + CONTENT_W / 2 + 6;
+  const halfW = CONTENT_W / 2 - 6;
+
+  infoRow(doc, 'Utilities', agreement.utilitiesIncluded ? '✓ Included in rent' : '✗ Not included', col1x, y, halfW);
+  infoRow(doc, 'Pet Policy', agreement.petPolicy?.allowed ? `✓ Allowed  (deposit: ${fmt.money(agreement.petPolicy?.deposit)})` : '✗ No pets permitted', col2x, y, halfW);
+  y += 32;
+
+  if (agreement.utilitiesDetails) {
+    infoRow(doc, 'Utilities Details', agreement.utilitiesDetails, col1x, y, CONTENT_W);
+    y += 32;
   }
   if (agreement.terminationPolicy) {
-    doc.text(`7. TERMINATION: ${agreement.terminationPolicy}`);
-    doc.moveDown();
+    infoRow(doc, 'Termination Policy', agreement.terminationPolicy, col1x, y, CONTENT_W);
+    y += 32;
   }
+  y += 8;
 
-  // ─── ADDITIONAL CLAUSES (C3 fix — renders full clauseSet with variable substitution) ──
-  const resolvedClauses = substituteClauses(agreement);
+  // ── Standard clauses section ──
+  y = sectionHeading(doc, '03  Standard Conditions', y);
+
+  const standardClauses = [
+    'The Tenant shall keep the property in clean and habitable condition throughout the tenancy.',
+    'The Tenant shall not sublet or assign the property without prior written consent from the Landlord.',
+    'The Landlord shall provide 24 hours notice before entering the property except in emergencies.',
+    'Any damage beyond normal wear and tear shall be deducted from the security deposit.',
+    'The Tenant is responsible for minor maintenance and repairs up to Rs. 5,000.',
+  ];
+
+  standardClauses.forEach((text, i) => {
+    if (y > PAGE.height - 120) {
+      doc.addPage();
+      addPageFurniture(doc, pageNum, '—');
+      y = 56;
+    }
+    doc.save().font(FONT.bold).fontSize(9).fillColor(C.navy)
+      .text(`${i + 1}.`, PAGE.margin, y, { lineBreak: false, width: 16 })
+      .restore();
+    doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
+      .text(text, PAGE.margin + 18, y, { width: CONTENT_W - 18 })
+      .restore();
+    y += doc.heightOfString(text, { width: CONTENT_W - 18 }) + 10;
+  });
+
+  y += 8;
+
+  // ════ ADDITIONAL CLAUSES ══════════════════════════════════════════════════
+  const agreementWithRefs = Object.assign(
+    Object.create(Object.getPrototypeOf(agreement)),
+    agreement,
+    { landlord, tenant, property }
+  );
+  const resolvedClauses = substituteClauses(agreementWithRefs);
 
   if (resolvedClauses.length > 0) {
-    doc.addPage();
-    doc.fontSize(14).text('ADDITIONAL CLAUSES', { underline: true });
-    doc.moveDown();
+    if (y > PAGE.height - 160) {
+      doc.addPage();
+      addPageFurniture(doc, pageNum, '—');
+      y = 56;
+    }
+
+    y = sectionHeading(doc, '04  Additional Clauses', y);
 
     resolvedClauses.forEach((clause, i) => {
-      doc.fontSize(12).font('Helvetica-Bold').text(`${i + 1}. ${clause.title}`);
-      doc.fontSize(10).font('Helvetica').text(clause.body);
-      doc.moveDown();
+      const bodyH = doc.heightOfString(clause.body, { width: CONTENT_W - 18 });
+
+      if (y + bodyH + 50 > PAGE.height - 80) {
+        doc.addPage();
+        addPageFurniture(doc, pageNum, '—');
+        y = 56;
+      }
+
+      // Clause header
+      rect(doc, PAGE.margin, y, CONTENT_W, 20, C.gray100);
+      doc.save().font(FONT.bold).fontSize(9).fillColor(C.navy)
+        .text(`${i + 1}.  ${clause.title}`, PAGE.margin + 10, y + 5, { lineBreak: false })
+        .restore();
+      y += 24;
+
+      doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
+        .text(clause.body, PAGE.margin + 10, y, { width: CONTENT_W - 20 })
+        .restore();
+      y += bodyH + 16;
     });
   }
 
-  doc.moveDown(2);
+  // ════ SIGNATURES PAGE ════════════════════════════════════════════════════
+  doc.addPage();
+  addPageFurniture(doc, pageNum, '—');
+  y = 56;
 
-  // ─── DIGITAL SIGNATURE BLOCK ─────────────────────────────────────────────────
-  doc.fontSize(14).text('DIGITAL SIGNATURES', { underline: true });
-  doc.moveDown();
+  y = sectionHeading(doc, '05  Digital Signatures', y);
+  y += 12;
 
-  if (agreement.signatures?.landlord?.signed) {
-    doc.fontSize(11).text('LANDLORD SIGNATURE:', { continued: false });
-    // Draw canvas signature image if present
-    const llDrawData = agreement.signatures.landlord.drawData;
-    if (llDrawData) {
-      try {
-        const base64 = llDrawData.replace(/^data:image\/\w+;base64,/, '');
-        const imgBuf = Buffer.from(base64, 'base64');
-        doc.image(imgBuf, { width: 220, height: 70 });
-      } catch (_) { /* image decode failed — skip */ }
-    }
-    doc.fontSize(10)
-      .text(`Name: ${landlord.name}`)
-      .text(`Signed At: ${new Date(agreement.signatures.landlord.signedAt).toLocaleString()}`)
-      .text('Status: \u2713 Digitally Signed');
-  } else {
-    doc.fontSize(11).text('LANDLORD SIGNATURE:');
-    doc.fontSize(10).text('Status: \u26A0 Pending Signature');
-    doc.moveDown();
-    doc.text('__________________________');
-    doc.text(`${landlord.name} (Landlord)`);
-  }
+  // Status banner
+  const bothSigned = agreement.signatures?.landlord?.signed && agreement.signatures?.tenant?.signed;
+  const bannerColor = bothSigned ? C.green : C.amber;
+  const bannerText = bothSigned
+    ? '✓  Both parties have signed — this agreement is fully executed.'
+    : '⚠  This agreement is pending one or more signatures.';
+  rect(doc, PAGE.margin, y, CONTENT_W, 28, bannerColor + '1A');
+  doc.save().rect(PAGE.margin, y, CONTENT_W, 28).stroke(bannerColor).restore();
+  doc.save().font(FONT.bold).fontSize(9).fillColor(bannerColor)
+    .text(bannerText, PAGE.margin + 12, y + 9, { lineBreak: false })
+    .restore();
+  y += 40;
 
-  doc.moveDown(2);
+  const sigW = (CONTENT_W - 16) / 2;
+  signatureBlock(
+    doc, 'LANDLORD SIGNATURE',
+    landlord,
+    agreement.signatures?.landlord?.drawData,
+    agreement.signatures?.landlord?.signedAt,
+    PAGE.margin, y, sigW
+  );
+  signatureBlock(
+    doc, 'TENANT SIGNATURE',
+    tenant,
+    agreement.signatures?.tenant?.drawData,
+    agreement.signatures?.tenant?.signedAt,
+    PAGE.margin + sigW + 16, y, sigW
+  );
 
-  if (agreement.signatures?.tenant?.signed) {
-    doc.fontSize(11).text('TENANT SIGNATURE:', { continued: false });
-    const tnDrawData = agreement.signatures.tenant.drawData;
-    if (tnDrawData) {
-      try {
-        const base64 = tnDrawData.replace(/^data:image\/\w+;base64,/, '');
-        const imgBuf = Buffer.from(base64, 'base64');
-        doc.image(imgBuf, { width: 220, height: 70 });
-      } catch (_) { /* image decode failed — skip */ }
-    }
-    doc.fontSize(10)
-      .text(`Name: ${tenant.name}`)
-      .text(`Signed At: ${new Date(agreement.signatures.tenant.signedAt).toLocaleString()}`)
-      .text('Status: \u2713 Digitally Signed');
-  } else {
-    doc.fontSize(11).text('TENANT SIGNATURE:');
-    doc.fontSize(10).text('Status: \u26A0 Pending Signature');
-    doc.moveDown();
-    doc.text('__________________________');
-    doc.text(`${tenant.name} (Tenant)`);
-  }
+  y += 130;
+  hr(doc, y, C.gray300);
+  y += 16;
 
-  doc.moveDown(2);
-
-  doc.fontSize(9)
-    .fillColor('#666666')
+  doc.save().font(FONT.regular).fontSize(8).fillColor(C.gray500)
     .text(
-      'This document was generated by RentifyPro. Digital signatures recorded above constitute legally binding acceptance of the terms herein.',
-      { align: 'center' }
-    );
+      'By signing above, both parties acknowledge that they have read, understood, and agree to all terms and conditions set forth in this Residential Rental Agreement. This document is legally binding upon execution.',
+      PAGE.margin, y, { width: CONTENT_W, align: 'center' }
+    )
+    .restore();
 }
 
-/**
- * Stream a PDF directly to an HTTP response object.
- * Used by GET /api/agreements/:id/pdf
- */
+// ═════════════════════════════════════════════════════════════════════════════
+// RECEIPT PDF
+// ═════════════════════════════════════════════════════════════════════════════
+
+function _buildReceiptPDF(doc, payment, tenant, property) {
+  const fmt = {
+    money: n => `Rs. ${Number(n ?? 0).toLocaleString('en-PK')}`,
+    date: d => d ? new Date(d).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
+  };
+
+  // A5 dimensions
+  const W = 419.53, H = 595.28, M = 40, CW = W - M * 2;
+
+  // ── Header banner ──
+  rect(doc, 0, 0, W, 100, C.navy);
+  doc.save().circle(W - 30, 20, 55).fillOpacity(0.07).fill(C.white).restore();
+
+  doc.save().font(FONT.bold).fontSize(18).fillColor(C.white).fillOpacity(1)
+    .text('RentifyPro', M, 22, { lineBreak: false })
+    .restore();
+  doc.save().font(FONT.regular).fontSize(8).fillColor('#93C5FD')
+    .text('Official Payment Receipt', M, 46, { lineBreak: false })
+    .restore();
+
+  // Receipt number pill
+  const receiptLabel = `# ${payment.receiptNumber || 'N/A'}`;
+  const pilW = doc.widthOfString(receiptLabel) + 20;
+  rect(doc, M, 62, pilW, 18, '#1D4ED8');
+  doc.save().font(FONT.bold).fontSize(8).fillColor(C.white)
+    .text(receiptLabel, M + 10, 67, { lineBreak: false })
+    .restore();
+
+  let y = 116;
+
+  // ── Amount highlight box ──
+  rect(doc, M, y, CW, 52, C.lightBlue);
+  doc.save().rect(M, y, CW, 52).stroke(C.blue).restore();
+  doc.save().rect(M, y, 4, 52).fill(C.blue).restore();
+  doc.save().font(FONT.bold).fontSize(8).fillColor(C.blue)
+    .text('AMOUNT PAID', M + 12, y + 10, { lineBreak: false })
+    .restore();
+  doc.save().font(FONT.bold).fontSize(22).fillColor(C.navy)
+    .text(fmt.money(payment.amount), M + 12, y + 22, { lineBreak: false })
+    .restore();
+
+  const typeLabel = payment.type?.replace(/_/g, ' ').toUpperCase() || 'PAYMENT';
+  badge(doc, typeLabel, M + CW - doc.widthOfString(typeLabel) - 24, y + 20, C.teal);
+
+  y += 64;
+
+  // ── Details grid ──
+  const rows = [
+    { label: 'Payment Date', value: fmt.date(payment.paidAt || payment.createdAt) },
+    { label: 'Period Covered', value: payment.dueDate ? new Date(payment.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' }) : '—' },
+    { label: 'Tenant', value: tenant?.name || '—' },
+    { label: 'Email', value: tenant?.email || '—' },
+    { label: 'Property', value: property?.title || '—' },
+    { label: 'Address', value: property?.address ? `${property.address.street || ''}, ${property.address.city || ''}` : '—' },
+  ];
+
+  if (payment.lateFeeIncluded && payment.lateFeeAmount > 0) {
+    rows.push({ label: 'Late Fee Included', value: fmt.money(payment.lateFeeAmount) });
+  }
+  if (payment.stripePaymentIntent) {
+    rows.push({ label: 'Transaction Ref', value: payment.stripePaymentIntent });
+  }
+
+  rows.forEach((row, i) => {
+    const bg = i % 2 === 0 ? C.white : C.gray100;
+    rect(doc, M, y, CW, 24, bg);
+    doc.save().font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
+      .text(row.label, M + 10, y + 8, { lineBreak: false, width: CW * 0.42 })
+      .restore();
+    doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
+      .text(String(row.value), M + CW * 0.45, y + 7, { lineBreak: false, width: CW * 0.52 })
+      .restore();
+    y += 24;
+  });
+
+  hr(doc, y + 4, C.gray300, M, CW);
+  y += 20;
+
+  // ── Status badge ──
+  const statusW = 80;
+  rect(doc, M, y, statusW, 22, C.green + '20');
+  doc.save().rect(M, y, statusW, 22).stroke(C.green).restore();
+  doc.save().font(FONT.bold).fontSize(9).fillColor(C.green)
+    .text('✓  PAID', M + 10, y + 6, { lineBreak: false })
+    .restore();
+
+  // ── Footer ──
+  rect(doc, 0, H - 36, W, 36, C.navy);
+  doc.save().font(FONT.regular).fontSize(7).fillColor('#93C5FD')
+    .text(
+      'This is an official payment receipt generated by RentifyPro. Please retain for your records.',
+      M, H - 22, { align: 'center', lineBreak: false, width: CW }
+    )
+    .restore();
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 const generateAgreementPDF = (agreement, landlord, tenant, property, res) => {
-  const doc = new PDFDocument({ margin: 50 });
+  const doc = new PDFDocument({ margin: PAGE.margin, size: 'A4', autoFirstPage: true });
   doc.pipe(res);
   _buildPDF(doc, agreement, landlord, tenant, property);
   doc.end();
 };
 
-/**
- * Generate a PDF and return it as a Buffer (for S3 upload).
- * Returns a Promise<Buffer>.
- */
 const generateAgreementPDFBuffer = (agreement, landlord, tenant, property) => {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50 });
+    const doc = new PDFDocument({ margin: PAGE.margin, size: 'A4', autoFirstPage: true });
     const chunks = [];
-
-    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-
     _buildPDF(doc, agreement, landlord, tenant, property);
     doc.end();
   });
 };
 
-module.exports = { generateAgreementPDF, generateAgreementPDFBuffer };
-
-// ─── RECEIPT PDF ──────────────────────────────────────────────────────────────
-
-function _buildReceiptPDF(doc, payment, tenant, property) {
-  // ─── HEADER ────────────────────────────────────────────────────────────────
-  doc.fontSize(20).text('PAYMENT RECEIPT', { align: 'center' });
-  doc.moveDown(0.5);
-  doc.fontSize(11).fillColor('#2563eb').text('RentifyPro', { align: 'center' });
-  doc.fillColor('#000000').moveDown();
-
-  // ─── RECEIPT META ──────────────────────────────────────────────────────────
-  doc.fontSize(12).text(`Receipt Number: ${payment.receiptNumber || 'N/A'}`);
-  doc.text(`Date: ${new Date(payment.paidAt || payment.createdAt).toDateString()}`);
-  doc.moveDown();
-
-  // ─── PARTIES ──────────────────────────────────────────────────────────────
-  doc.fontSize(12).text(`Received from: ${tenant.name}`);
-  doc.text(`Email: ${tenant.email}`);
-  doc.moveDown();
-
-  // ─── PROPERTY ─────────────────────────────────────────────────────────────
-  doc.text(`Property: ${property.title || 'N/A'}`);
-  if (property.address) {
-    doc.text(`Address: ${property.address.street || ''}, ${property.address.city || ''}`);
-  }
-  doc.moveDown();
-
-  // ─── PAYMENT DETAILS ──────────────────────────────────────────────────────
-  doc.fontSize(14).text('PAYMENT DETAILS', { underline: true });
-  doc.fontSize(12).moveDown(0.5);
-
-  doc.text(`Payment Type: ${payment.type.replace('_', ' ').toUpperCase()}`);
-  if (payment.dueDate) {
-    doc.text(`Period Covered: ${new Date(payment.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' })}`);
-  }
-  doc.text(`Amount Paid: Rs. ${Number(payment.amount).toLocaleString()}`);
-  if (payment.lateFeeIncluded && payment.lateFeeAmount > 0) {
-    doc.text(`  Includes Late Fee: Rs. ${Number(payment.lateFeeAmount).toLocaleString()}`);
-  }
-  doc.text(`Status: PAID`);
-  if (payment.stripePaymentIntent) {
-    doc.fontSize(9).fillColor('#6b7280').text(`Transaction Reference: ${payment.stripePaymentIntent}`);
-    doc.fillColor('#000000').fontSize(12);
-  }
-  doc.moveDown(2);
-
-  // ─── FOOTER ────────────────────────────────────────────────────────────────
-  doc.fontSize(9).fillColor('#6b7280').text(
-    'This is an official payment receipt generated by RentifyPro. Please retain for your records.',
-    { align: 'center' }
-  );
-}
-
-/**
- * Stream a receipt PDF directly to an HTTP response.
- */
 const generateReceiptPDF = (payment, tenant, property, res) => {
-  const doc = new PDFDocument({ margin: 50, size: 'A5' });
+  const doc = new PDFDocument({ margin: 40, size: 'A5', autoFirstPage: true });
   doc.pipe(res);
   _buildReceiptPDF(doc, payment, tenant, property);
   doc.end();
 };
 
-/**
- * Generate a receipt PDF as a Buffer (for S3 upload).
- * @returns {Promise<Buffer>}
- */
 const generateReceiptPDFBuffer = (payment, tenant, property) => {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: 'A5' });
+    const doc = new PDFDocument({ margin: 40, size: 'A5', autoFirstPage: true });
     const chunks = [];
-    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     _buildReceiptPDF(doc, payment, tenant, property);
