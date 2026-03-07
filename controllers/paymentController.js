@@ -5,10 +5,22 @@ const logger = require('../utils/logger');
 const { sendEmail } = require('../utils/emailService');
 const { sendSMS } = require('../utils/smsService');
 const { generateReceiptPDFBuffer } = require('../utils/pdfGenerator');
-const { uploadReceiptPDF, isS3Configured } = require('../utils/s3Service');
-const { getSignedReceiptUrl } = require('../utils/s3Service');
-// [FIX #7] Razorpay and PayPal helpers, orders, and verification removed.
-// Only Stripe is supported. getAvailableGateways now returns Stripe only.
+const { uploadReceiptPDF, isS3Configured, getSignedReceiptUrl } = require('../utils/s3Service');
+
+/**
+ * paymentController.js — Rent Payments & Stripe Integration
+ *
+ * Handles:
+ *   - Initial deposit + first month checkout (createCheckoutSession)
+ *   - Monthly rent checkout (createRentCheckoutSession, getActiveCheckoutUrl)
+ *   - Stripe webhook processing (handleStripeWebhook)
+ *   - Payment history and rent schedule queries
+ *   - Receipt PDF generation and download
+ *   - Automatic payment retry via BullMQ queue
+ *
+ * Only Stripe is supported. PayPal and Razorpay integrations were removed.
+ * Gateway: GET /api/payments/gateways always returns Stripe only.
+ */
 
 // @desc    List available payment gateways
 // @route   GET /api/payments/gateways
@@ -18,12 +30,6 @@ const getAvailableGateways = (_req, res) => {
     gateways: [{ id: 'stripe', name: 'Stripe', enabled: !!process.env.STRIPE_SECRET_KEY }],
   });
 };
-
-// ─── PASTE THIS INTO paymentController.js ────────────────────────────────────
-// Add to requires at top of file:
-//   const { getSignedReceiptUrl, isS3Configured } = require('../utils/s3Service');
-//   const { generateReceiptPDFBuffer }             = require('../utils/pdfGenerator');
-// Add to module.exports: downloadReceipt
 
 
 // @desc    Download or stream a payment receipt PDF
@@ -356,6 +362,23 @@ const handleStripeWebhook = async (req, res) => {
         session.amount_total / 100
       );
 
+      // Send SMS reminder for the NEXT unpaid month so the tenant always knows
+      // the upcoming due date after completing a payment.
+      if (agreement.tenant.smsOptIn && agreement.tenant.phoneNumber) {
+        const nextEntry = agreement.rentSchedule?.find(
+          (e, i) => i > idx && e.status !== 'paid'
+        );
+        if (nextEntry) {
+          sendSMS(
+            agreement.tenant.phoneNumber,
+            'rentDueReminder',
+            agreement.property.title,
+            nextEntry.amount,
+            new Date(nextEntry.dueDate)
+          );
+        }
+      }
+
       logger.info('Monthly rent paid', { agreementId, month });
     }
   }
@@ -494,14 +517,15 @@ const getRentSchedule = async (req, res) => {
 };
 
 
-// @desc    Get payment history
+// @desc    Get payment history (role-filtered; supports ?agreementId, ?type, ?status, ?page, ?limit)
 // @route   GET /api/payments/history | GET /api/payments
 // @access  Private
 const getPaymentHistory = async (req, res) => {
   try {
-    const { page = 1, limit = 20, type, status } = req.query;
+    const { page = 1, limit = 20, type, status, agreementId } = req.query;
     const filter = {};
 
+    // Scope results to the authenticated user's role
     if (req.user.role === 'tenant') {
       filter.tenant = req.user._id;
     } else if (req.user.role === 'landlord') {
@@ -512,7 +536,10 @@ const getPaymentHistory = async (req, res) => {
         .select('_id');
       filter.property = { $in: managedProperties.map((p) => p._id) };
     }
+    // admin: no additional scope — sees all payments
 
+    // Optional narrow-down filters
+    if (agreementId) filter.agreement = agreementId;
     if (type) filter.type = type;
     if (status) filter.status = status;
 

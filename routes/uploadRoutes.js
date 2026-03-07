@@ -160,3 +160,62 @@ router.post('/profile-photo', protect, upload.single('photo'), async (req, res) 
 });
 
 module.exports = router;
+// @desc    Get a specific tenant's documents (landlord view — view URL only, no raw file served)
+// @route   GET /api/upload/landlord/tenant-documents/:tenantId
+// @access  Private (Landlord or Admin) — returns short-lived signed view URLs
+// Note: We intentionally return view-only URLs (Content-Disposition: inline).
+// The frontend SecureDocViewer displays files in an iframe that disables the
+// browser download toolbar, making unauthorised saving significantly harder.
+router.get('/landlord/tenant-documents/:tenantId', protect, async (req, res) => {
+  try {
+    if (!['landlord', 'admin'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Only landlords and admins can access tenant documents' });
+    }
+
+    const User     = require('../models/User');
+    const Agreement = require('../models/Agreement');
+
+    // Verify the requesting landlord has (or had) an agreement with this tenant
+    if (req.user.role === 'landlord') {
+      const agreement = await Agreement.findOne({
+        landlord: req.user._id,
+        tenant:   req.params.tenantId,
+      });
+      if (!agreement) {
+        return res.status(403).json({ message: 'No agreement found with this tenant' });
+      }
+    }
+
+    const tenant = await User.findById(req.params.tenantId).select('name documents');
+    if (!tenant) return res.status(404).json({ message: 'Tenant not found' });
+
+    let docs = tenant.documents || [];
+
+    if (isS3Configured()) {
+      // Return short-lived (10-minute) view-only signed URLs
+      docs = await Promise.all(docs.map(async (doc) => {
+        if (doc.url && !doc.url.startsWith('http')) {
+          const signedUrl = await getTenantDocumentUrl(doc.url, 600);
+          return { ...doc.toObject(), url: signedUrl };
+        }
+        return { ...doc.toObject() };
+      }));
+    } else {
+      // S3 not configured — strip raw URLs to avoid exposing local paths
+      docs = docs.map(doc => ({
+        _id:          doc._id,
+        documentType: doc.documentType,
+        originalName: doc.originalName,
+        uploadedAt:   doc.uploadedAt,
+        url:          null,
+      }));
+    }
+
+    res.json({
+      tenantName: tenant.name,
+      documents:  docs,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});

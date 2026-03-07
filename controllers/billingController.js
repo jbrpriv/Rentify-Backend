@@ -4,9 +4,12 @@
  * Handles Stripe-based subscription management for RentifyPro's
  * Free / Pro / Enterprise tiers.
  *
- * Tier price IDs must be configured in .env:
- *   STRIPE_PRICE_PRO        — monthly price ID for Pro plan
- *   STRIPE_PRICE_ENTERPRISE — monthly price ID for Enterprise plan
+ * Required environment variables:
+ *   STRIPE_SECRET_KEY           — Stripe secret key
+ *   STRIPE_PRICE_PRO            — Monthly price ID for the Pro plan
+ *   STRIPE_PRICE_ENTERPRISE     — Monthly price ID for the Enterprise plan
+ *   STRIPE_WEBHOOK_SECRET       — Billing webhook signing secret
+ *   CLIENT_URL                  — Frontend origin for redirect URLs
  *
  * Tiers and feature limits:
  *   free:       1 property, no clause builder, no S3 vault
@@ -15,119 +18,99 @@
  */
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const User = require('../models/User');
+const User   = require('../models/User');
 
-// Feature limits per tier
+// ─── Tier feature limits ──────────────────────────────────────────────────────
 const TIER_LIMITS = {
-  free: { maxProperties: 1, clauseBuilder: false, documentVault: false },
-  pro: { maxProperties: 20, clauseBuilder: true, documentVault: true },
-  enterprise: { maxProperties: 999, clauseBuilder: true, documentVault: true },
+  free:       { maxProperties: 1,   clauseBuilder: false, documentVault: false },
+  pro:        { maxProperties: 20,  clauseBuilder: true,  documentVault: true  },
+  enterprise: { maxProperties: 999, clauseBuilder: true,  documentVault: true  },
 };
 
+// Stripe price IDs are set via environment variables so they can be changed
+// without code changes when switching between test/live mode.
 const TIER_PRICES = {
-  pro: process.env.STRIPE_PRICE_PRO,
+  pro:        process.env.STRIPE_PRICE_PRO,
   enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
 };
 
-const RZP_PLAN_IDS = {
-  pro: process.env.RAZORPAY_PLAN_PRO,
-  enterprise: process.env.RAZORPAY_PLAN_ENTERPRISE,
-};
-
-// Whether Stripe is fully configured
+/** Returns true when all required Stripe environment variables are present. */
 const stripeConfigured = () =>
   !!(process.env.STRIPE_SECRET_KEY &&
-    process.env.STRIPE_PRICE_PRO &&
-    process.env.STRIPE_PRICE_ENTERPRISE);
+     process.env.STRIPE_PRICE_PRO &&
+     process.env.STRIPE_PRICE_ENTERPRISE);
 
-const razorpayConfigured = () =>
-  !!(process.env.RAZORPAY_KEY_ID &&
-    process.env.RAZORPAY_KEY_SECRET &&
-    process.env.RAZORPAY_PLAN_PRO &&
-    process.env.RAZORPAY_PLAN_ENTERPRISE);
+// ─── Internal helpers ─────────────────────────────────────────────────────────
 
-function getRazorpayClient() {
-  const Razorpay = require('razorpay');
-  return new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
+/**
+ * Create a Stripe Checkout Session for a subscription upgrade.
+ * Handles automatic currency-conflict recovery: if the existing Stripe customer
+ * already has a subscription in a different currency, Stripe rejects the request
+ * with 'currency_combination_invalid'. In that case we provision a fresh customer
+ * and retry once.
+ *
+ * @param {object} opts
+ * @param {string} opts.customerId   - Existing Stripe customer ID
+ * @param {string} opts.priceId      - Stripe price ID to subscribe to
+ * @param {string} opts.userId       - Internal MongoDB user ID (stored in metadata)
+ * @param {string} opts.tier         - 'pro' | 'enterprise'
+ * @param {string} opts.userEmail    - Customer email (used for pre-fill)
+ * @param {string} opts.userName     - Customer display name
+ * @returns {Promise<Stripe.Checkout.Session>}
+ */
+async function _createCheckoutSession({ customerId, priceId, userId, tier, userEmail, userName }) {
+  return stripe.checkout.sessions.create({
+    customer:             customerId,
+    payment_method_types: ['card'],
+    line_items: [{ price: priceId, quantity: 1 }],
+    mode:        'subscription',
+    success_url: `${process.env.CLIENT_URL}/dashboard/billing?success=true&tier=${tier}`,
+    cancel_url:  `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
+    metadata:    { userId, tier },
   });
 }
 
-// @desc    Get current subscription status and feature limits for logged-in user
-// @route   GET /api/billing/status
-// @access  Private
+// ─── Route handlers ───────────────────────────────────────────────────────────
+
+/**
+ * @desc  Get current subscription status and feature limits for the logged-in user
+ * @route GET /api/billing/status
+ * @access Private
+ */
 const getBillingStatus = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('subscriptionTier name email stripeCustomerId');
+    const user = await User.findById(req.user._id)
+      .select('subscriptionTier name email stripeCustomerId');
     const tier = user.subscriptionTier || 'free';
 
     res.json({
       tier,
-      limits: TIER_LIMITS[tier] || TIER_LIMITS.free,
+      limits:           TIER_LIMITS[tier] || TIER_LIMITS.free,
       stripeCustomerId: user.stripeCustomerId || null,
       stripeConfigured: stripeConfigured(),
-      razorpayConfigured: razorpayConfigured(),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// Helper: create a Stripe checkout session, with automatic currency-conflict recovery.
-// Stripe does not allow a single customer to hold subscriptions in different currencies.
-// If the existing stripeCustomerId has a conflicting currency (e.g. a prior PKR checkout
-// was started but the price IDs are in USD, or vice-versa), Stripe throws:
-//   "You cannot combine currencies on a single customer."
-// We recover by creating a brand-new Stripe customer and retrying once.
-const _createCheckoutSession = async ({ customerId, priceId, userId, tier, userEmail, userName }) => {
-  return stripe.checkout.sessions.create({
-    customer: customerId,
-    payment_method_types: ['card'],
-    line_items: [{ price: priceId, quantity: 1 }],
-    mode: 'subscription',
-    success_url: `${process.env.CLIENT_URL}/dashboard/billing?success=true&tier=${tier}`,
-    cancel_url: `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
-    metadata: { userId, tier },
-  });
-};
-
-// @desc    Create a Stripe Checkout Session to subscribe to a plan
-// @route   POST /api/billing/subscribe
-// @access  Private (Landlord)
+/**
+ * @desc  Create a Stripe Checkout Session to subscribe to a plan
+ * @route POST /api/billing/subscribe
+ * @access Private (Landlord)
+ */
 const subscribe = async (req, res) => {
   try {
-    const { tier, gateway = 'stripe' } = req.body;
+    const { tier } = req.body;
 
     if (!['pro', 'enterprise'].includes(tier)) {
       return res.status(400).json({ message: 'Invalid tier. Choose "pro" or "enterprise".' });
     }
 
-    if (gateway === 'razorpay') {
-      if (!razorpayConfigured()) {
-        return res.status(503).json({ message: 'Razorpay is not configured for subscriptions.' });
-      }
-      const rzp = getRazorpayClient();
-      const planId = RZP_PLAN_IDS[tier];
-
-      const subscription = await rzp.subscriptions.create({
-        plan_id: planId,
-        total_count: 1200, // Roughly 100 years
-        customer_notify: 1,
-      });
-
-      return res.json({
-        subscriptionId: subscription.id,
-        keyId: process.env.RAZORPAY_KEY_ID,
-        currency: 'INR',
-        gateway: 'razorpay',
-      });
-    }
-
     // Graceful degradation when Stripe is not yet configured
     if (!stripeConfigured()) {
       return res.status(503).json({
-        message: 'Online payments are not yet configured for this platform. Please contact the administrator to upgrade your plan.',
+        message: 'Online payments are not yet configured. Please contact the administrator.',
         stripeConfigured: false,
       });
     }
@@ -140,18 +123,19 @@ const subscribe = async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.user._id).select('email name stripeCustomerId subscriptionTier');
+    const user = await User.findById(req.user._id)
+      .select('email name stripeCustomerId subscriptionTier');
 
     if (user.subscriptionTier === tier) {
-      return res.status(400).json({ message: `You are already subscribed to the ${tier} plan.` });
+      return res.status(400).json({ message: `You are already on the ${tier} plan.` });
     }
 
-    // Create or reuse Stripe customer
+    // Create or reuse the Stripe customer record
     let customerId = user.stripeCustomerId;
     if (!customerId) {
       const customer = await stripe.customers.create({
-        email: user.email,
-        name: user.name,
+        email:    user.email,
+        name:     user.name,
         metadata: { userId: req.user._id.toString() },
       });
       customerId = customer.id;
@@ -163,44 +147,35 @@ const subscribe = async (req, res) => {
       session = await _createCheckoutSession({
         customerId,
         priceId,
-        userId: req.user._id.toString(),
+        userId:    req.user._id.toString(),
         tier,
         userEmail: user.email,
-        userName: user.name,
+        userName:  user.name,
       });
     } catch (stripeErr) {
-      // ── Currency conflict recovery ────────────────────────────────────────
-      // Stripe error code: 'currency_combination_invalid'
-      // Stripe error message contains: "cannot combine currencies"
-      // This happens when the customer already has an active checkout / subscription
-      // in a different currency from the price being used.
-      // Fix: provision a fresh Stripe customer (no currency history) and retry once.
+      // Currency conflict: existing customer has subscriptions in a different currency.
+      // Provision a fresh Stripe customer and retry once.
       const isCurrencyConflict =
         stripeErr.code === 'currency_combination_invalid' ||
         (stripeErr.message && stripeErr.message.toLowerCase().includes('cannot combine currencies'));
 
-      if (!isCurrencyConflict) throw stripeErr; // re-throw unrelated errors
-
-      console.warn(
-        `[billing] Currency conflict for customer ${customerId} — creating fresh customer and retrying.`
-      );
+      if (!isCurrencyConflict) throw stripeErr;
 
       const freshCustomer = await stripe.customers.create({
-        email: user.email,
-        name: user.name,
+        email:    user.email,
+        name:     user.name,
         metadata: { userId: req.user._id.toString() },
       });
       customerId = freshCustomer.id;
       await User.findByIdAndUpdate(req.user._id, { stripeCustomerId: customerId });
 
-      // Retry with the new customer — if it fails again, let it throw
       session = await _createCheckoutSession({
         customerId,
         priceId,
-        userId: req.user._id.toString(),
+        userId:    req.user._id.toString(),
         tier,
         userEmail: user.email,
-        userName: user.name,
+        userName:  user.name,
       });
     }
 
@@ -211,66 +186,37 @@ const subscribe = async (req, res) => {
   }
 };
 
-// @desc    Verify Razorpay subscription signature
-// @route   POST /api/billing/razorpay/verify
-// @access  Private (Landlord)
-const verifyRazorpaySubscription = async (req, res) => {
-  try {
-    const { razorpay_payment_id, razorpay_subscription_id, razorpay_signature, tier } = req.body;
-
-    const crypto = require('crypto');
-    const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
-      .digest('hex');
-
-    if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ message: 'Invalid subscription signature' });
-    }
-
-    await User.findByIdAndUpdate(req.user._id, {
-      subscriptionTier: tier,
-      subscriptionStartDate: new Date(),
-    });
-
-    res.json({ message: 'Razorpay subscription activated', tier });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// @desc    Create a Stripe Customer Portal session to manage / cancel subscription
-// @route   POST /api/billing/portal
-// @access  Private
+/**
+ * @desc  Open the Stripe customer portal to manage or cancel a subscription
+ * @route POST /api/billing/portal
+ * @access Private
+ */
 const openCustomerPortal = async (req, res) => {
   try {
-    if (!stripeConfigured()) {
-      return res.status(503).json({
-        message: 'Billing portal is not available. Please contact the administrator.',
-        stripeConfigured: false,
-      });
-    }
-
     const user = await User.findById(req.user._id).select('stripeCustomerId');
 
     if (!user.stripeCustomerId) {
-      return res.status(400).json({ message: 'No billing account found. Please subscribe first.' });
+      return res.status(400).json({
+        message: 'No active subscription found. Please subscribe to a plan first.',
+      });
     }
 
-    const portalSession = await stripe.billingPortal.sessions.create({
-      customer: user.stripeCustomerId,
+    const session = await stripe.billingPortal.sessions.create({
+      customer:   user.stripeCustomerId,
       return_url: `${process.env.CLIENT_URL}/dashboard/billing`,
     });
 
-    res.json({ url: portalSession.url });
+    res.json({ url: session.url });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Handle Stripe billing webhooks (subscription created / updated / deleted)
-// @route   POST /api/billing/webhook  (raw body — registered in server.js)
-// @access  Public (Stripe only)
+/**
+ * @desc  Handle Stripe billing webhooks (subscription lifecycle events)
+ * @route POST /api/billing/webhook
+ * @access Public (Stripe signature verified internally)
+ */
 const handleBillingWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
@@ -279,70 +225,65 @@ const handleBillingWebhook = async (req, res) => {
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      process.env.STRIPE_BILLING_WEBHOOK_SECRET
+      process.env.STRIPE_BILLING_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
-    return res.status(400).send(`Billing Webhook Error: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  const _tierFromMetadata = (metadata) => {
-    return ['pro', 'enterprise'].includes(metadata?.tier) ? metadata.tier : null;
-  };
+  // Subscription successfully activated or renewed
+  if (event.type === 'checkout.session.completed' && event.data.object.mode === 'subscription') {
+    const session  = event.data.object;
+    const { userId, tier } = session.metadata;
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    if (session.mode === 'subscription') {
-      const userId = session.metadata?.userId;
-      const tier = _tierFromMetadata(session.metadata);
-      if (userId && tier) {
-        await User.findByIdAndUpdate(userId, {
-          subscriptionTier: tier,
-          subscriptionStartDate: new Date(),
-        });
-        console.log(`🎉 Subscription activated: user=${userId} tier=${tier}`);
-      }
+    if (userId && tier) {
+      await User.findByIdAndUpdate(userId, {
+        subscriptionTier:      tier,
+        subscriptionStartDate: new Date(),
+      });
     }
   }
 
+  // Subscription status changed (downgrade on unpaid / cancellation)
   if (event.type === 'customer.subscription.updated') {
     const subscription = event.data.object;
-    const customer = await stripe.customers.retrieve(subscription.customer);
-    const userId = customer.metadata?.userId;
+    const customer     = await stripe.customers.retrieve(subscription.customer);
+    const userId       = customer.metadata?.userId;
 
     if (userId) {
-      const status = subscription.status;
+      const { status } = subscription;
       if (['canceled', 'unpaid', 'past_due'].includes(status)) {
         await User.findByIdAndUpdate(userId, { subscriptionTier: 'free' });
-        console.log(`📉 Subscription downgraded: user=${userId} status=${status}`);
       }
     }
   }
 
+  // Subscription cancelled — revert user to free tier
   if (event.type === 'customer.subscription.deleted') {
     const subscription = event.data.object;
-    const customer = await stripe.customers.retrieve(subscription.customer);
-    const userId = customer.metadata?.userId;
+    const customer     = await stripe.customers.retrieve(subscription.customer);
+    const userId       = customer.metadata?.userId;
     if (userId) {
       await User.findByIdAndUpdate(userId, { subscriptionTier: 'free' });
-      console.log(`❌ Subscription cancelled: user=${userId}`);
     }
   }
 
   res.json({ received: true });
 };
 
-// @desc    Get available subscription plans
-// @route   GET /api/billing/plans
-// @access  Public
-const getPlans = async (req, res) => {
+/**
+ * @desc  Get available subscription plans with pricing and feature lists
+ * @route GET /api/billing/plans
+ * @access Public
+ */
+const getPlans = async (_req, res) => {
   res.json({
     stripeConfigured: stripeConfigured(),
-    razorpayConfigured: razorpayConfigured(),
     plans: [
       {
-        tier: 'free',
-        name: 'Free',
-        price: 0,
+        tier:     'free',
+        name:     'Free',
+        price:    0,
         currency: 'PKR',
         interval: 'month',
         features: [
@@ -354,13 +295,12 @@ const getPlans = async (req, res) => {
         limits: TIER_LIMITS.free,
       },
       {
-        tier: 'pro',
-        name: 'Pro',
-        price: 2999,
-        currency: 'PKR',
-        interval: 'month',
+        tier:          'pro',
+        name:          'Pro',
+        price:         2999,
+        currency:      'PKR',
+        interval:      'month',
         stripePriceId: TIER_PRICES.pro || null,
-        razorpayPlanId: RZP_PLAN_IDS.pro || null,
         features: [
           'Up to 20 properties',
           'Clause builder with 50+ templates',
@@ -372,13 +312,12 @@ const getPlans = async (req, res) => {
         limits: TIER_LIMITS.pro,
       },
       {
-        tier: 'enterprise',
-        name: 'Enterprise',
-        price: 9999,
-        currency: 'PKR',
-        interval: 'month',
+        tier:          'enterprise',
+        name:          'Enterprise',
+        price:         9999,
+        currency:      'PKR',
+        interval:      'month',
         stripePriceId: TIER_PRICES.enterprise || null,
-        razorpayPlanId: RZP_PLAN_IDS.enterprise || null,
         features: [
           'Unlimited properties',
           'All Pro features',
@@ -394,4 +333,11 @@ const getPlans = async (req, res) => {
   });
 };
 
-module.exports = { getBillingStatus, subscribe, openCustomerPortal, handleBillingWebhook, getPlans, TIER_LIMITS, verifyRazorpaySubscription };
+module.exports = {
+  getBillingStatus,
+  subscribe,
+  openCustomerPortal,
+  handleBillingWebhook,
+  getPlans,
+  TIER_LIMITS,
+};
