@@ -133,7 +133,6 @@ app.post('/api/webhooks', ...stripeWebhookMiddleware);
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleBillingWebhook);
 
 const helmet = require('helmet');
-const mongoSanitize = require('@exortek/express-mongo-sanitize');
 const xss = require('xss-clean');
 
 // ─── Body parsers ─────────────────────────────────────────────────────────────
@@ -144,10 +143,32 @@ app.use(cookieParser());
 // ─── Global Security Middlewares ─────────────────────────────────────────────
 // Set security HTTP headers
 app.use(helmet());
-// Data sanitization against NoSQL query injection (Configured for Express 5.x read-only query object)
-app.use(mongoSanitize({
-  replaceWith: '_'
-}));
+
+// Custom Data sanitization against NoSQL query injection (Express 5.x compatible)
+const sanitizeObject = (obj) => {
+  if (obj instanceof Object) {
+    for (const key in obj) {
+      if (/^\$/.test(key)) {
+        delete obj[key];
+        continue;
+      }
+      if (typeof obj[key] === 'object' && obj[key] !== null) {
+        sanitizeObject(obj[key]);
+      }
+    }
+  }
+};
+
+app.use((req, res, next) => {
+  if (req.body) sanitizeObject(req.body);
+  if (req.params) sanitizeObject(req.params);
+  // Express 5 makes req.query immutable (getter), but its contents are mutable objects
+  if (req.query) {
+    // We cannot do req.query = cleanedQuery, so we clean the existing object in-place
+    sanitizeObject(req.query);
+  }
+  next();
+});
 // Data sanitization against XSS
 app.use(xss());
 
