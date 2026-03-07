@@ -132,10 +132,22 @@ app.post('/api/payments/webhook', ...stripeWebhookMiddleware);
 app.post('/api/webhooks', ...stripeWebhookMiddleware);
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleBillingWebhook);
 
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+
 // ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+
+// ─── Global Security Middlewares ─────────────────────────────────────────────
+// Set security HTTP headers
+app.use(helmet());
+// Data sanitization against NoSQL query injection
+app.use(mongoSanitize());
+// Data sanitization against XSS
+app.use(xss());
 
 // ─── Passport ─────────────────────────────────────────────────────────────────
 app.use(passport.initialize());

@@ -46,6 +46,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^8.2.1",
     "express-session": "^1.19.0",
     "express-validator": "^7.3.1",
@@ -72,7 +73,8 @@
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.12.2",
     "winston": "^3.19.0",
-    "winston-daily-rotate-file": "^5.0.0"
+    "winston-daily-rotate-file": "^5.0.0",
+    "xss-clean": "^0.1.4"
   },
   "devDependencies": {
     "jest": "^30.2.0",
