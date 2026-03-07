@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 const { sendEmail } = require('../utils/emailService');
 const { sendSMS } = require('../utils/smsService');
 const { generateReceiptPDFBuffer } = require('../utils/pdfGenerator');
-const { uploadReceiptPDF, isS3Configured, getSignedReceiptUrl } = require('../utils/s3Service');
+const { uploadReceiptPDF, isS3Configured, getReceiptPDFUrl } = require('../utils/s3Service');
 
 /**
  * paymentController.js — Rent Payments & Stripe Integration
@@ -58,7 +58,7 @@ const downloadReceipt = async (req, res) => {
     // ── If we have an S3 key, return a signed URL ────────────────────────────
     if (payment.receiptUrl && isS3Configured()) {
       try {
-        const signedUrl = await getSignedReceiptUrl(payment.receiptUrl);
+        const signedUrl = await getReceiptPDFUrl(payment.receiptUrl);
         return res.json({ url: signedUrl });
       } catch (s3Err) {
         logger.warn('S3 signed URL failed, falling back to on-demand generation', { err: s3Err.message });
@@ -83,7 +83,7 @@ const downloadReceipt = async (req, res) => {
       try {
         const key = await uploadReceiptPDF(pdfBuffer, payment._id.toString());
         await Payment.findByIdAndUpdate(payment._id, { receiptUrl: key });
-        const signedUrl = await getSignedReceiptUrl(key);
+        const signedUrl = await getReceiptPDFUrl(key);
         return res.json({ url: signedUrl });
       } catch (s3Err) {
         logger.warn('On-demand S3 upload failed, falling back to inline stream', { err: s3Err.message });
