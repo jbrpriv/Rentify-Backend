@@ -133,8 +133,7 @@ app.post('/api/webhooks', ...stripeWebhookMiddleware);
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleBillingWebhook);
 
 const helmet = require('helmet');
-const xss = require('xss-clean');
-
+const xssClean = require('xss');
 // ─── Body parsers ─────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -170,8 +169,19 @@ app.use((req, res, next) => {
   next();
 });
 // Data sanitization against XSS
-app.use(xss());
 
+// ...
+app.use((req, res, next) => {
+  const sanitize = (obj) => {
+    if (typeof obj === 'string') return xssClean(obj);
+    if (obj && typeof obj === 'object') {
+      for (const key in obj) obj[key] = sanitize(obj[key]);
+    }
+    return obj;
+  };
+  if (req.body) req.body = sanitize(req.body);
+  next();
+});
 // ─── Passport ─────────────────────────────────────────────────────────────────
 app.use(passport.initialize());
 
