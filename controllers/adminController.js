@@ -602,11 +602,29 @@ module.exports = {
 };
 
 // ─── Document Verification Admin Functions ─────────────────────────────────
+const { getTenantDocumentUrl, isS3Configured } = require('../utils/s3Service');
+
+async function resolveDocUrls(docs = []) {
+  if (!isS3Configured()) return docs;
+  return Promise.all(docs.map(async (doc) => {
+    const d = doc.toObject ? doc.toObject() : { ...doc };
+    if (d.url && !d.url.startsWith('http')) {
+      d.url = await getTenantDocumentUrl(d.url, 1800); // 30-min signed URL
+    }
+    return d;
+  }));
+}
+
 async function getPendingVerifications(req, res) {
   try {
     const users = await User.find({ verificationStatus: 'pending' })
       .select('name email role verificationDocuments verificationStatus documentsVerified createdAt');
-    res.json(users);
+    const result = await Promise.all(users.map(async (u) => {
+      const obj = u.toObject();
+      obj.verificationDocuments = await resolveDocUrls(obj.verificationDocuments || []);
+      return obj;
+    }));
+    res.json(result);
   } catch (err) { res.status(500).json({ message: err.message }); }
 }
 
@@ -614,7 +632,12 @@ async function getApprovedVerifications(req, res) {
   try {
     const users = await User.find({ verificationStatus: 'approved' })
       .select('name email role verificationDocuments verificationStatus documentsVerified createdAt');
-    res.json(users);
+    const result = await Promise.all(users.map(async (u) => {
+      const obj = u.toObject();
+      obj.verificationDocuments = await resolveDocUrls(obj.verificationDocuments || []);
+      return obj;
+    }));
+    res.json(result);
   } catch (err) { res.status(500).json({ message: err.message }); }
 }
 

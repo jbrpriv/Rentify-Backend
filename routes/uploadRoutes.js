@@ -219,4 +219,48 @@ router.get('/landlord/tenant-documents/:tenantId', protect, async (req, res) => 
   }
 });
 
+// @desc    Upload verification documents (landlord / property_manager → S3)
+// @route   POST /api/upload/verification-documents
+// @access  Private (landlord, property_manager)
+router.post('/verification-documents', protect, memoryUpload.array('documents', 5), async (req, res) => {
+  try {
+    if (!['landlord', 'property_manager'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Only landlords and property managers can submit verification documents' });
+    }
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: 'No files uploaded' });
+    }
+    if (!isS3Configured()) {
+      return res.status(503).json({ message: 'S3 Vault not configured on this server' });
+    }
+
+    const { documentType = 'cnic' } = req.body;
+
+    const uploaded = await Promise.all(req.files.map(async (file) => {
+      const s3Key = await uploadTenantDocument(file.buffer, req.user._id.toString(), file.originalname, file.mimetype);
+      return {
+        url: s3Key,
+        documentType,
+        originalName: file.originalname,
+        uploadedAt: new Date().toISOString(),
+      };
+    }));
+
+    // Save to user's verificationDocuments and set status to pending
+    const User = require('../models/User');
+    await User.findByIdAndUpdate(req.user._id, {
+      verificationDocuments: uploaded,
+      verificationStatus: 'pending',
+      documentsVerified: false,
+    });
+
+    res.status(201).json({
+      message: `${uploaded.length} document(s) uploaded. Pending admin review.`,
+      documents: uploaded,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 module.exports = router;

@@ -90,7 +90,43 @@ const loginUser = async (req, res) => {
   res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, isPhoneVerified: user.isPhoneVerified, twoFactorEnabled: user.twoFactorEnabled || false, token: accessToken });
 };
 
-// ─── REFRESH ──────────────────────────────────────────────────────────────────
+// ─── SUPER LOGIN (Admin / Law Reviewer only) ──────────────────────────────────
+const superLogin = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: 'Invalid credentials format' });
+
+  const { email, password } = req.body;
+  const user = await User.findOne({ email }).select('+password');
+  if (!user || !(await user.matchPassword(password))) {
+    return res.status(401).json({ message: 'Invalid email or password' });
+  }
+
+  // Super login is ONLY for admin and law_reviewer
+  if (!['admin', 'law_reviewer'].includes(user.role)) {
+    return res.status(401).json({ message: 'Invalid email or password' });
+  }
+
+  if (!user.isActive) return res.status(403).json({ message: 'Account suspended. Contact support.' });
+
+  if (!user.isVerified) {
+    return res.status(403).json({ message: 'EMAIL_NOT_VERIFIED', email: user.email });
+  }
+
+  if (!user.isPhoneVerified && user.phoneNumber !== '0000000000') {
+    return res.status(403).json({ message: 'PHONE_NOT_VERIFIED', email: user.email, phoneNumber: user.phoneNumber });
+  }
+
+  user.lastLogin = new Date();
+  await user.save();
+
+  const accessToken = generateAccessToken(user._id);
+  const refreshToken = generateRefreshToken(user._id);
+  setRefreshCookie(res, refreshToken);
+
+  res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, isPhoneVerified: user.isPhoneVerified, twoFactorEnabled: user.twoFactorEnabled || false, token: accessToken });
+};
+
+
 const refreshToken = async (req, res) => {
   const token = req.cookies?.refreshToken;
   if (!token) return res.status(401).json({ message: 'No refresh token' });
@@ -453,7 +489,7 @@ const abandonOAuthAccount = async (req, res) => {
 };
 
 module.exports = {
-  registerUser, loginUser, refreshToken, logoutUser,
+  registerUser, loginUser, superLogin, refreshToken, logoutUser,
   verifyEmail, resendVerification,
   forgotPassword, resetPassword,
   sendPhoneOTP, verifyPhoneOTP,

@@ -6,7 +6,7 @@ const { protect } = require('../middlewares/authMiddleware');
 const { verifyRecaptcha } = require('../middlewares/recaptchaMiddleware');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const {
-  registerUser, loginUser, refreshToken, logoutUser,
+  registerUser, loginUser, superLogin, refreshToken, logoutUser,
   verifyEmail, resendVerification,
   forgotPassword, resetPassword,
   sendPhoneOTP, verifyPhoneOTP,
@@ -60,6 +60,16 @@ router.post('/login',
   checkOAuthBeforeRecaptcha, // must run before verifyRecaptcha so OAuth users get a clear message
   verifyRecaptcha,
   loginUser
+);
+
+// Super login — admin and law_reviewer only, bypasses the normal portal block
+router.post('/super-login',
+  [
+    body('email').isEmail().withMessage('Please enter a valid email address'),
+    body('password').notEmpty().withMessage('Password is required'),
+  ],
+  verifyRecaptcha,
+  superLogin
 );
 
 router.post('/refresh', refreshToken);
