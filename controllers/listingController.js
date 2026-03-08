@@ -25,7 +25,7 @@ const getPublicListings = async (req, res) => {
       if (maxRent) filter['financials.monthlyRent'].$lte = Number(maxRent);
     }
     const listings = await Property.find(filter)
-      .populate('landlord', 'name')
+      .populate('landlord', 'name email profilePhoto documentsVerified')
       .select('-applications')
       .sort('-createdAt');
     res.json(listings);
@@ -42,7 +42,7 @@ const getListingById = async (req, res) => {
       { _id: req.params.id, isListed: true },
       { $inc: { views: 1 } },
       { returnDocument: 'after' }
-    ).populate('landlord', 'name');
+    ).populate('landlord', 'name email profilePhoto documentsVerified');
 
     if (!property) {
       return res.status(404).json({ message: 'Listing not found or not publicly listed' });
@@ -67,7 +67,7 @@ const submitOffer = async (req, res) => {
     }
 
     const property = await Property.findById(req.params.id)
-      .populate('landlord', 'name email');
+      .populate('landlord', 'name email profilePhoto documentsVerified');
 
     if (!property || !property.isListed) {
       return res.status(404).json({ message: 'Listing not found' });
@@ -168,7 +168,7 @@ const getLandlordOffers = async (req, res) => {
     const filter = req.user.role === 'admin' ? {} : { landlord: req.user._id };
     const offers = await Offer.find(filter)
       .populate('tenant', 'name email phoneNumber profilePhoto')
-      .populate('landlord', 'name email')
+      .populate('landlord', 'name email profilePhoto documentsVerified')
       .populate('property', 'title address financials status images')
       .sort('-createdAt');
     const grouped = {};
@@ -190,7 +190,7 @@ const updateOfferStatus = async (req, res) => {
     const { status } = req.body;
     if (!['accepted', 'rejected'].includes(status)) return res.status(400).json({ message: 'Status must be accepted or rejected' });
     const offer = await Offer.findById(req.params.id)
-      .populate('tenant', 'name email').populate('property', 'title financials leaseTerms').populate('landlord', 'name email');
+      .populate('tenant', 'name email').populate('property', 'title financials leaseTerms').populate('landlord', 'name email profilePhoto documentsVerified');
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
     if (req.user.role !== 'admin' && offer.landlord._id.toString() !== req.user._id.toString()) return res.status(403).json({ message: 'Not authorized' });
 

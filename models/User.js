@@ -78,6 +78,25 @@ const userSchema = mongoose.Schema(
       default: true,
     },
 
+    // ─── Document Verification (Landlord / Property Manager) ───────
+    documentsVerified: {
+      type: Boolean,
+      default: false,
+    },
+    verificationDocuments: [
+      {
+        url: { type: String, required: true },
+        documentType: { type: String, default: 'cnic' },
+        originalName: { type: String, default: '' },
+        uploadedAt: { type: Date, default: Date.now },
+      },
+    ],
+    verificationStatus: {
+      type: String,
+      enum: ['none', 'pending', 'approved', 'rejected'],
+      default: 'none',
+    },
+
     // ─── Platform Subscription ─────────────────────────────────────
     subscriptionTier: {
       type: String,
@@ -109,10 +128,10 @@ const userSchema = mongoose.Schema(
     // Persistent store of tenant-uploaded supporting documents.
     documents: [
       {
-        url:          { type: String, required: true },
+        url: { type: String, required: true },
         documentType: { type: String, default: 'general' },
         originalName: { type: String, default: '' },
-        uploadedAt:   { type: Date, default: Date.now },
+        uploadedAt: { type: Date, default: Date.now },
       },
     ],
 

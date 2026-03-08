@@ -18,27 +18,27 @@
  */
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const User   = require('../models/User');
+const User = require('../models/User');
 
 // ─── Tier feature limits ──────────────────────────────────────────────────────
 const TIER_LIMITS = {
-  free:       { maxProperties: 1,   clauseBuilder: false, documentVault: false },
-  pro:        { maxProperties: 20,  clauseBuilder: true,  documentVault: true  },
-  enterprise: { maxProperties: 999, clauseBuilder: true,  documentVault: true  },
+  free: { maxProperties: 1, clauseBuilder: false, documentVault: false, analytics: false, agreementTemplates: false },
+  pro: { maxProperties: 5, clauseBuilder: true, documentVault: true, analytics: true, agreementTemplates: false },
+  enterprise: { maxProperties: -1, clauseBuilder: true, documentVault: true, analytics: true, agreementTemplates: true },
 };
 
 // Stripe price IDs are set via environment variables so they can be changed
 // without code changes when switching between test/live mode.
 const TIER_PRICES = {
-  pro:        process.env.STRIPE_PRICE_PRO,
+  pro: process.env.STRIPE_PRICE_PRO,
   enterprise: process.env.STRIPE_PRICE_ENTERPRISE,
 };
 
 /** Returns true when all required Stripe environment variables are present. */
 const stripeConfigured = () =>
   !!(process.env.STRIPE_SECRET_KEY &&
-     process.env.STRIPE_PRICE_PRO &&
-     process.env.STRIPE_PRICE_ENTERPRISE);
+    process.env.STRIPE_PRICE_PRO &&
+    process.env.STRIPE_PRICE_ENTERPRISE);
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -60,13 +60,13 @@ const stripeConfigured = () =>
  */
 async function _createCheckoutSession({ customerId, priceId, userId, tier, userEmail, userName }) {
   return stripe.checkout.sessions.create({
-    customer:             customerId,
+    customer: customerId,
     payment_method_types: ['card'],
     line_items: [{ price: priceId, quantity: 1 }],
-    mode:        'subscription',
+    mode: 'subscription',
     success_url: `${process.env.CLIENT_URL}/dashboard/billing?success=true&tier=${tier}`,
-    cancel_url:  `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
-    metadata:    { userId, tier },
+    cancel_url: `${process.env.CLIENT_URL}/dashboard/billing?canceled=true`,
+    metadata: { userId, tier },
   });
 }
 
@@ -85,7 +85,7 @@ const getBillingStatus = async (req, res) => {
 
     res.json({
       tier,
-      limits:           TIER_LIMITS[tier] || TIER_LIMITS.free,
+      limits: TIER_LIMITS[tier] || TIER_LIMITS.free,
       stripeCustomerId: user.stripeCustomerId || null,
       stripeConfigured: stripeConfigured(),
     });
@@ -134,8 +134,8 @@ const subscribe = async (req, res) => {
     let customerId = user.stripeCustomerId;
     if (!customerId) {
       const customer = await stripe.customers.create({
-        email:    user.email,
-        name:     user.name,
+        email: user.email,
+        name: user.name,
         metadata: { userId: req.user._id.toString() },
       });
       customerId = customer.id;
@@ -147,10 +147,10 @@ const subscribe = async (req, res) => {
       session = await _createCheckoutSession({
         customerId,
         priceId,
-        userId:    req.user._id.toString(),
+        userId: req.user._id.toString(),
         tier,
         userEmail: user.email,
-        userName:  user.name,
+        userName: user.name,
       });
     } catch (stripeErr) {
       // Currency conflict: existing customer has subscriptions in a different currency.
@@ -162,8 +162,8 @@ const subscribe = async (req, res) => {
       if (!isCurrencyConflict) throw stripeErr;
 
       const freshCustomer = await stripe.customers.create({
-        email:    user.email,
-        name:     user.name,
+        email: user.email,
+        name: user.name,
         metadata: { userId: req.user._id.toString() },
       });
       customerId = freshCustomer.id;
@@ -172,10 +172,10 @@ const subscribe = async (req, res) => {
       session = await _createCheckoutSession({
         customerId,
         priceId,
-        userId:    req.user._id.toString(),
+        userId: req.user._id.toString(),
         tier,
         userEmail: user.email,
-        userName:  user.name,
+        userName: user.name,
       });
     }
 
@@ -202,7 +202,7 @@ const openCustomerPortal = async (req, res) => {
     }
 
     const session = await stripe.billingPortal.sessions.create({
-      customer:   user.stripeCustomerId,
+      customer: user.stripeCustomerId,
       return_url: `${process.env.CLIENT_URL}/dashboard/billing`,
     });
 
@@ -233,12 +233,12 @@ const handleBillingWebhook = async (req, res) => {
 
   // Subscription successfully activated or renewed
   if (event.type === 'checkout.session.completed' && event.data.object.mode === 'subscription') {
-    const session  = event.data.object;
+    const session = event.data.object;
     const { userId, tier } = session.metadata;
 
     if (userId && tier) {
       await User.findByIdAndUpdate(userId, {
-        subscriptionTier:      tier,
+        subscriptionTier: tier,
         subscriptionStartDate: new Date(),
       });
     }
@@ -247,8 +247,8 @@ const handleBillingWebhook = async (req, res) => {
   // Subscription status changed (downgrade on unpaid / cancellation)
   if (event.type === 'customer.subscription.updated') {
     const subscription = event.data.object;
-    const customer     = await stripe.customers.retrieve(subscription.customer);
-    const userId       = customer.metadata?.userId;
+    const customer = await stripe.customers.retrieve(subscription.customer);
+    const userId = customer.metadata?.userId;
 
     if (userId) {
       const { status } = subscription;
@@ -261,8 +261,8 @@ const handleBillingWebhook = async (req, res) => {
   // Subscription cancelled — revert user to free tier
   if (event.type === 'customer.subscription.deleted') {
     const subscription = event.data.object;
-    const customer     = await stripe.customers.retrieve(subscription.customer);
-    const userId       = customer.metadata?.userId;
+    const customer = await stripe.customers.retrieve(subscription.customer);
+    const userId = customer.metadata?.userId;
     if (userId) {
       await User.findByIdAndUpdate(userId, { subscriptionTier: 'free' });
     }
@@ -281,51 +281,51 @@ const getPlans = async (_req, res) => {
     stripeConfigured: stripeConfigured(),
     plans: [
       {
-        tier:     'free',
-        name:     'Free',
-        price:    0,
+        tier: 'free',
+        name: 'Free',
+        price: 0,
         currency: 'PKR',
         interval: 'month',
         features: [
-          '1 property listing',
-          'Basic agreement templates',
+          '1 property listing (max)',
           'Email notifications',
           'Tenant portal',
+          'Basic dashboard',
         ],
         limits: TIER_LIMITS.free,
       },
       {
-        tier:          'pro',
-        name:          'Pro',
-        price:         2999,
-        currency:      'PKR',
-        interval:      'month',
+        tier: 'pro',
+        name: 'Pro',
+        price: 2999,
+        currency: 'PKR',
+        interval: 'month',
         stripePriceId: TIER_PRICES.pro || null,
         features: [
-          'Up to 20 properties',
+          'Up to 5 properties',
           'Clause builder with 50+ templates',
           'AWS S3 document vault',
           'SMS + Push notifications',
           'Priority support',
-          'Advanced analytics',
+          'Analytics dashboard',
         ],
         limits: TIER_LIMITS.pro,
       },
       {
-        tier:          'enterprise',
-        name:          'Enterprise',
-        price:         9999,
-        currency:      'PKR',
-        interval:      'month',
+        tier: 'enterprise',
+        name: 'Enterprise',
+        price: 9999,
+        currency: 'PKR',
+        interval: 'month',
         stripePriceId: TIER_PRICES.enterprise || null,
         features: [
           'Unlimited properties',
           'All Pro features',
+          'Agreement templates library',
           'Custom branding',
           'Dedicated account manager',
           'SLA guarantee',
           'API access',
-          'White-label option',
         ],
         limits: TIER_LIMITS.enterprise,
       },

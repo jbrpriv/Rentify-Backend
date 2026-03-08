@@ -1,8 +1,8 @@
-const User      = require('../models/User');
-const jwt       = require('jsonwebtoken');
-const crypto    = require('crypto');
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const speakeasy = require('speakeasy');
-const qrcode    = require('qrcode');
+const qrcode = require('qrcode');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const { validationResult } = require('express-validator');
 const { sendEmail } = require('../utils/emailService');
@@ -11,9 +11,9 @@ const { sendOTP, verifyOTP } = require('../utils/smsService');
 const setRefreshCookie = (res, token) => {
   res.cookie('refreshToken', token, {
     httpOnly: true,
-    secure:   process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
-    maxAge:   30 * 24 * 60 * 60 * 1000,
+    maxAge: 30 * 24 * 60 * 60 * 1000,
   });
 };
 
@@ -29,14 +29,14 @@ const registerUser = async (req, res) => {
   const emailOtp = Math.floor(100000 + Math.random() * 900000).toString();
   const user = await User.create({
     name, email, password, role, phoneNumber,
-    otpCode:   emailOtp,
+    otpCode: emailOtp,
     otpExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000),
     isVerified: false,
     isPhoneVerified: false,
   });
 
   if (user) {
-    const accessToken  = generateAccessToken(user._id);
+    const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
     await sendEmail(user.email, 'emailOTP', user.name, emailOtp);
@@ -61,6 +61,10 @@ const loginUser = async (req, res) => {
     }
     return res.status(401).json({ message: 'Invalid email or password' });
   }
+  // Admin and law_reviewer must use the super-login portal, not the normal portal
+  if (['admin', 'law_reviewer'].includes(user.role)) {
+    return res.status(401).json({ message: 'Invalid email or password' });
+  }
   if (!user.isActive) return res.status(403).json({ message: 'Account suspended. Contact support.' });
 
   // Check email verification — ALL roles must verify
@@ -79,7 +83,7 @@ const loginUser = async (req, res) => {
   user.lastLogin = new Date();
   await user.save();
 
-  const accessToken  = generateAccessToken(user._id);
+  const accessToken = generateAccessToken(user._id);
   const refreshToken = generateRefreshToken(user._id);
   setRefreshCookie(res, refreshToken);
 
@@ -92,7 +96,7 @@ const refreshToken = async (req, res) => {
   if (!token) return res.status(401).json({ message: 'No refresh token' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
-    const user    = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ message: 'User not found' });
     res.json({ token: generateAccessToken(user._id) });
   } catch {
@@ -128,7 +132,7 @@ const resendVerification = async (req, res) => {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email }).select('+otpCode +otpExpiry');
-    if (!user)           return res.status(404).json({ message: 'User not found' });
+    if (!user) return res.status(404).json({ message: 'User not found' });
     if (user.isVerified) return res.status(400).json({ message: 'Already verified' });
     const emailOtp = Math.floor(100000 + Math.random() * 900000).toString();
     user.otpCode = emailOtp;
@@ -146,8 +150,8 @@ const forgotPassword = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.json({ message: 'If this email exists, a reset link has been sent.' });
 
-    const resetToken  = crypto.randomBytes(32).toString('hex');
-    user.passwordResetToken  = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
     user.passwordResetExpiry = new Date(Date.now() + 60 * 60 * 1000);
     await user.save();
 
@@ -165,7 +169,7 @@ const resetPassword = async (req, res) => {
     const user = await User.findOne({ passwordResetToken: hashedToken, passwordResetExpiry: { $gt: new Date() } });
     if (!user) return res.status(400).json({ message: 'Reset link invalid or expired' });
     user.password = password;
-    user.passwordResetToken  = null;
+    user.passwordResetToken = null;
     user.passwordResetExpiry = null;
     await user.save();
     res.json({ message: 'Password reset successfully.' });
@@ -184,8 +188,8 @@ const sendPhoneOTP = async (req, res) => {
     if (!email) return res.status(400).json({ message: 'Email is required' });
 
     const user = await User.findOne({ email });
-    if (!user)              return res.status(404).json({ message: 'User not found' });
-    if (!user.phoneNumber)  return res.status(400).json({ message: 'No phone number on your account' });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!user.phoneNumber) return res.status(400).json({ message: 'No phone number on your account' });
     if (user.isPhoneVerified) return res.status(400).json({ message: 'Phone already verified' });
 
     // ── Cooldown: max one OTP per 60 seconds per user ─────────────────────
@@ -236,19 +240,19 @@ const verifyPhoneOTP = async (req, res) => {
     await user.save();
 
     // Both verifications passed — now issue real tokens for the first time
-    const accessToken  = generateAccessToken(user._id);
+    const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
 
     res.json({
-      _id:             user._id,
-      name:            user.name,
-      email:           user.email,
-      role:            user.role,
-      isVerified:      true,
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isVerified: true,
       isPhoneVerified: true,
       twoFactorEnabled: user.twoFactorEnabled || false,
-      token:           accessToken,
+      token: accessToken,
     });
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
@@ -256,9 +260,9 @@ const verifyPhoneOTP = async (req, res) => {
 // ─── 2FA TOTP ─────────────────────────────────────────────────────────────────
 const setup2FA = async (req, res) => {
   try {
-    const user   = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id);
     const secret = speakeasy.generateSecret({ name: `RentifyPro (${user.email})`, length: 20 });
-    user.twoFactorSecret  = secret.base32;
+    user.twoFactorSecret = secret.base32;
     user.twoFactorEnabled = false;
     await user.save();
     const qrCode = await qrcode.toDataURL(secret.otpauth_url);
@@ -288,7 +292,7 @@ const disable2FA = async (req, res) => {
     if (!otpCode) return res.status(400).json({ message: 'OTP code required' });
     if (!user.isOtpValid(otpCode)) return res.status(400).json({ message: 'Invalid or expired OTP code' });
     user.twoFactorEnabled = false;
-    user.twoFactorSecret  = null;
+    user.twoFactorSecret = null;
     user.otpCode = null;
     user.otpExpiry = null;
     await user.save();
@@ -322,7 +326,7 @@ const validate2FALogin = async (req, res) => {
     if (!user?.twoFactorEnabled) return res.status(400).json({ message: '2FA not enabled' });
     const ok = speakeasy.totp.verify({ secret: user.twoFactorSecret, encoding: 'base32', token, window: 1 });
     if (!ok) return res.status(400).json({ message: 'Invalid 2FA code' });
-    const accessToken  = generateAccessToken(user._id);
+    const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
     res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, token: accessToken });
@@ -353,14 +357,14 @@ const facebookComplete = async (req, res) => {
     if (existing) {
       // If somehow this Facebook ID already linked, just log them in
       if (existing.authProviders?.includes('facebook')) {
-        const accessToken  = generateAccessToken(existing._id);
+        const accessToken = generateAccessToken(existing._id);
         const refreshToken = generateRefreshToken(existing._id);
         setRefreshCookie(res, refreshToken);
         return res.json({
-          _id:   existing._id,
-          name:  existing.name,
+          _id: existing._id,
+          name: existing.name,
           email: existing.email,
-          role:  existing.role,
+          role: existing.role,
           token: accessToken,
           alreadyExists: true,
         });
@@ -371,14 +375,14 @@ const facebookComplete = async (req, res) => {
         existing.authProviders.push('facebook');
         await existing.save();
       }
-      const accessToken  = generateAccessToken(existing._id);
+      const accessToken = generateAccessToken(existing._id);
       const refreshToken = generateRefreshToken(existing._id);
       setRefreshCookie(res, refreshToken);
       return res.json({
-        _id:   existing._id,
-        name:  existing.name,
+        _id: existing._id,
+        name: existing.name,
         email: existing.email,
-        role:  existing.role,
+        role: existing.role,
         token: accessToken,
         alreadyExists: true,
       });
@@ -387,23 +391,23 @@ const facebookComplete = async (req, res) => {
     // Create new user
     const user = await User.create({
       name,
-      email:         normalizedEmail,
-      password:      Math.random().toString(36).slice(-16) + 'Aa1!',
-      role:          role || 'tenant',
-      phoneNumber:   phoneNumber || '0000000000',
-      isVerified:    true,
+      email: normalizedEmail,
+      password: Math.random().toString(36).slice(-16) + 'Aa1!',
+      role: role || 'tenant',
+      phoneNumber: phoneNumber || '0000000000',
+      isVerified: true,
       authProviders: ['facebook'],
     });
 
-    const accessToken  = generateAccessToken(user._id);
+    const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
 
     res.status(201).json({
-      _id:   user._id,
-      name:  user.name,
+      _id: user._id,
+      name: user.name,
       email: user.email,
-      role:  user.role,
+      role: user.role,
       token: accessToken,
     });
   } catch (error) {
@@ -432,8 +436,8 @@ const abandonOAuthAccount = async (req, res) => {
 
     // Safety: only wipe accounts that are still unverified at the phone level
     // and were created via OAuth. Never delete a fully set-up account.
-    const isOAuth    = Array.isArray(user.authProviders) &&
-                       user.authProviders.some(p => p !== 'password');
+    const isOAuth = Array.isArray(user.authProviders) &&
+      user.authProviders.some(p => p !== 'password');
     const incomplete = !user.isPhoneVerified;
 
     if (!isOAuth || !incomplete) {

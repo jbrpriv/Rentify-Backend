@@ -19,7 +19,7 @@ const {
 } = require('../controllers/adminController');
 
 // ─── Platform Stats ───────────────────────────────────────────────────────────
-router.get('/stats',     protect, isAdmin, getStats);
+router.get('/stats', protect, isAdmin, getStats);
 router.get('/analytics', protect, isAdmin, getAdminAnalytics);
 
 // ─── User Management ──────────────────────────────────────────────────────────
@@ -44,5 +44,12 @@ router.get('/clauses', protect, isLawReviewer, getClauses);
 router.post('/clauses', protect, isLawReviewer, createClause);
 router.put('/clauses/:id/approve', protect, isLawReviewer, reviewClause);
 router.put('/clauses/:id/archive', protect, isAdmin, archiveClause);
+
+// ─── Document Verification ────────────────────────────────────────────────────
+const { getPendingVerifications, getApprovedVerifications, approveVerification, rejectVerification } = require('../controllers/adminController');
+router.get('/verifications/pending', protect, isAdmin, getPendingVerifications);
+router.get('/verifications/approved', protect, isAdmin, getApprovedVerifications);
+router.put('/verifications/:userId/approve', protect, isAdmin, approveVerification);
+router.put('/verifications/:userId/reject', protect, isAdmin, rejectVerification);
 
 module.exports = router;

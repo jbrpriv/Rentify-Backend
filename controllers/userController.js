@@ -211,7 +211,7 @@ const getContacts = async (req, res) => {
 const getLandlordAnalytics = async (req, res) => {
   try {
     const landlordId = req.user._id;
-    const now        = new Date();
+    const now = new Date();
 
     const sixMonthsAgo = new Date(now);
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
@@ -220,10 +220,10 @@ const getLandlordAnalytics = async (req, res) => {
       { $match: { landlord: landlordId, status: 'paid', type: 'rent', paidAt: { $gte: sixMonthsAgo } } },
       {
         $group: {
-          _id:          { year: { $year: '$paidAt' }, month: { $month: '$paidAt' } },
-          total:        { $sum: '$amount' },
+          _id: { year: { $year: '$paidAt' }, month: { $month: '$paidAt' } },
+          total: { $sum: '$amount' },
           lateFeeTotal: { $sum: '$lateFeeAmount' },
-          count:        { $sum: 1 },
+          count: { $sum: 1 },
         },
       },
       { $sort: { '_id.year': 1, '_id.month': 1 } },
@@ -237,8 +237,8 @@ const getLandlordAnalytics = async (req, res) => {
     let paid = 0, pending = 0, overdue = 0, lateFeeCollected = 0;
     activeAgreements.forEach(a => {
       (a.rentSchedule || []).forEach(entry => {
-        if (entry.status === 'paid')                                     paid++;
-        else if (entry.status === 'pending')                             pending++;
+        if (entry.status === 'paid') paid++;
+        else if (entry.status === 'pending') pending++;
         else if (['overdue', 'late_fee_applied'].includes(entry.status)) overdue++;
         if (entry.lateFeeApplied) lateFeeCollected += (entry.lateFeeAmount || 0);
       });
@@ -275,12 +275,12 @@ const getLandlordAnalytics = async (req, res) => {
 
     res.json({
       monthlyRevenue,
-      paymentHealth:    { paid, pending, overdue },
+      paymentHealth: { paid, pending, overdue },
       lateFeeCollected,
-      occupancy:        { total: totalProperties, leased: leasedProperties, vacant: Math.max(0, totalProperties - leasedProperties) },
+      occupancy: { total: totalProperties, leased: leasedProperties, vacant: Math.max(0, totalProperties - leasedProperties) },
       expiringLeases,
       agreementStatus,
-      lifetimeRevenue:  lifetimeRevenue[0]?.total || 0,
+      lifetimeRevenue: lifetimeRevenue[0]?.total || 0,
       activeTenantsCount: activeAgreements.length,
     });
   } catch (error) {
@@ -288,4 +288,37 @@ const getLandlordAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics };
+module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics, submitVerificationDocuments };
+
+// ─── Document Verification Submission ────────────────────────────────────────
+async function submitVerificationDocuments(req, res) {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!['landlord', 'property_manager'].includes(user.role)) {
+      return res.status(403).json({ message: 'Only landlords and property managers can submit verification documents' });
+    }
+    if (user.verificationStatus === 'approved') {
+      return res.status(400).json({ message: 'Your documents are already verified' });
+    }
+
+    const { documents } = req.body; // Array of { url, documentType, originalName }
+    if (!Array.isArray(documents) || documents.length === 0) {
+      return res.status(400).json({ message: 'At least one document is required' });
+    }
+
+    user.verificationDocuments = documents.map(d => ({
+      url: d.url,
+      documentType: d.documentType || 'cnic',
+      originalName: d.originalName || '',
+      uploadedAt: new Date(),
+    }));
+    user.verificationStatus = 'pending';
+    user.documentsVerified = false;
+    await user.save();
+
+    res.json({ message: 'Documents submitted successfully. Pending admin review.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}

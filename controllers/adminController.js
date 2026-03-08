@@ -1,10 +1,10 @@
-const User               = require('../models/User');
-const Property           = require('../models/Property');
-const Agreement          = require('../models/Agreement');
-const Payment            = require('../models/Payment');
-const Clause             = require('../models/Clause');
+const User = require('../models/User');
+const Property = require('../models/Property');
+const Agreement = require('../models/Agreement');
+const Payment = require('../models/Payment');
+const Clause = require('../models/Clause');
 const MaintenanceRequest = require('../models/MaintenanceRequest');
-const logger             = require('../utils/logger');
+const logger = require('../utils/logger');
 
 // @desc    Get platform-wide stats
 // @route   GET /api/admin/stats
@@ -50,7 +50,7 @@ const getStats = async (req, res) => {
       { $match: { createdAt: { $gte: sixMonthsAgo } } },
       {
         $group: {
-          _id:   { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
           count: { $sum: 1 },
         },
       },
@@ -88,11 +88,11 @@ const getUsers = async (req, res) => {
     const { role, isActive, search, page = 1, limit = 20 } = req.query;
     const filter = {};
 
-    if (role)                       filter.role     = role;
-    if (isActive !== undefined)     filter.isActive = isActive === 'true';
+    if (role) filter.role = role;
+    if (isActive !== undefined) filter.isActive = isActive === 'true';
     if (search) {
       filter.$or = [
-        { name:  { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
       ];
     }
@@ -159,7 +159,7 @@ const toggleUserBan = async (req, res) => {
     await user.save();
 
     res.json({
-      message:  user.isActive ? 'User account reactivated' : 'User account suspended',
+      message: user.isActive ? 'User account reactivated' : 'User account suspended',
       isActive: user.isActive,
     });
   } catch (error) {
@@ -209,7 +209,7 @@ const getAllAgreements = async (req, res) => {
     const [agreements, total] = await Promise.all([
       Agreement.find(filter)
         .populate('landlord', 'name email')
-        .populate('tenant',   'name email')
+        .populate('tenant', 'name email')
         .populate('property', 'title address')
         .sort('-createdAt')
         .skip(skip)
@@ -246,11 +246,11 @@ const getAuditLogs = async (req, res) => {
             { $limit: Number(limit) },
             {
               $project: {
-                action:      '$auditLog.action',
-                actor:       '$auditLog.actor',
-                timestamp:   '$auditLog.timestamp',
-                ipAddress:   '$auditLog.ipAddress',
-                details:     '$auditLog.details',
+                action: '$auditLog.action',
+                actor: '$auditLog.actor',
+                timestamp: '$auditLog.timestamp',
+                ipAddress: '$auditLog.ipAddress',
+                details: '$auditLog.details',
                 agreementId: '$_id',
               },
             },
@@ -260,15 +260,15 @@ const getAuditLogs = async (req, res) => {
       },
     ]);
 
-    const logs  = facetResult[0]?.logs       || [];
+    const logs = facetResult[0]?.logs || [];
     const total = facetResult[0]?.totalCount[0]?.count || 0;
 
     res.json({
       logs,
       pagination: {
         total,
-        page:       Number(page),
-        limit:      Number(limit),
+        page: Number(page),
+        limit: Number(limit),
         totalPages: Math.ceil(total / Number(limit)),
       },
     });
@@ -288,11 +288,11 @@ const getClauses = async (req, res) => {
     const { category, isApproved, isArchived = false } = req.query;
     const filter = { isArchived: isArchived === 'true' };
 
-    if (category)              filter.category   = category;
+    if (category) filter.category = category;
     if (isApproved !== undefined) filter.isApproved = isApproved === 'true';
 
     const clauses = await Clause.find(filter)
-      .populate('createdBy',  'name email')
+      .populate('createdBy', 'name email')
       .populate('approvedBy', 'name email')
       .sort('-createdAt');
 
@@ -313,11 +313,11 @@ const createClause = async (req, res) => {
     const clause = await Clause.create({
       title,
       body,
-      category:     category     || 'general',
+      category: category || 'general',
       jurisdiction: jurisdiction || 'Pakistan',
-      isDefault:    isDefault    || false,
-      condition:    condition    || null,    // [FIX #4]
-      createdBy:    req.user._id,
+      isDefault: isDefault || false,
+      condition: condition || null,    // [FIX #4]
+      createdBy: req.user._id,
     });
 
     res.status(201).json(clause);
@@ -337,10 +337,10 @@ const reviewClause = async (req, res) => {
     const clause = await Clause.findById(req.params.id);
     if (!clause) return res.status(404).json({ message: 'Clause not found' });
 
-    clause.isApproved      = approved;
-    clause.approvedBy      = approved ? req.user._id : null;
-    clause.approvedAt      = approved ? new Date()   : null;
-    clause.rejectionReason = approved ? ''           : (rejectionReason || 'Not approved');
+    clause.isApproved = approved;
+    clause.approvedBy = approved ? req.user._id : null;
+    clause.approvedAt = approved ? new Date() : null;
+    clause.rejectionReason = approved ? '' : (rejectionReason || 'Not approved');
 
     await clause.save();
     res.json(clause);
@@ -374,14 +374,14 @@ const archiveClause = async (req, res) => {
 const getAllProperties = async (req, res) => {
   try {
     const properties = await Property.find()
-      .populate('landlord',  'name email')
+      .populate('landlord', 'name email')
       .populate('managedBy', 'name email')
       .sort({ createdAt: -1 });
 
-    const propIds        = properties.map((p) => p._id);
+    const propIds = properties.map((p) => p._id);
     const activeAgreements = await Agreement.find({
       property: { $in: propIds },
-      status:   'active',
+      status: 'active',
     }).populate('tenant', 'name email');
 
     const tenantMap = {};
@@ -406,14 +406,14 @@ const getAllProperties = async (req, res) => {
 // @access  Private (Admin)
 const kickTenantFromProperty = async (req, res) => {
   try {
-    const { reason }     = req.body;
-    const propertyId     = req.params.id;
+    const { reason } = req.body;
+    const propertyId = req.params.id;
 
     const agreement = await Agreement.findOne({
       property: propertyId,
-      status:   'active',
+      status: 'active',
     })
-      .populate('tenant',   'name email')
+      .populate('tenant', 'name email')
       .populate('property', 'title');
 
     if (!agreement) {
@@ -422,10 +422,10 @@ const kickTenantFromProperty = async (req, res) => {
 
     agreement.status = 'terminated';
     agreement.auditLog.push({
-      action:    'TERMINATED_BY_ADMIN',
-      actor:     req.user._id,
+      action: 'TERMINATED_BY_ADMIN',
+      actor: req.user._id,
       ipAddress: req.ip,
-      details:   reason || 'Terminated by administrator',
+      details: reason || 'Terminated by administrator',
     });
     await agreement.save();
 
@@ -443,7 +443,7 @@ const kickTenantFromProperty = async (req, res) => {
 // @access  Private (Admin)
 const getAdminAnalytics = async (req, res) => {
   try {
-    const now          = new Date();
+    const now = new Date();
     const sixMonthsAgo = new Date(now);
     sixMonthsAgo.setMonth(now.getMonth() - 6);
 
@@ -496,7 +496,7 @@ const getAdminAnalytics = async (req, res) => {
       expiredLast6,
       createdLast6,
       userGrowth,
-      disputeStats:     disputeStats.reduce((a, d) => { a[d._id] = d.count; return a; }, {}),
+      disputeStats: disputeStats.reduce((a, d) => { a[d._id] = d.count; return a; }, {}),
       maintenanceStats: maintenanceStats.reduce((a, d) => { a[d._id] = d.count; return a; }, {}),
     });
   } catch (error) {
@@ -512,9 +512,9 @@ const getAdminAnalytics = async (req, res) => {
 // [FIX #6]
 const getBillingUsers = async (req, res) => {
   try {
-    const page   = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit  = Math.min(100, parseInt(req.query.limit) || 25);
-    const skip   = (page - 1) * limit;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 25);
+    const skip = (page - 1) * limit;
     const { tier, search } = req.query;
 
     const filter = {};
@@ -566,10 +566,10 @@ const getBillingUsers = async (req, res) => {
         pages: Math.ceil(total / limit),
       },
       summary: {
-        free:       freeCt,
-        pro:        proCt,
+        free: freeCt,
+        pro: proCt,
         enterprise: enterpriseCt,
-        totalMRR:   (proCt * 2999) + (enterpriseCt * 9999),
+        totalMRR: (proCt * 2999) + (enterpriseCt * 9999),
       },
     });
   } catch (error) {
@@ -594,5 +594,48 @@ module.exports = {
   getAllProperties,
   kickTenantFromProperty,
   getAdminAnalytics,
-  getBillingUsers,     // [FIX #6]
+  getBillingUsers,
+  getPendingVerifications,
+  getApprovedVerifications,
+  approveVerification,
+  rejectVerification,
 };
+
+// ─── Document Verification Admin Functions ─────────────────────────────────
+async function getPendingVerifications(req, res) {
+  try {
+    const users = await User.find({ verificationStatus: 'pending' })
+      .select('name email role verificationDocuments verificationStatus documentsVerified createdAt');
+    res.json(users);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+}
+
+async function getApprovedVerifications(req, res) {
+  try {
+    const users = await User.find({ verificationStatus: 'approved' })
+      .select('name email role verificationDocuments verificationStatus documentsVerified createdAt');
+    res.json(users);
+  } catch (err) { res.status(500).json({ message: err.message }); }
+}
+
+async function approveVerification(req, res) {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    user.verificationStatus = 'approved';
+    user.documentsVerified = true;
+    await user.save();
+    res.json({ message: 'User documents approved successfully' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+}
+
+async function rejectVerification(req, res) {
+  try {
+    const user = await User.findById(req.params.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    user.verificationStatus = 'rejected';
+    user.documentsVerified = false;
+    await user.save();
+    res.json({ message: 'User documents rejected' });
+  } catch (err) { res.status(500).json({ message: err.message }); }
+}
