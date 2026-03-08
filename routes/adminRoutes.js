@@ -16,6 +16,7 @@ const {
   getAllProperties,
   kickTenantFromProperty,
   getAdminAnalytics,
+  getBillingUsers,
 } = require('../controllers/adminController');
 
 // ─── Platform Stats ───────────────────────────────────────────────────────────
@@ -51,5 +52,8 @@ router.get('/verifications/pending', protect, isAdmin, getPendingVerifications);
 router.get('/verifications/approved', protect, isAdmin, getApprovedVerifications);
 router.put('/verifications/:userId/approve', protect, isAdmin, approveVerification);
 router.put('/verifications/:userId/reject', protect, isAdmin, rejectVerification);
+
+// ─── Billing Overview ─────────────────────────────────────────────────────────
+router.get('/billing/users', protect, isAdmin, getBillingUsers);
 
 module.exports = router;
