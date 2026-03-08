@@ -517,7 +517,8 @@ const getBillingUsers = async (req, res) => {
     const skip = (page - 1) * limit;
     const { tier, search } = req.query;
 
-    const filter = {};
+    // Only landlords have subscriptions
+    const filter = { role: 'landlord' };
 
     if (tier && ['free', 'pro', 'enterprise'].includes(tier)) {
       if (tier === 'free') {
@@ -533,17 +534,16 @@ const getBillingUsers = async (req, res) => {
 
     if (search) {
       const regex = { $regex: search, $options: 'i' };
-      filter.$or = filter.$or
-        ? [...filter.$or, { name: regex }, { email: regex }]
-        : [{ name: regex }, { email: regex }];
+      filter.$and = [
+        { role: 'landlord' },
+        { $or: [{ name: regex }, { email: regex }] },
+      ];
+      delete filter.role; // moved into $and
     }
 
     const [users, total] = await Promise.all([
       User.find(filter)
-        .select(
-          'name email role subscriptionTier stripeCustomerId ' +
-          'subscriptionStartDate createdAt isActive'
-        )
+        .select('name email subscriptionTier createdAt isActive')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -551,10 +551,11 @@ const getBillingUsers = async (req, res) => {
       User.countDocuments(filter),
     ]);
 
+    const landlordBase = { role: 'landlord' };
     const [freeCt, proCt, enterpriseCt] = await Promise.all([
-      User.countDocuments({ $or: [{ subscriptionTier: 'free' }, { subscriptionTier: null }, { subscriptionTier: { $exists: false } }] }),
-      User.countDocuments({ subscriptionTier: 'pro' }),
-      User.countDocuments({ subscriptionTier: 'enterprise' }),
+      User.countDocuments({ ...landlordBase, $or: [{ subscriptionTier: 'free' }, { subscriptionTier: null }, { subscriptionTier: { $exists: false } }] }),
+      User.countDocuments({ ...landlordBase, subscriptionTier: 'pro' }),
+      User.countDocuments({ ...landlordBase, subscriptionTier: 'enterprise' }),
     ]);
 
     res.json({
