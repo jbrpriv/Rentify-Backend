@@ -542,7 +542,7 @@ const getBillingUsers = async (req, res) => {
       User.find(filter)
         .select(
           'name email role subscriptionTier stripeCustomerId ' +
-          'subscriptionStatus subscriptionUpdatedAt createdAt isBanned isActive'
+          'subscriptionStartDate createdAt isActive'
         )
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -600,50 +600,6 @@ module.exports = {
   approveVerification,
   rejectVerification,
 };
-
-// ─── Billing Overview ─────────────────────────────────────────────────────────
-async function getBillingUsers(req, res) {
-  try {
-    const { page = 1, limit = 25, tier, search } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const filter = {};
-    if (tier) filter.subscriptionTier = tier;
-    if (search) {
-      filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-      ];
-    }
-
-    const [users, total] = await Promise.all([
-      User.find(filter)
-        .select('name email role subscriptionTier subscriptionStartDate isActive createdAt stripeCustomerId')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      User.countDocuments(filter),
-    ]);
-
-    // Summary counts
-    const [free, pro, enterprise] = await Promise.all([
-      User.countDocuments({ subscriptionTier: 'free' }),
-      User.countDocuments({ subscriptionTier: 'pro' }),
-      User.countDocuments({ subscriptionTier: 'enterprise' }),
-    ]);
-
-    const PRO_PRICE = 4999;
-    const ENTERPRISE_PRICE = 14999;
-    const totalMRR = (pro * PRO_PRICE) + (enterprise * ENTERPRISE_PRICE);
-
-    res.json({
-      users,
-      summary: { free, pro, enterprise, totalMRR },
-      pagination: { total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) },
-    });
-  } catch (err) { res.status(500).json({ message: err.message }); }
-}
 
 // ─── Document Verification Admin Functions ─────────────────────────────────
 const { getTenantDocumentUrl, isS3Configured } = require('../utils/s3Service');
