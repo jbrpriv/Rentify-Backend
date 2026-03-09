@@ -6,6 +6,7 @@ const { protect } = require('../middlewares/authMiddleware');
 const { verifyRecaptcha } = require('../middlewares/recaptchaMiddleware');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const {
+  setRefreshCookie, // ← [FIX] import shared cookie setter so sameSite is consistent
   registerUser, loginUser, superLogin, refreshToken, logoutUser,
   verifyEmail, resendVerification,
   forgotPassword, resetPassword,
@@ -94,7 +95,7 @@ router.post('/2fa/validate', validate2FALogin);
 
 router.post('/fcm-token', protect, registerFCMToken);
 router.post('/facebook/complete', facebookComplete); // no auth — creates the account
-router.post('/oauth/abandon', protect, abandonOAuthAccount);  // wipe incomplete OAuth account (POST so sendBeacon works)
+router.post('/oauth/abandon', protect, abandonOAuthAccount); // wipe incomplete OAuth account
 
 // ─── Generic OAuth callback handler ──────────────────────────────────────────
 /**
@@ -138,9 +139,6 @@ function makeOAuthCallback(providerName) {
 
       try {
         // ── Facebook with no email: redirect to /register with a notice ─────
-        // Allowing the user to type an arbitrary email here risks silently
-        // linking their Facebook to an *existing* account (wrong portal bug).
-        // The safest UX is to send them to manual sign-up with an explanation.
         if (user.incomplete) {
           const params = new URLSearchParams({ notice: 'facebook_no_email' });
           return res.redirect(
@@ -152,19 +150,11 @@ function makeOAuthCallback(providerName) {
         const accessToken = generateAccessToken(user._id);
         const refreshTokenValue = generateRefreshToken(user._id);
 
-        res.cookie('refreshToken', refreshTokenValue, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'strict',
-          maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-        });
+        // [FIX] Use shared setRefreshCookie — was using sameSite:'strict' here
+        // which blocked the cookie cross-origin (Vercel → nip.io), causing
+        // /auth/refresh to always return 401 "No refresh token".
+        setRefreshCookie(res, refreshTokenValue);
 
-        // A user needs the onboarding flow if:
-        //   (a) They have never set a phone number (brand-new Google account), OR
-        //   (b) They set a phone number but closed the tab before verifying the OTP
-        //       (profileComplete but isPhoneVerified is still false).
-        // In case (b) we pass skipToOTP=true so the complete-profile page jumps
-        // directly to the OTP step without asking them to re-enter their details.
         const hasPlaceholderPhone = user.phoneNumber === '0000000000';
         const isNewUser = hasPlaceholderPhone || !user.isPhoneVerified;
 
@@ -177,9 +167,6 @@ function makeOAuthCallback(providerName) {
           isPhoneVerified: String(user.isPhoneVerified),
           isNewUser: String(isNewUser),
           provider: providerName,
-          // Pass existing phone so complete-profile can pre-populate the field.
-          // skipToOTP signals the profile form should lock name/role but keep
-          // phone editable — the user may want to correct their number.
           phoneNumber: hasPlaceholderPhone ? '' : user.phoneNumber,
           skipToOTP: String(!hasPlaceholderPhone && !user.isPhoneVerified),
         });

@@ -8,13 +8,17 @@ const { validationResult } = require('express-validator');
 const { sendEmail } = require('../utils/emailService');
 const { sendOTP, verifyOTP } = require('../utils/smsService');
 
+// ─── [FIX] Exported so authRoutes.js OAuth callback uses the same cookie config
+// This ensures sameSite:'none' is used consistently everywhere, which is
+// required for cross-origin requests (Vercel frontend + nip.io API).
 const setRefreshCookie = (res, token) => {
   const isProd = process.env.NODE_ENV === 'production';
   res.cookie('refreshToken', token, {
     httpOnly: true,
-    secure: isProd, // Must be true for SameSite: None
+    secure: isProd,           // must be true when sameSite:'none'
     sameSite: isProd ? 'none' : 'lax', // 'none' for cross-site prod, 'lax' for cross-port dev
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    path: '/',
   });
 };
 
@@ -126,6 +130,8 @@ const superLogin = async (req, res) => {
 
   res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, isPhoneVerified: user.isPhoneVerified, twoFactorEnabled: user.twoFactorEnabled || false, token: accessToken });
 };
+
+// ─── REFRESH TOKEN ────────────────────────────────────────────────────────────
 const refreshToken = async (req, res) => {
   const token = req.cookies?.refreshToken;
   if (!token) return res.status(401).json({ message: 'No refresh token' });
@@ -135,6 +141,11 @@ const refreshToken = async (req, res) => {
 
     const user = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ message: 'User not found' });
+
+    // Reject banned / deactivated accounts on refresh too
+    if (user.isActive === false) {
+      return res.status(403).json({ message: 'Your account has been suspended. Please contact support.' });
+    }
 
     const newAccessToken = generateAccessToken(user._id);
     const newRefreshToken = generateRefreshToken(user._id);
@@ -147,9 +158,17 @@ const refreshToken = async (req, res) => {
     res.status(401).json({ message: 'Refresh token expired' });
   }
 };
+
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
 const logoutUser = (req, res) => {
-  res.clearCookie('refreshToken');
+  const isProd = process.env.NODE_ENV === 'production';
+  // Clear cookie with same options it was set with, otherwise some browsers ignore it
+  res.clearCookie('refreshToken', {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    path: '/',
+  });
   res.json({ message: 'Logged out successfully' });
 };
 
@@ -488,7 +507,13 @@ const abandonOAuthAccount = async (req, res) => {
     }
 
     await User.findByIdAndDelete(user._id);
-    res.clearCookie('refreshToken');
+    const isProd = process.env.NODE_ENV === 'production';
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      path: '/',
+    });
     res.json({ message: 'Incomplete account removed.' });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -496,6 +521,7 @@ const abandonOAuthAccount = async (req, res) => {
 };
 
 module.exports = {
+  setRefreshCookie, // ← [FIX] exported so authRoutes.js OAuth callback uses same config
   registerUser, loginUser, superLogin, refreshToken, logoutUser,
   verifyEmail, resendVerification,
   forgotPassword, resetPassword,
