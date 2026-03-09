@@ -32,7 +32,7 @@ const protect = async (req, res, next) => {
       req.user = user;
       return next(); // FIX: added return to stop execution
     } catch (error) {
-      console.error(error);
+      // Don't log full stack traces for routine invalid/expired tokens; just reject them.
       return res.status(401).json({ message: 'Not authorized, token failed' });
     }
   }

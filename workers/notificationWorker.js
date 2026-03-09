@@ -336,6 +336,11 @@ const notificationWorker = new Worker(
   {
     connection: redisConnection,
     concurrency: 5,
+    // Upstash Free-tier Optimization Settings
+    // Prevent aggressive idle polling from exhausting daily limits
+    drainDelay: 300000,      // Check empty queues every 5 mins instead of 5 secs
+    stalledInterval: 300000, // Check for stalled jobs every 5 mins instead of 30 secs
+    metrics: null,           // Disable metrics polling
   }
 );
 
