@@ -26,7 +26,7 @@
  */
 
 const winston = require('winston');
-const morgan  = require('morgan');
+const morgan = require('morgan');
 
 const { combine, timestamp, errors, json, colorize, printf } = winston.format;
 
@@ -69,28 +69,28 @@ if (isProd) {
 
     transports.push(
       new DailyRotateFile({
-        filename:      'logs/error-%DATE%.log',
-        datePattern:   'YYYY-MM-DD',
-        level:         'error',
-        maxFiles:      '30d',
-        maxSize:       '20m',
+        filename: 'logs/error-%DATE%.log',
+        datePattern: 'YYYY-MM-DD',
+        level: 'error',
+        maxFiles: '30d',
+        maxSize: '20m',
         zippedArchive: true,
-        format:        prodFormat,
+        format: prodFormat,
       }),
       new DailyRotateFile({
-        filename:      'logs/combined-%DATE%.log',
-        datePattern:   'YYYY-MM-DD',
-        maxFiles:      '30d',
-        maxSize:       '20m',
+        filename: 'logs/combined-%DATE%.log',
+        datePattern: 'YYYY-MM-DD',
+        maxFiles: '30d',
+        maxSize: '20m',
         zippedArchive: true,
-        format:        prodFormat,
+        format: prodFormat,
       })
     );
   } catch (_) {
     // winston-daily-rotate-file not installed — fall back to static files
     transports.push(
-      new winston.transports.File({ filename: 'logs/error.log',    level: 'error', format: prodFormat }),
-      new winston.transports.File({ filename: 'logs/combined.log',               format: prodFormat })
+      new winston.transports.File({ filename: 'logs/error.log', level: 'error', format: prodFormat }),
+      new winston.transports.File({ filename: 'logs/combined.log', format: prodFormat })
     );
   }
 }
@@ -98,7 +98,7 @@ if (isProd) {
 // ─── Logger instance ─────────────────────────────────────────────────────────
 
 const logger = winston.createLogger({
-  level: isProd ? 'info' : 'debug',
+  level: isProd ? 'http' : 'debug',
   transports,
   // Don't crash the process on uncaught logger errors
   exitOnError: false,
