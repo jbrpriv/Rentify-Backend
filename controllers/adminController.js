@@ -198,29 +198,33 @@ const changeUserRole = async (req, res) => {
 // @desc    Get all agreements platform-wide
 // @route   GET /api/admin/agreements
 // @access  Private (Admin)
+// @query   status= | search= (landlord/tenant/property name) | page= | limit=
 const getAllAgreements = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, search, page = 1, limit = 200 } = req.query;
     const filter = {};
     if (status) filter.status = status;
 
-    const skip = (Number(page) - 1) * Number(limit);
+    // Fetch with a generous limit so we can do cross-populate search in memory.
+    // For large installations this should become a $lookup aggregation pipeline.
+    const agreements = await Agreement.find(filter)
+      .populate('landlord', 'name email')
+      .populate('tenant', 'name email')
+      .populate('property', 'title address')
+      .sort('-createdAt')
+      .limit(Number(limit));
 
-    const [agreements, total] = await Promise.all([
-      Agreement.find(filter)
-        .populate('landlord', 'name email')
-        .populate('tenant', 'name email')
-        .populate('property', 'title address')
-        .sort('-createdAt')
-        .skip(skip)
-        .limit(Number(limit)),
-      Agreement.countDocuments(filter),
-    ]);
+    let result = agreements;
+    if (search) {
+      const q = search.toLowerCase();
+      result = agreements.filter((a) =>
+        a.landlord?.name?.toLowerCase().includes(q) ||
+        a.tenant?.name?.toLowerCase().includes(q) ||
+        a.property?.title?.toLowerCase().includes(q)
+      );
+    }
 
-    res.json({
-      agreements,
-      pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)) },
-    });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -371,9 +375,20 @@ const archiveClause = async (req, res) => {
 // @desc    Get all properties with tenant info
 // @route   GET /api/admin/properties
 // @access  Private (Admin)
+// @query   search= (title, landlord name, city)
 const getAllProperties = async (req, res) => {
   try {
-    const properties = await Property.find()
+    const { search } = req.query;
+    const filter = {};
+    if (search) {
+      const re = { $regex: search, $options: 'i' };
+      filter.$or = [
+        { title: re },
+        { 'address.city': re },
+      ];
+    }
+
+    const properties = await Property.find(filter)
       .populate('landlord', 'name email')
       .populate('managedBy', 'name email')
       .sort({ createdAt: -1 });
@@ -389,10 +404,23 @@ const getAllProperties = async (req, res) => {
       tenantMap[ag.property.toString()] = ag;
     });
 
-    const result = properties.map((p) => ({
+    // If search also needs landlord/tenant name filtering (post-populate),
+    // apply in memory since those are joined fields from populate.
+    let result = properties.map((p) => ({
       ...p.toObject(),
       activeAgreement: tenantMap[p._id.toString()] || null,
     }));
+
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter((p) =>
+        (!search) ||
+        p.title?.toLowerCase().includes(q) ||
+        p.landlord?.name?.toLowerCase().includes(q) ||
+        p.address?.city?.toLowerCase().includes(q) ||
+        p.activeAgreement?.tenant?.name?.toLowerCase().includes(q)
+      );
+    }
 
     res.json(result);
   } catch (error) {

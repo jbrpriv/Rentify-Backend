@@ -125,21 +125,27 @@ const superLogin = async (req, res) => {
 
   res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, isPhoneVerified: user.isPhoneVerified, twoFactorEnabled: user.twoFactorEnabled || false, token: accessToken });
 };
-
-
 const refreshToken = async (req, res) => {
   const token = req.cookies?.refreshToken;
   if (!token) return res.status(401).json({ message: 'No refresh token' });
+
   try {
     const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+
     const user = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ message: 'User not found' });
-    res.json({ token: generateAccessToken(user._id) });
+
+    const newAccessToken = generateAccessToken(user._id);
+    const newRefreshToken = generateRefreshToken(user._id);
+
+    setRefreshCookie(res, newRefreshToken);
+
+    res.json({ token: newAccessToken });
+
   } catch {
-    res.status(401).json({ message: 'Refresh token expired, please log in again' });
+    res.status(401).json({ message: 'Refresh token expired' });
   }
 };
-
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
 const logoutUser = (req, res) => {
   res.clearCookie('refreshToken');
