@@ -9,10 +9,11 @@ const { sendEmail } = require('../utils/emailService');
 const { sendOTP, verifyOTP } = require('../utils/smsService');
 
 const setRefreshCookie = (res, token) => {
+  const isProd = process.env.NODE_ENV === 'production';
   res.cookie('refreshToken', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: isProd, // Must be true for SameSite: None
+    sameSite: isProd ? 'none' : 'lax', // 'none' for cross-site prod, 'lax' for cross-port dev
     maxAge: 30 * 24 * 60 * 60 * 1000,
   });
 };
