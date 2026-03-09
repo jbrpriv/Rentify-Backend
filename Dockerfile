@@ -15,14 +15,18 @@ COPY --from=deps /app/node_modules ./node_modules
 # Copy application source
 COPY . .
 
-# Non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-USER appuser
+# Create logs directory and non-root user, set permissions — must be done as root BEFORE switching user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+  && mkdir -p /app/logs \
+  && chown -R appuser:appgroup /app/logs
 
 ENV NODE_ENV=production
 ENV PORT=5000
 
 EXPOSE 5000
+
+# Switch to non-root user
+USER appuser
 
 # dumb-init handles PID 1 properly (signal forwarding, zombie reaping)
 ENTRYPOINT ["dumb-init", "--"]
