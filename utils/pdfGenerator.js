@@ -209,32 +209,34 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
     ? [property.address.street, property.address.city, property.address.state].filter(Boolean).join(', ')
     : '—';
 
-  // ── We'll do a 2-pass approach: build content first, then we know page count.
-  // PDFKit doesn't support total page count natively, so we track manually.
-  // We add furniture after each page via the 'pageAdded' event.
   let pageNum = 1;
-
-  // Track page numbers via events
   doc.on('pageAdded', () => { pageNum++; });
-
-  // We'll use a post-process trick: render furniture on every page.
-  // Because PDFKit doesn't expose totalPages, we write "Page N" and patch later.
-  // For simplicity, we render furniture inline at the start of each page.
 
   // ════ PAGE 1 — COVER ═══════════════════════════════════════════════════════
 
-  // ── White page background — prevents dark-mode PDF viewers inverting the page ──
+  // White page background
   rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
 
   // Full navy header banner
   rect(doc, 0, 0, PAGE.width, 180, C.navy);
 
-  // Decorative circle accents
-  doc.save().circle(PAGE.width - 60, 40, 70).fillOpacity(0.07).fill(C.white).restore();
-  doc.save().circle(PAGE.width - 20, 160, 50).fillOpacity(0.05).fill(C.white).restore();
+  // ── Decorative circle accents ─────────────────────────────────────────────
+  // FIX: set fillOpacity separately before fill — chaining it corrupts the CTM
+  doc.save();
+  doc.fillOpacity(0.07);
+  doc.circle(PAGE.width - 60, 40, 70).fill(C.white);
+  doc.restore();
+
+  doc.save();
+  doc.fillOpacity(0.05);
+  doc.circle(PAGE.width - 20, 160, 50).fill(C.white);
+  doc.restore();
+
+  // Hard reset opacity — critical to prevent leak into all subsequent draws
+  doc.fillOpacity(1);
 
   // Logo / brand
-  doc.save().font(FONT.bold).fontSize(22).fillColor(C.white).fillOpacity(1)
+  doc.save().font(FONT.bold).fontSize(22).fillColor(C.white)
     .text('RentifyPro', PAGE.margin, 36, { lineBreak: false })
     .restore();
   doc.save().font(FONT.regular).fontSize(9).fillColor('#93C5FD')
@@ -263,7 +265,6 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   let y = 200;
 
   // ── Parties & Property cards ──
-  // Two side-by-side cards
   const cardW = (CONTENT_W - 12) / 2;
 
   // Landlord card
@@ -512,27 +513,27 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
   // A5 portrait dimensions (points)
   const W = 419.53, H = 595.28, M = 40, CW = W - M * 2;
 
-  // ── White page background (prevents transparent/dark inversion in PDF viewers) ──
+  // White page background
   rect(doc, 0, 0, W, H, C.white);
 
   // ── Header banner ──
   rect(doc, 0, 0, W, 96, C.navy);
-  // Subtle decorative circle — drawn with full opacity so it doesn't bleed through
-  doc.save()
-    .circle(W - 30, 20, 55)
-    .fillOpacity(0.08)
-    .fillColor(C.white)
-    .fill()
-    .restore();
 
-  // Reset opacity to 1 for all subsequent text so nothing bleeds through
+  // ── Decorative circle accent ──────────────────────────────────────────────
+  // FIX: set fillOpacity separately before fill — chaining it corrupts the CTM
+  doc.save();
+  doc.fillOpacity(0.08);
+  doc.circle(W - 30, 20, 55).fill(C.white);
+  doc.restore();
+
+  // Hard reset opacity — critical to prevent leak into all subsequent draws
+  doc.fillOpacity(1);
+
   doc.save()
-    .fillOpacity(1)
     .font(FONT.bold).fontSize(18).fillColor(C.white)
     .text('RentifyPro', M, 20, { lineBreak: false })
     .restore();
   doc.save()
-    .fillOpacity(1)
     .font(FONT.regular).fontSize(8.5).fillColor('#93C5FD')
     .text('Official Payment Receipt', M, 44, { lineBreak: false })
     .restore();
@@ -542,24 +543,20 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
   const pilW = doc.widthOfString(receiptLabel) + 20;
   rect(doc, M, 60, pilW, 18, '#1D4ED8');
   doc.save()
-    .fillOpacity(1)
     .font(FONT.bold).fontSize(8).fillColor(C.white)
     .text(receiptLabel, M + 10, 65, { lineBreak: false })
     .restore();
 
   let y = 112;
 
-  // ── Amount highlight box (light background, dark text) ──
+  // ── Amount highlight box ──
   rect(doc, M, y, CW, 54, C.lightBlue);
-  // Left accent bar
   rect(doc, M, y, 4, 54, C.blue);
   doc.save()
-    .fillOpacity(1)
     .font(FONT.bold).fontSize(7.5).fillColor(C.blue)
     .text('AMOUNT PAID', M + 12, y + 9, { lineBreak: false })
     .restore();
   doc.save()
-    .fillOpacity(1)
     .font(FONT.bold).fontSize(22).fillColor(C.navy)
     .text(fmt.money(payment.amount), M + 12, y + 22, { lineBreak: false })
     .restore();
@@ -569,7 +566,7 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
 
   y += 66;
 
-  // ── Details grid (alternating white / light-gray rows) ──
+  // ── Details grid ──
   const rows = [
     { label: 'Payment Date', value: fmt.date(payment.paidAt || payment.createdAt) },
     { label: 'Period Covered', value: payment.dueDate ? new Date(payment.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' }) : '—' },
@@ -590,12 +587,10 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
     const bg = i % 2 === 0 ? C.white : C.gray100;
     rect(doc, M, y, CW, 24, bg);
     doc.save()
-      .fillOpacity(1)
       .font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
       .text(row.label, M + 10, y + 8, { lineBreak: false, width: CW * 0.42 })
       .restore();
     doc.save()
-      .fillOpacity(1)
       .font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
       .text(String(row.value), M + CW * 0.45, y + 7, { lineBreak: false, width: CW * 0.52 })
       .restore();
@@ -606,10 +601,9 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
   y += 22;
 
   // ── PAID status badge ──
-  rect(doc, M, y, 90, 24, '#D1FAE5'); // light green background
-  rect(doc, M, y, 3, 24, C.green);    // green left accent
+  rect(doc, M, y, 90, 24, '#D1FAE5');
+  rect(doc, M, y, 3, 24, C.green);
   doc.save()
-    .fillOpacity(1)
     .font(FONT.bold).fontSize(9).fillColor(C.green)
     .text('PAID', M + 10, y + 7, { lineBreak: false })
     .restore();
@@ -617,7 +611,6 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
   // ── Footer ──
   rect(doc, 0, H - 34, W, 34, C.navy);
   doc.save()
-    .fillOpacity(1)
     .font(FONT.regular).fontSize(7).fillColor('#93C5FD')
     .text(
       'This is an official payment receipt generated by RentifyPro. Please retain for your records.',
