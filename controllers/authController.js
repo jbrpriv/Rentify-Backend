@@ -6,7 +6,7 @@ const qrcode = require('qrcode');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const { validationResult } = require('express-validator');
 const { sendEmail } = require('../utils/emailService');
-const { sendOTP, verifyOTP } = require('../utils/smsService');
+const { sendOTP, verifyOTP, sendSMS } = require('../utils/smsService');
 
 // ─── [FIX] Exported so authRoutes.js OAuth callback uses the same cookie config
 // This ensures sameSite:'none' is used consistently everywhere, which is
@@ -362,17 +362,29 @@ const disable2FA = async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
 
+// ─── [FIX] send2FADisableOTP ──────────────────────────────────────────────────
+// BUG: The old implementation stored a local OTP in user.otpCode, then called
+// sendOTP() (Twilio Verify) which generates and sends its OWN separate code
+// via Twilio's Verify service — completely different from what was stored.
+// disable2FA checks user.isOtpValid(otpCode), which compares against the
+// locally stored otpCode — so the two codes never matched → "Invalid OTP".
+//
+// FIX: For phone users, use sendSMS(…, 'otp', otp) to send the locally
+// generated code directly via SMS, so it matches what isOtpValid() checks.
+// Email path was already correct (it already sent the local `otp` value).
 const send2FADisableOTP = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if (!user.twoFactorEnabled) return res.status(400).json({ message: '2FA is not enabled' });
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.otpCode = otp;
-    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     await user.save();
-    const { sendOTP } = require('../utils/smsService');
+
     if (user.isPhoneVerified && user.phoneNumber) {
-      await sendOTP(user.phoneNumber);
+      // Use sendSMS with the 'otp' template so the locally stored code is what gets sent
+      await sendSMS(user.phoneNumber, 'otp', otp);
       res.json({ message: 'OTP sent to your phone number', via: 'phone' });
     } else {
       await sendEmail(user.email, 'emailOTP', user.name, otp);

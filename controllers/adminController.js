@@ -608,6 +608,47 @@ const getBillingUsers = async (req, res) => {
 };
 
 
+
+// ─── Clause Variable Definitions ──────────────────────────────────────────────
+// @desc    Return the full list of available template variables for clause building
+// @route   GET /api/admin/clauses/variables
+// @access  Private (Admin, Law Reviewer)
+//
+// These variables exactly mirror the keys produced by clauseSubstitution.js
+// buildVariableMap(), so what the admin sees in the UI is guaranteed to match
+// what gets substituted when the PDF is generated. No DB query needed —
+// the set of variables is static and tied to the Agreement schema.
+const CLAUSE_VARIABLES = [
+  // Parties
+  { key: 'tenantName', label: 'Tenant Name', group: 'Parties', description: 'Full legal name of the tenant' },
+  { key: 'landlordName', label: 'Landlord Name', group: 'Parties', description: 'Full legal name of the landlord' },
+  // Property
+  { key: 'propertyTitle', label: 'Property Title', group: 'Property', description: 'Listing title of the property' },
+  { key: 'propertyAddress', label: 'Property Address', group: 'Property', description: 'Full street, city, and state address' },
+  // Financials
+  { key: 'rentAmount', label: 'Rent Amount', group: 'Financials', description: 'Monthly rent (PKR formatted)' },
+  { key: 'depositAmount', label: 'Security Deposit', group: 'Financials', description: 'Security deposit amount (PKR formatted)' },
+  { key: 'lateFeeAmount', label: 'Late Fee Amount', group: 'Financials', description: 'Late fee charged after grace period' },
+  { key: 'lateFeeGraceDays', label: 'Late Fee Grace Days', group: 'Financials', description: 'Number of days before late fee is applied' },
+  // Term
+  { key: 'startDate', label: 'Start Date', group: 'Term', description: 'Lease commencement date' },
+  { key: 'endDate', label: 'End Date', group: 'Term', description: 'Lease expiry date' },
+  { key: 'durationMonths', label: 'Duration (Months)', group: 'Term', description: 'Total length of the lease in months' },
+  { key: 'currentDate', label: 'Current Date', group: 'Term', description: 'Date the agreement document is generated' },
+  // Policies
+  { key: 'petPolicy', label: 'Pet Policy', group: 'Policies', description: '"Pets allowed" or "No pets"' },
+  { key: 'petDeposit', label: 'Pet Deposit', group: 'Policies', description: 'Pet security deposit amount' },
+  { key: 'utilities', label: 'Utilities', group: 'Policies', description: '"Utilities included" or "Utilities not included"' },
+  { key: 'utilitiesDetails', label: 'Utilities Details', group: 'Policies', description: 'Custom description of included utilities' },
+  { key: 'terminationPolicy', label: 'Termination Policy', group: 'Policies', description: 'Termination notice and penalty details' },
+  // System
+  { key: 'agreementId', label: 'Agreement ID', group: 'System', description: 'Unique system identifier for this agreement' },
+];
+
+const getClauseVariables = (req, res) => {
+  res.json(CLAUSE_VARIABLES);
+};
+
 module.exports = {
   getStats,
   getUsers,
@@ -628,6 +669,7 @@ module.exports = {
   getApprovedVerifications,
   approveVerification,
   rejectVerification,
+  getClauseVariables,
 };
 
 // ─── Document Verification Admin Functions ─────────────────────────────────

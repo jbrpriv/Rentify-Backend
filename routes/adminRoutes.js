@@ -17,6 +17,7 @@ const {
   kickTenantFromProperty,
   getAdminAnalytics,
   getBillingUsers,
+  getClauseVariables,
 } = require('../controllers/adminController');
 
 // ─── Platform Stats ───────────────────────────────────────────────────────────
@@ -41,6 +42,10 @@ router.get('/audit-logs', protect, isAdmin, getAuditLogs);
 
 // ─── Clause / Template Management (Admin + Law Reviewer) ─────────────────────
 // isLawReviewer allows both admin and law_reviewer roles
+//
+// IMPORTANT: /clauses/variables MUST be registered before /clauses/:id
+// otherwise Express matches the string "variables" as an :id param value.
+router.get('/clauses/variables', protect, isLawReviewer, getClauseVariables);
 router.get('/clauses', protect, isLawReviewer, getClauses);
 router.post('/clauses', protect, isLawReviewer, createClause);
 router.put('/clauses/:id/approve', protect, isLawReviewer, reviewClause);
