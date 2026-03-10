@@ -216,6 +216,8 @@ const acceptOffer = async (req, res) => {
       utilitiesIncluded = false,
       utilitiesDetails = '',
       terminationPolicy = '',
+      rentEscalationEnabled = false,
+      rentEscalationPercentage = 5,
     } = req.body;
 
     // ── Build dates ───────────────────────────────────────────────────────────
@@ -277,6 +279,13 @@ const acceptOffer = async (req, res) => {
         actor: req.user._id,
         details: `Agreement drafted from accepted offer (round ${agreed.round})${templateId ? ` using template ${templateId}` : ''}`,
       }],
+      rentEscalation: {
+        enabled: Boolean(rentEscalationEnabled),
+        percentage: Number(rentEscalationPercentage) || 5,
+        nextScheduledAt: rentEscalationEnabled
+          ? (() => { const d = new Date(startDate); d.setFullYear(d.getFullYear() + 1); return d; })()
+          : null,
+      },
     });
 
     // ── Update this offer ─────────────────────────────────────────────────────
