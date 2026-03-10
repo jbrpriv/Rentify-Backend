@@ -58,6 +58,9 @@ function badge(doc, label, x, y, bgColor, textColor = C.white) {
 function addPageFurniture(doc, pageNum, totalPages, title = 'RENTAL AGREEMENT') {
   const savedY = doc.y;
 
+  // ── White page background — prevents dark-mode PDF viewers inverting the page ──
+  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
+
   // ── Top bar ──
   rect(doc, 0, 0, PAGE.width, 36, C.navy);
   doc.save()
@@ -219,6 +222,9 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   // For simplicity, we render furniture inline at the start of each page.
 
   // ════ PAGE 1 — COVER ═══════════════════════════════════════════════════════
+
+  // ── White page background — prevents dark-mode PDF viewers inverting the page ──
+  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
 
   // Full navy header banner
   rect(doc, 0, 0, PAGE.width, 180, C.navy);
@@ -500,7 +506,7 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
 function _buildReceiptPDF(doc, payment, tenant, property) {
   const fmt = {
     money: n => `Rs. ${Number(n ?? 0).toLocaleString('en-PK')}`,
-    date:  d => d ? new Date(d).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
+    date: d => d ? new Date(d).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
   };
 
   // A5 portrait dimensions (points)
@@ -565,12 +571,12 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
 
   // ── Details grid (alternating white / light-gray rows) ──
   const rows = [
-    { label: 'Payment Date',   value: fmt.date(payment.paidAt || payment.createdAt) },
+    { label: 'Payment Date', value: fmt.date(payment.paidAt || payment.createdAt) },
     { label: 'Period Covered', value: payment.dueDate ? new Date(payment.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' }) : '—' },
-    { label: 'Tenant',         value: tenant?.name   || '—' },
-    { label: 'Email',          value: tenant?.email  || '—' },
-    { label: 'Property',       value: property?.title || '—' },
-    { label: 'Address',        value: property?.address ? `${property.address.street || ''}, ${property.address.city || ''}` : '—' },
+    { label: 'Tenant', value: tenant?.name || '—' },
+    { label: 'Email', value: tenant?.email || '—' },
+    { label: 'Property', value: property?.title || '—' },
+    { label: 'Address', value: property?.address ? `${property.address.street || ''}, ${property.address.city || ''}` : '—' },
   ];
 
   if (payment.lateFeeIncluded && payment.lateFeeAmount > 0) {
