@@ -98,7 +98,6 @@ const createOffer = async (req, res) => {
       landlord: property.landlord._id,
       tenant: req.user._id,
       listedTerms: {
-        // FIX: Added optional chaining and fallbacks to prevent 500 crashes
         monthlyRent: property.financials?.monthlyRent || 0,
         securityDeposit: property.financials?.securityDeposit || 0,
         leaseDurationMonths: property.leaseTerms?.defaultDurationMonths || 12,
@@ -138,7 +137,6 @@ const counterOffer = async (req, res) => {
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
 
     const uid = req.user._id.toString();
-    const role = req.user.role;
 
     const isLandlord = offer.landlord.toString() === uid;
     const isTenant = offer.tenant.toString() === uid;
@@ -182,6 +180,15 @@ const counterOffer = async (req, res) => {
 
 // ─── PUT /api/offers/:id/accept ───────────────────────────────────────────────
 // Landlord accepts an offer → create Agreement draft + auto-decline all other offers on property.
+//
+// Body fields (all optional beyond startDate):
+//   startDate           {string}  ISO date — defaults to today
+//   templateId          {string}  Agreement template ObjectId
+//   petAllowed          {boolean} Whether pets are permitted
+//   petDeposit          {number}  Pet-specific deposit amount
+//   utilitiesIncluded   {boolean} Whether utilities are included in rent
+//   utilitiesDetails    {string}  Free-text description of included utilities
+//   terminationPolicy   {string}  Termination notice / penalty terms
 const acceptOffer = async (req, res) => {
   try {
     const offer = await Offer.findById(req.params.id)
@@ -200,15 +207,25 @@ const acceptOffer = async (req, res) => {
     const agreed = latestRound(offer);
     if (!agreed) return res.status(400).json({ message: 'No offer terms found' });
 
-    // ── Create the Agreement ──────────────────────────────────────────────────
-    const startDate = (req.body?.startDate) ? new Date(req.body.startDate) : new Date();
+    // ── Destructure all landlord-supplied agreement options ───────────────────
+    const {
+      startDate: startDateRaw,
+      templateId,
+      petAllowed = false,
+      petDeposit = 0,
+      utilitiesIncluded = false,
+      utilitiesDetails = '',
+      terminationPolicy = '',
+    } = req.body;
+
+    // ── Build dates ───────────────────────────────────────────────────────────
+    const startDate = startDateRaw ? new Date(startDateRaw) : new Date();
     const durationMonths = agreed.leaseDurationMonths || 12;
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + durationMonths);
 
-    // ── Resolve template clauses if a templateId was provided ───────────────
+    // ── Resolve template clauses if a templateId was provided ────────────────
     let clauseSet = [];
-    const { templateId } = req.body;
     if (templateId) {
       const tmpl = await AgreementTemplate.findById(templateId).populate('clauseIds');
       if (!tmpl) return res.status(404).json({ message: 'Agreement template not found' });
@@ -230,6 +247,7 @@ const acceptOffer = async (req, res) => {
       }
     }
 
+    // ── Create the Agreement ──────────────────────────────────────────────────
     const agreement = await Agreement.create({
       landlord: offer.landlord._id,
       tenant: offer.tenant._id,
@@ -245,6 +263,14 @@ const acceptOffer = async (req, res) => {
         lateFeeAmount: offer.property.financials?.lateFeeAmount || 0,
         lateFeeGracePeriodDays: offer.property.financials?.lateFeeGracePeriodDays || 5,
       },
+      // ── Landlord-specified lease conditions ─────────────────────────────────
+      petPolicy: {
+        allowed: Boolean(petAllowed),
+        deposit: petAllowed ? Number(petDeposit) || 0 : 0,
+      },
+      utilitiesIncluded: Boolean(utilitiesIncluded),
+      utilitiesDetails: utilitiesIncluded ? (utilitiesDetails || '') : '',
+      terminationPolicy: terminationPolicy || '',
       clauseSet,
       auditLog: [{
         action: 'CREATED_FROM_OFFER',
@@ -258,7 +284,7 @@ const acceptOffer = async (req, res) => {
     offer.agreement = agreement._id;
     await offer.save();
 
-    // N12 fix: notify the tenant that their offer was accepted and an agreement is ready
+    // Notify the tenant that their offer was accepted and an agreement is ready
     try {
       await sendEmail(
         offer.tenant.email,
@@ -267,7 +293,7 @@ const acceptOffer = async (req, res) => {
         offer.property.title
       );
     } catch (emailErr) {
-      // Non-fatal — log but don't fail the request if the email bounce
+      // Non-fatal — log but don't fail the request if the email bounces
       console.error('acceptOffer: failed to send tenant notification email:', emailErr.message);
     }
 
