@@ -42,7 +42,7 @@ function buildVariableMap(agreement) {
     tenantName:        tenant?.name       || '____________________',
     landlordName:      landlord?.name     || '____________________',
     propertyTitle:     property?.title    || '____________________',
-    propertyAddress:   address            || '____________________',
+    propertyAddress:   property?.address  || '____________________',
     rentAmount:        _fmt.money(financials?.rentAmount),
     depositAmount:     _fmt.money(financials?.depositAmount),
     lateFeeAmount:     _fmt.money(financials?.lateFeeAmount),
