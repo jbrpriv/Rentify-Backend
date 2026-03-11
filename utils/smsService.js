@@ -18,6 +18,9 @@ const getClient = () => {
 // ─── SMS Templates ────────────────────────────────────────────────────────────
 
 const smsTemplates = {
+  paymentReceived: (propertyTitle, amount, month) =>
+    `RentifyPro: Payment of Rs. ${Number(amount).toLocaleString()} for ${propertyTitle} (${month}) has been received. Thank you! View receipt: ${process.env.CLIENT_URL}/dashboard/payments`,
+
   rentDueReminder: (propertyTitle, amount, dueDate) =>
     `RentifyPro: Your rent of Rs. ${Number(amount).toLocaleString()} for ${propertyTitle} is due on ${new Date(dueDate).toDateString()}. Log in to pay: ${process.env.CLIENT_URL}/dashboard/my-lease`,
 

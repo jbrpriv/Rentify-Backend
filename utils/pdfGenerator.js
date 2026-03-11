@@ -513,121 +513,183 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
   const fmt = {
     money: n => `Rs. ${Number(n ?? 0).toLocaleString('en-PK')}`,
     date: d => d ? new Date(d).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
+    month: d => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—',
   };
 
-  // A5 portrait dimensions (points)
-  const W = 419.53, H = 595.28, M = 40, CW = W - M * 2;
+  // A4 portrait for better professional look
+  const W = 595.28, H = 841.89, M = 50, CW = W - M * 2;
 
-  // ── White page background (prevents transparent/dark inversion in PDF viewers) ──
+  // ── White background ──
   rect(doc, 0, 0, W, H, C.white);
 
-  // ── Header banner ──
-  rect(doc, 0, 0, W, 96, C.navy);
-  // Subtle decorative circle — drawn with full opacity so it doesn't bleed through
+  // ── Header stripe ──
+  rect(doc, 0, 0, W, 110, C.navy);
+
+  // Decorative accent circles (purely visual, full opacity)
+  doc.save().circle(W + 10, -10, 100).fillOpacity(0.07).fillColor(C.white).fill().restore();
+  doc.save().circle(W - 60, 80, 60).fillOpacity(0.05).fillColor(C.white).fill().restore();
+
+  // Brand name
   doc.save()
-    .circle(W - 30, 20, 55)
-    .fillOpacity(0.08)
-    .fillColor(C.white)
-    .fill()
+    .fillOpacity(1).font(FONT.bold).fontSize(22).fillColor(C.white)
+    .text('RentifyPro', M, 24, { lineBreak: false })
     .restore();
 
-  // Reset opacity to 1 for all subsequent text so nothing bleeds through
+  // Tagline
   doc.save()
-    .fillOpacity(1)
-    .font(FONT.bold).fontSize(18).fillColor(C.white)
-    .text('RentifyPro', M, 20, { lineBreak: false })
-    .restore();
-  doc.save()
-    .fillOpacity(1)
-    .font(FONT.regular).fontSize(8.5).fillColor('#93C5FD')
-    .text('Official Payment Receipt', M, 44, { lineBreak: false })
+    .fillOpacity(1).font(FONT.regular).fontSize(9).fillColor('#93C5FD')
+    .text('Official Rent Payment Receipt', M, 52, { lineBreak: false })
     .restore();
 
-  // Receipt number pill
-  const receiptLabel = `#${payment.receiptNumber || 'N/A'}`;
-  const pilW = doc.widthOfString(receiptLabel) + 20;
-  rect(doc, M, 60, pilW, 18, '#1D4ED8');
+  // Receipt number badge (right side)
+  const receiptLabel = `RECEIPT  #${payment.receiptNumber || String(payment._id).slice(-8).toUpperCase()}`;
+  const rLabelW = doc.widthOfString(receiptLabel, { font: FONT.bold, fontSize: 9 }) + 24;
+  rect(doc, W - M - rLabelW, 30, rLabelW, 22, '#1D4ED8');
   doc.save()
-    .fillOpacity(1)
-    .font(FONT.bold).fontSize(8).fillColor(C.white)
-    .text(receiptLabel, M + 10, 65, { lineBreak: false })
+    .fillOpacity(1).font(FONT.bold).fontSize(9).fillColor(C.white)
+    .text(receiptLabel, W - M - rLabelW + 12, 36, { lineBreak: false })
     .restore();
 
-  let y = 112;
+  // Payment type badge below receipt number
+  const typeLabel = (payment.type || 'rent').replace(/_/g, ' ').toUpperCase();
+  badge(doc, typeLabel, W - M - 80, 58, C.teal);
 
-  // ── Amount highlight box (light background, dark text) ──
-  rect(doc, M, y, CW, 54, C.lightBlue);
-  // Left accent bar
-  rect(doc, M, y, 4, 54, C.blue);
+  // ── Amount Hero block ──
+  let y = 128;
+  rect(doc, M, y, CW, 80, '#F0F7FF');
+  rect(doc, M, y, 5, 80, C.blue);
   doc.save()
-    .fillOpacity(1)
-    .font(FONT.bold).fontSize(7.5).fillColor(C.blue)
-    .text('AMOUNT PAID', M + 12, y + 9, { lineBreak: false })
+    .fillOpacity(1).font(FONT.bold).fontSize(9).fillColor(C.blue)
+    .text('TOTAL AMOUNT PAID', M + 18, y + 14, { lineBreak: false })
     .restore();
   doc.save()
-    .fillOpacity(1)
-    .font(FONT.bold).fontSize(22).fillColor(C.navy)
-    .text(fmt.money(payment.amount), M + 12, y + 22, { lineBreak: false })
+    .fillOpacity(1).font(FONT.bold).fontSize(30).fillColor(C.navy)
+    .text(fmt.money(payment.amount), M + 18, y + 30, { lineBreak: false })
     .restore();
 
-  const typeLabel = payment.type?.replace(/_/g, ' ').toUpperCase() || 'PAYMENT';
-  badge(doc, typeLabel, M + CW - doc.widthOfString(typeLabel) - 20, y + 19, C.teal);
+  // PAID stamp (right side of amount box)
+  rect(doc, W - M - 90, y + 20, 78, 36, '#D1FAE5');
+  rect(doc, W - M - 90, y + 20, 4, 36, C.green);
+  doc.save()
+    .fillOpacity(1).font(FONT.bold).fontSize(16).fillColor(C.green)
+    .text('✓ PAID', W - M - 80, y + 30, { lineBreak: false })
+    .restore();
 
-  y += 66;
+  y += 98;
 
-  // ── Details grid (alternating white / light-gray rows) ──
-  const rows = [
+  // ── Two-column detail section ──
+  const colW = (CW - 16) / 2;
+
+  // Left column — Payment Details
+  sectionHeading(doc, 'PAYMENT DETAILS', y);
+  y += 32;
+
+  const leftRows = [
     { label: 'Payment Date', value: fmt.date(payment.paidAt || payment.createdAt) },
-    { label: 'Period Covered', value: payment.dueDate ? new Date(payment.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' }) : '—' },
+    { label: 'Period Covered', value: fmt.month(payment.dueDate) },
+    { label: 'Payment Method', value: 'Stripe (Card)' },
+    ...(payment.stripePaymentIntent ? [{ label: 'Transaction ID', value: payment.stripePaymentIntent.slice(0, 22) + '…' }] : []),
+    ...(payment.lateFeeIncluded && payment.lateFeeAmount > 0 ? [{ label: 'Late Fee', value: fmt.money(payment.lateFeeAmount) }] : []),
+  ];
+
+  const startY = y;
+  leftRows.forEach((row, i) => {
+    const bg = i % 2 === 0 ? C.white : C.gray100;
+    rect(doc, M, y, colW, 26, bg);
+    doc.save()
+      .fillOpacity(1).font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
+      .text(row.label, M + 10, y + 9, { lineBreak: false, width: colW * 0.44 })
+      .restore();
+    doc.save()
+      .fillOpacity(1).font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
+      .text(String(row.value), M + colW * 0.46, y + 8, { lineBreak: false, width: colW * 0.52 })
+      .restore();
+    y += 26;
+  });
+
+  // Right column — Property & Tenant
+  const rightX = M + colW + 16;
+  let ry = startY;
+
+  // Property & tenant header
+  rect(doc, rightX, ry - 32, colW, 24, C.lightBlue);
+  rect(doc, rightX, ry - 32, 4, 24, C.blue);
+  doc.save()
+    .fillOpacity(1).font(FONT.bold).fontSize(9).fillColor(C.navy)
+    .text('PROPERTY & TENANT', rightX + 12, ry - 24, { lineBreak: false })
+    .restore();
+
+  const fullAddress = property?.address
+    ? [
+        property.address.street,
+        property.address.unitNumber ? `Unit ${property.address.unitNumber}` : '',
+        property.address.city,
+        property.address.state,
+        property.address.country,
+      ].filter(Boolean).join(', ')
+    : '—';
+
+  const rightRows = [
     { label: 'Tenant', value: tenant?.name || '—' },
     { label: 'Email', value: tenant?.email || '—' },
     { label: 'Property', value: property?.title || '—' },
-    { label: 'Address', value: property?.address ? `${property.address.street || ''}, ${property.address.city || ''}` : '—' },
+    { label: 'Address', value: fullAddress },
+    { label: 'Receipt No.', value: `#${payment.receiptNumber || '—'}` },
   ];
 
-  if (payment.lateFeeIncluded && payment.lateFeeAmount > 0) {
-    rows.push({ label: 'Late Fee Included', value: fmt.money(payment.lateFeeAmount) });
-  }
-  if (payment.stripePaymentIntent) {
-    rows.push({ label: 'Transaction Ref', value: payment.stripePaymentIntent });
-  }
-
-  rows.forEach((row, i) => {
+  rightRows.forEach((row, i) => {
     const bg = i % 2 === 0 ? C.white : C.gray100;
-    rect(doc, M, y, CW, 24, bg);
+    rect(doc, rightX, ry, colW, 26, bg);
     doc.save()
-      .fillOpacity(1)
-      .font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
-      .text(row.label, M + 10, y + 8, { lineBreak: false, width: CW * 0.42 })
+      .fillOpacity(1).font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
+      .text(row.label, rightX + 10, ry + 9, { lineBreak: false, width: colW * 0.4 })
       .restore();
     doc.save()
-      .fillOpacity(1)
-      .font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
-      .text(String(row.value), M + CW * 0.45, y + 7, { lineBreak: false, width: CW * 0.52 })
+      .fillOpacity(1).font(FONT.regular).fontSize(8).fillColor(C.gray900)
+      .text(String(row.value), rightX + colW * 0.44, ry + 8, { lineBreak: false, width: colW * 0.54 })
       .restore();
-    y += 24;
+    ry += 26;
   });
 
-  hr(doc, y + 6, C.gray300, M, CW);
-  y += 22;
+  // Advance y past both columns
+  y = Math.max(y, ry) + 20;
 
-  // ── PAID status badge ──
-  rect(doc, M, y, 90, 24, '#D1FAE5'); // light green background
-  rect(doc, M, y, 3, 24, C.green);    // green left accent
+  hr(doc, y, C.gray300, M, CW);
+  y += 18;
+
+  // ── Notes / legal disclaimer box ──
+  rect(doc, M, y, CW, 48, C.gray100);
+  rect(doc, M, y, 4, 48, C.gray500);
   doc.save()
-    .fillOpacity(1)
-    .font(FONT.bold).fontSize(9).fillColor(C.green)
-    .text('PAID', M + 10, y + 7, { lineBreak: false })
+    .fillOpacity(1).font(FONT.bold).fontSize(8).fillColor(C.gray700)
+    .text('IMPORTANT:', M + 14, y + 8, { lineBreak: false })
+    .restore();
+  doc.save()
+    .fillOpacity(1).font(FONT.regular).fontSize(7.5).fillColor(C.gray500)
+    .text(
+      'This receipt confirms that the payment shown above has been received and processed. Please retain this document for your personal records and tax purposes. This receipt does not waive any other obligations under the lease agreement.',
+      M + 14, y + 22, { width: CW - 28, lineBreak: true }
+    )
+    .restore();
+
+  y += 64;
+
+  // ── Signature lines ──
+  hr(doc, y + 4, C.gray300, M, (CW / 2) - 10);
+  hr(doc, y + 4, C.gray300, M + (CW / 2) + 10, (CW / 2) - 10);
+  doc.save()
+    .fillOpacity(1).font(FONT.regular).fontSize(7.5).fillColor(C.gray500)
+    .text('Landlord / Authorised Signatory', M, y + 10, { lineBreak: false })
+    .text('Tenant Acknowledgement', M + (CW / 2) + 10, y + 10, { lineBreak: false })
     .restore();
 
   // ── Footer ──
-  rect(doc, 0, H - 34, W, 34, C.navy);
+  rect(doc, 0, H - 40, W, 40, C.navy);
   doc.save()
-    .fillOpacity(1)
-    .font(FONT.regular).fontSize(7).fillColor('#93C5FD')
+    .fillOpacity(1).font(FONT.regular).fontSize(7.5).fillColor('#93C5FD')
     .text(
-      'This is an official payment receipt generated by RentifyPro. Please retain for your records.',
-      M, H - 20, { align: 'center', lineBreak: false, width: CW }
+      `Generated by RentifyPro  •  ${new Date().toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' })}  •  This is a system-generated receipt and does not require a physical signature to be valid.`,
+      M, H - 23, { align: 'center', lineBreak: false, width: CW }
     )
     .restore();
 }
@@ -654,7 +716,7 @@ const generateAgreementPDFBuffer = (agreement, landlord, tenant, property) => {
 };
 
 const generateReceiptPDF = (payment, tenant, property, res) => {
-  const doc = new PDFDocument({ margin: 40, size: 'A5', autoFirstPage: true });
+  const doc = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
   doc.pipe(res);
   _buildReceiptPDF(doc, payment, tenant, property);
   doc.end();
@@ -662,7 +724,7 @@ const generateReceiptPDF = (payment, tenant, property, res) => {
 
 const generateReceiptPDFBuffer = (payment, tenant, property) => {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 40, size: 'A5', autoFirstPage: true });
+    const doc = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
     const chunks = [];
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

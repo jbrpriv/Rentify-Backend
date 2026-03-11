@@ -186,10 +186,18 @@ const getAgreements = async (req, res) => {
   try {
     const { role, _id: userId } = req.user;
 
-    const query =
-      role === 'admin' || role === 'law_reviewer'
-        ? {}
-        : { $or: [{ landlord: userId }, { tenant: userId }] };
+    let query;
+    if (role === 'admin' || role === 'law_reviewer') {
+      query = {};
+    } else if (role === 'property_manager') {
+      const managedProperties = await require('../models/Property')
+        .find({ managedBy: userId })
+        .select('_id');
+      const propIds = managedProperties.map((p) => p._id);
+      query = { property: { $in: propIds } };
+    } else {
+      query = { $or: [{ landlord: userId }, { tenant: userId }] };
+    }
 
     const agreements = await Agreement.find(query)
       .populate('property', 'title address')

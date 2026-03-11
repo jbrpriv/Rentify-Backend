@@ -377,9 +377,16 @@ const handleStripeWebhook = async (req, res) => {
         session.amount_total / 100
       );
 
-      // Send SMS reminder for the NEXT unpaid month so the tenant always knows
-      // the upcoming due date after completing a payment.
+      // Send SMS: payment received confirmation for the current payment
       if (agreement.tenant.smsOptIn && agreement.tenant.phoneNumber) {
+        sendSMS(
+          agreement.tenant.phoneNumber,
+          'paymentReceived',
+          agreement.property.title,
+          session.amount_total / 100,
+          month
+        );
+        // Also send reminder for the NEXT unpaid month
         const nextEntry = agreement.rentSchedule?.find(
           (e, i) => i > idx && e.status !== 'paid'
         );

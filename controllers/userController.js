@@ -178,11 +178,15 @@ const getContacts = async (req, res) => {
         }
       }
     } else if (role === 'admin' || role === 'law_reviewer') {
-      // Admin/law_reviewer can message any user on the platform
-      const allUsers = await User.find({ _id: { $ne: userId }, isActive: true })
+      // Admin/law_reviewer can only message other admins and law_reviewers (not tenants/landlords/PMs)
+      const authorityUsers = await User.find({
+        _id: { $ne: userId },
+        isActive: true,
+        role: { $in: ['admin', 'law_reviewer'] },
+      })
         .select('name email role profilePhoto')
         .limit(100);
-      contacts = allUsers.map(u => ({
+      contacts = authorityUsers.map(u => ({
         user: u,
         propertyId: null,
         propertyTitle: 'Direct Message',
@@ -288,7 +292,7 @@ const getLandlordAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics, submitVerificationDocuments };
+module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics, submitVerificationDocuments, getDashboardSummary };
 
 // ─── Document Verification Submission ────────────────────────────────────────
 async function submitVerificationDocuments(req, res) {
@@ -318,6 +322,89 @@ async function submitVerificationDocuments(req, res) {
     await user.save();
 
     res.json({ message: 'Documents submitted successfully. Pending admin review.' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
+// @desc    Get a lightweight dashboard summary (avoids fetching full data sets)
+// @route   GET /api/users/dashboard-summary
+// @access  Private
+const getDashboardSummary = async (req, res) => {
+  try {
+    const { role, _id: userId } = req.user;
+    const Agreement = require('../models/Agreement');
+    const Payment = require('../models/Payment');
+    const Property = require('../models/Property');
+    const Dispute = require('../models/Dispute');
+    const MaintenanceRequest = require('../models/MaintenanceRequest');
+    const Offer = require('../models/Offer');
+
+    let agreementQuery, propertyQuery, paymentQuery;
+
+    if (role === 'tenant') {
+      agreementQuery = { tenant: userId };
+      paymentQuery = { tenant: userId };
+    } else if (role === 'landlord') {
+      agreementQuery = { landlord: userId };
+      propertyQuery = { landlord: userId };
+      paymentQuery = { landlord: userId };
+    } else if (role === 'property_manager') {
+      const managedProps = await Property.find({ managedBy: userId }).select('_id');
+      const propIds = managedProps.map(p => p._id);
+      agreementQuery = { property: { $in: propIds } };
+      paymentQuery = { property: { $in: propIds } };
+      propertyQuery = { managedBy: userId };
+    } else {
+      // admin / law_reviewer
+      agreementQuery = {};
+      propertyQuery = {};
+      paymentQuery = {};
+    }
+
+    const [
+      activeAgreements,
+      pendingOffers,
+      recentPayments,
+      propertyCount,
+      pendingDisputes,
+      pendingMaintenance,
+      overduePayments,
+    ] = await Promise.all([
+      Agreement.countDocuments({ ...agreementQuery, status: 'active' }),
+      Offer.countDocuments({ ...(role === 'landlord' ? { landlord: userId } : role === 'tenant' ? { tenant: userId } : {}), status: { $in: ['pending', 'countered'] } }),
+      Payment.find(paymentQuery)
+        .select('amount status type paidAt dueDate property')
+        .populate('property', 'title')
+        .sort('-paidAt')
+        .limit(5),
+      propertyQuery ? Property.countDocuments(propertyQuery) : 0,
+      Dispute.countDocuments({ ...(role === 'tenant' ? { raisedBy: userId } : role === 'landlord' ? { property: { $in: (await Property.find({ landlord: userId }).select('_id')).map(p => p._id) } } : {}), status: { $in: ['open', 'under_review'] } }),
+      MaintenanceRequest.countDocuments({ ...(role === 'tenant' ? { tenant: userId } : role === 'landlord' ? { property: { $in: (await Property.find({ landlord: userId }).select('_id')).map(p => p._id) } } : {}), status: { $in: ['pending', 'in_progress'] } }),
+      Payment.countDocuments({ ...paymentQuery, status: { $in: ['failed', 'overdue'] } }),
+    ]);
+
+    // Recent agreements (just a few for the overview)
+    const recentAgreements = await Agreement.find(agreementQuery)
+      .select('status property tenant landlord term financials rentSchedule')
+      .populate('property', 'title address')
+      .populate('tenant', 'name email')
+      .populate('landlord', 'name email')
+      .sort('-createdAt')
+      .limit(5);
+
+    res.json({
+      counts: {
+        activeAgreements,
+        pendingOffers,
+        propertyCount,
+        pendingDisputes,
+        pendingMaintenance,
+        overduePayments,
+      },
+      recentPayments,
+      recentAgreements,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

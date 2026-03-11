@@ -44,7 +44,7 @@ router.post('/:id/snapshot', protect, snapshotAgreement);
 router.put('/:id/clauses', protect, updateAgreementClauses);
 
 // Renewal workflow
-router.post('/:id/renew', protect, proposeRenewal);
+router.put('/:id/renew', protect, proposeRenewal);
 router.put('/:id/renew/respond', protect, respondToRenewal);
 
 // Rent escalation settings (landlord only)
