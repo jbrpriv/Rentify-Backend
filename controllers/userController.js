@@ -292,7 +292,6 @@ const getLandlordAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics, submitVerificationDocuments, getDashboardSummary };
 
 // ─── Document Verification Submission ────────────────────────────────────────
 async function submitVerificationDocuments(req, res) {
@@ -409,3 +408,4 @@ const getDashboardSummary = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 }
+module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics, submitVerificationDocuments, getDashboardSummary };
