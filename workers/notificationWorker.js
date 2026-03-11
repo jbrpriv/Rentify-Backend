@@ -6,6 +6,28 @@ const { sendSMS } = require('../utils/smsService');
 const Agreement = require('../models/Agreement');
 const User = require('../models/User');
 const { sendPush } = require('../utils/firebaseService');
+const NotificationLog = require('../models/NotificationLog');
+
+// ─── Helper: persist a NotificationLog entry ──────────────────────────────────
+const saveLog = async ({ userId, type, title, body, agreementId, propertyId, channels = {} }) => {
+  try {
+    await NotificationLog.create({
+      user: userId,
+      type,
+      title,
+      body,
+      agreement: agreementId || null,
+      property: propertyId || null,
+      channels: {
+        email: { sent: !!channels.email, sentAt: channels.email ? new Date() : null },
+        sms: { sent: !!channels.sms, sentAt: channels.sms ? new Date() : null },
+        push: { sent: !!channels.push, sentAt: channels.push ? new Date() : null },
+      },
+    });
+  } catch (err) {
+    logger.error(`[NotificationLog] Failed to persist (${type}): ${err.message}`);
+  }
+};
 
 const notificationWorker = new Worker(
   'notifications',
@@ -61,7 +83,19 @@ const notificationWorker = new Worker(
         }
 
         // Push notification
+        const rentDuePushSent = !!((await User.findById(tenant._id).select('fcmToken').lean())?.fcmToken);
         await pushToUser(tenant._id, 'rentDueReminder', financials.rentAmount, property.title);
+
+        // Persist in-app notification
+        await saveLog({
+          userId: tenant._id,
+          type: 'rent_due',
+          title: 'Rent Due Reminder',
+          body: `Your rent of $${financials.rentAmount} for ${property.title} is due on ${dueDate}.`,
+          agreementId: agreement._id,
+          propertyId: property._id,
+          channels: { email: true, sms: !!(tenant.smsOptIn && tenant.phoneNumber), push: rentDuePushSent },
+        });
 
         // Log to audit trail
         agreement.auditLog.push({
@@ -105,6 +139,17 @@ const notificationWorker = new Worker(
         // Push notification
         await pushToUser(tenant._id, 'rentOverdue', financials.rentAmount, property.title);
 
+        // Persist in-app notification
+        await saveLog({
+          userId: tenant._id,
+          type: 'rent_overdue',
+          title: 'Rent Overdue',
+          body: `Your rent of $${financials.rentAmount} for ${property.title} is overdue. Please pay immediately to avoid late fees.`,
+          agreementId: agreement._id,
+          propertyId: property._id,
+          channels: { email: true, sms: !!(tenant.smsOptIn && tenant.phoneNumber), push: true },
+        });
+
         agreement.auditLog.push({
           action: 'OVERDUE_NOTICE_SENT',
           timestamp: new Date(),
@@ -146,6 +191,17 @@ const notificationWorker = new Worker(
         }
         await pushToUser(agreement.tenant._id, 'leaseExpiring', agreement.property.title, daysLeft);
 
+        // Persist in-app notification for tenant
+        await saveLog({
+          userId: agreement.tenant._id,
+          type: 'agreement_expiring',
+          title: 'Lease Expiring Soon',
+          body: `Your lease for ${agreement.property.title} expires on ${expiryDate} (${daysLeft} days left). Contact your landlord to discuss renewal.`,
+          agreementId: agreement._id,
+          propertyId: agreement.property._id,
+          channels: { email: true, sms: !!(agreement.tenant.smsOptIn && agreement.tenant.phoneNumber), push: true },
+        });
+
         // Notify landlord
         await sendEmail(
           agreement.landlord.email,
@@ -164,6 +220,17 @@ const notificationWorker = new Worker(
           );
         }
         await pushToUser(agreement.landlord._id, 'leaseExpiring', agreement.property.title, daysLeft);
+
+        // Persist in-app notification for landlord
+        await saveLog({
+          userId: agreement.landlord._id,
+          type: 'agreement_expiring',
+          title: 'Lease Expiring Soon',
+          body: `The lease for ${agreement.property.title} expires on ${expiryDate} (${daysLeft} days left). Review renewal options.`,
+          agreementId: agreement._id,
+          propertyId: agreement.property._id,
+          channels: { email: true, sms: !!(agreement.landlord.smsOptIn && agreement.landlord.phoneNumber), push: true },
+        });
         break;
       }
 
@@ -178,6 +245,15 @@ const notificationWorker = new Worker(
 
         // Push if we have tenant userId
         if (tenantId) await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'accepted');
+
+        // Persist in-app notification
+        if (tenantId) await saveLog({
+          userId: tenantId,
+          type: 'general',
+          title: 'Application Accepted 🎉',
+          body: `Congratulations! Your application for ${propertyTitle} has been accepted.`,
+          channels: { email: true, sms: !!(tenantSmsOptIn && tenantPhone), push: true },
+        });
         break;
       }
 
@@ -192,6 +268,15 @@ const notificationWorker = new Worker(
 
         // Push if we have tenant userId
         if (tenantId) await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'rejected');
+
+        // Persist in-app notification
+        if (tenantId) await saveLog({
+          userId: tenantId,
+          type: 'general',
+          title: 'Application Update',
+          body: `Your application for ${propertyTitle} was not accepted at this time.`,
+          channels: { email: true, sms: !!(tenantSmsOptIn && tenantPhone), push: true },
+        });
         break;
       }
 
@@ -223,6 +308,15 @@ const notificationWorker = new Worker(
 
         // Push if we have landlord userId
         if (landlordId) await pushToUser(landlordId, 'maintenanceUpdate', requestTitle, 'new request received');
+
+        // Persist in-app notification
+        if (landlordId) await saveLog({
+          userId: landlordId,
+          type: 'maintenance_update',
+          title: 'New Maintenance Request',
+          body: `${tenantName} submitted a maintenance request: "${requestTitle}" at ${propertyTitle}.`,
+          channels: { email: true, sms: !!(landlordSmsOptIn && landlordPhone), push: true },
+        });
         break;
       }
 
@@ -238,6 +332,15 @@ const notificationWorker = new Worker(
 
         // Push if we have tenant userId
         if (tenantId) await pushToUser(tenantId, 'maintenanceUpdate', requestTitle, newStatus);
+
+        // Persist in-app notification
+        if (tenantId) await saveLog({
+          userId: tenantId,
+          type: 'maintenance_update',
+          title: 'Maintenance Request Updated',
+          body: `Your maintenance request "${requestTitle}" has been updated to: ${newStatus}.`,
+          channels: { email: true, sms: !!(tenantSmsOptIn && tenantPhone), push: true },
+        });
         break;
       }
 
@@ -299,6 +402,15 @@ const notificationWorker = new Worker(
         }
 
         if (tenantId) await pushToUser(tenantId, 'lateFeeApplied', feeAmount, propertyTitle);
+
+        // Persist in-app notification
+        if (tenantId) await saveLog({
+          userId: tenantId,
+          type: 'late_fee_applied',
+          title: 'Late Fee Applied',
+          body: `A late fee of $${feeAmount} has been applied to your account for ${propertyTitle}. Original due date: ${dueDate}.`,
+          channels: { email: true, sms: !!(tenantSmsOptIn && tenantPhone), push: true },
+        });
         break;
       }
 

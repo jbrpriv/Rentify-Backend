@@ -60,4 +60,15 @@ const generalLimiter = rateLimit({
   validate: { xForwardedForHeader: false, forwardedHeader: false },
 });
 
-module.exports = { loginLimiter, propertyLimiter, uploadLimiter, messageLimiter, offerLimiter, generalLimiter };
+// ─── Notification counts polling (high-frequency, authenticated) ──────────────
+const notificationCountLimiter = rateLimit({
+  windowMs: 60 * 1000,       // 1 minute window
+  max: 30,                   // 30 polls/min per user is plenty (vs every-second storm)
+  keyGenerator: (req) => req.user?._id?.toString() || req.ip,
+  message: { message: 'Too many count requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
+});
+
+module.exports = { loginLimiter, propertyLimiter, uploadLimiter, messageLimiter, offerLimiter, generalLimiter, notificationCountLimiter };

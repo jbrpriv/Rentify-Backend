@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middlewares/authMiddleware');
+const { notificationCountLimiter } = require('../middlewares/rateLimiter');
 const {
     getNotificationCounts,
     getMyNotifications,
@@ -9,7 +10,7 @@ const {
 } = require('../controllers/notificationController');
 
 router.get('/', protect, getMyNotifications);
-router.get('/counts', protect, getNotificationCounts);
+router.get('/counts', protect, notificationCountLimiter, getNotificationCounts);
 router.patch('/read-all', protect, markAllRead);
 router.patch('/:id/read', protect, markOneRead);
 
