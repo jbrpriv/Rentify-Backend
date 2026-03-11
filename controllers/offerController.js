@@ -4,9 +4,9 @@ const Agreement = require('../models/Agreement');
 const AgreementTemplate = require('../models/AgreementTemplate');
 const Clause = require('../models/Clause');
 const { sendEmail } = require('../utils/emailService');
+const notificationQueue = require('../queues/notificationQueue');
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
+// ─── Helpers ────────────────────────────────────────────────────────────────
 const isParty = (offer, userId) =>
   offer.tenant._id?.toString() === userId ||
   offer.landlord._id?.toString() === userId;
@@ -15,9 +15,6 @@ const latestRound = (offer) =>
   offer.history[offer.history.length - 1] || null;
 
 // ─── GET /api/offers ──────────────────────────────────────────────────────────
-// Tenant → their own submitted offers
-// Landlord → all incoming offers on their properties
-// Admin → all offers
 const getOffers = async (req, res) => {
   try {
     const { status, propertyId, page = 1, limit = 50 } = req.query;
@@ -58,7 +55,6 @@ const getOfferById = async (req, res) => {
       .populate('agreement', 'status term financials signatures documentUrl');
 
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
-
     if (!isParty(offer, req.user._id.toString()) && req.user.role !== 'admin')
       return res.status(403).json({ message: 'Not authorised' });
 
@@ -69,14 +65,12 @@ const getOfferById = async (req, res) => {
 };
 
 // ─── POST /api/offers ─────────────────────────────────────────────────────────
-// Tenant submits initial offer — no descriptions, just numbers.
 const createOffer = async (req, res) => {
   try {
     if (req.user.role !== 'tenant')
       return res.status(403).json({ message: 'Only tenants can submit offers' });
 
     const { propertyId, monthlyRent, securityDeposit, leaseDurationMonths } = req.body;
-
     if (!propertyId || !monthlyRent || !securityDeposit || !leaseDurationMonths)
       return res.status(400).json({ message: 'propertyId, monthlyRent, securityDeposit and leaseDurationMonths are required' });
 
@@ -84,7 +78,6 @@ const createOffer = async (req, res) => {
     if (!property || !property.isListed)
       return res.status(404).json({ message: 'Property not found or not listed' });
 
-    // Block only if an active (non-terminal) offer already exists
     const existing = await Offer.findOne({
       property: propertyId,
       tenant: req.user._id,
@@ -130,25 +123,20 @@ const createOffer = async (req, res) => {
 };
 
 // ─── POST /api/offers/:id/counter ────────────────────────────────────────────
-// Landlord counters the latest tenant offer (or tenant counters landlord counter).
 const counterOffer = async (req, res) => {
   try {
     const offer = await Offer.findById(req.params.id);
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
 
     const uid = req.user._id.toString();
-
     const isLandlord = offer.landlord.toString() === uid;
     const isTenant = offer.tenant.toString() === uid;
 
-    if (!isLandlord && !isTenant)
-      return res.status(403).json({ message: 'Not authorised' });
-
+    if (!isLandlord && !isTenant) return res.status(403).json({ message: 'Not authorised' });
     if (!['pending', 'countered'].includes(offer.status))
       return res.status(400).json({ message: `Cannot counter an offer with status "${offer.status}"` });
 
     const last = latestRound(offer);
-    // Validate turn: landlord counters tenant rounds, tenant counters landlord rounds.
     if (isLandlord && last?.offeredBy === 'landlord')
       return res.status(400).json({ message: 'Waiting for tenant to respond to your counter-offer' });
     if (isTenant && last?.offeredBy === 'tenant')
@@ -162,7 +150,7 @@ const counterOffer = async (req, res) => {
       monthlyRent: Number(monthlyRent),
       securityDeposit: Number(securityDeposit),
       leaseDurationMonths: Number(leaseDurationMonths),
-      note: isLandlord ? (note || '') : '', // only landlord can add note
+      note: isLandlord ? (note || '') : '',
     });
     offer.status = 'countered';
     await offer.save();
@@ -179,16 +167,6 @@ const counterOffer = async (req, res) => {
 };
 
 // ─── PUT /api/offers/:id/accept ───────────────────────────────────────────────
-// Landlord accepts an offer → create Agreement draft + auto-decline all other offers on property.
-//
-// Body fields (all optional beyond startDate):
-//   startDate           {string}  ISO date — defaults to today
-//   templateId          {string}  Agreement template ObjectId
-//   petAllowed          {boolean} Whether pets are permitted
-//   petDeposit          {number}  Pet-specific deposit amount
-//   utilitiesIncluded   {boolean} Whether utilities are included in rent
-//   utilitiesDetails    {string}  Free-text description of included utilities
-//   terminationPolicy   {string}  Termination notice / penalty terms
 const acceptOffer = async (req, res) => {
   try {
     const offer = await Offer.findById(req.params.id)
@@ -197,17 +175,14 @@ const acceptOffer = async (req, res) => {
       .populate('landlord', 'name email');
 
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
-
     if (offer.landlord._id.toString() !== req.user._id.toString())
       return res.status(403).json({ message: 'Only the landlord can accept an offer' });
-
     if (!['pending', 'countered'].includes(offer.status))
       return res.status(400).json({ message: `Offer is already ${offer.status}` });
 
     const agreed = latestRound(offer);
     if (!agreed) return res.status(400).json({ message: 'No offer terms found' });
 
-    // ── Destructure all landlord-supplied agreement options ───────────────────
     const {
       startDate: startDateRaw,
       templateId,
@@ -220,56 +195,41 @@ const acceptOffer = async (req, res) => {
       rentEscalationPercentage = 5,
     } = req.body;
 
-    // ── Build dates ───────────────────────────────────────────────────────────
     const startDate = startDateRaw ? new Date(startDateRaw) : new Date();
     const durationMonths = agreed.leaseDurationMonths || 12;
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + durationMonths);
 
-    // ── Resolve template clauses if a templateId was provided ────────────────
     let clauseSet = [];
     if (templateId) {
       const tmpl = await AgreementTemplate.findById(templateId).populate('clauseIds');
       if (!tmpl) return res.status(404).json({ message: 'Agreement template not found' });
-      if (tmpl.landlord.toString() !== req.user._id.toString()) {
+      if (tmpl.landlord.toString() !== req.user._id.toString())
         return res.status(403).json({ message: 'That template does not belong to you' });
-      }
-      if (tmpl.status !== 'approved') {
-        return res.status(400).json({ message: 'Template must be approved by admin before use' });
-      }
-      clauseSet = (tmpl.clauseIds || []).map((c) => ({
+      if (tmpl.status !== 'approved') return res.status(400).json({ message: 'Template must be approved by admin before use' });
+
+      clauseSet = (tmpl.clauseIds || []).map(c => ({
         clauseId: c._id,
         title: c.title,
         body: c.body,
       }));
-      // Bump usage count on each clause
+
       const approvedIds = tmpl.clauseIds.filter(c => c.isApproved).map(c => c._id);
-      if (approvedIds.length > 0) {
-        await Clause.updateMany({ _id: { $in: approvedIds } }, { $inc: { usageCount: 1 } });
-      }
+      if (approvedIds.length > 0) await Clause.updateMany({ _id: { $in: approvedIds } }, { $inc: { usageCount: 1 } });
     }
 
-    // ── Create the Agreement ──────────────────────────────────────────────────
     const agreement = await Agreement.create({
       landlord: offer.landlord._id,
       tenant: offer.tenant._id,
       property: offer.property._id,
-      term: {
-        startDate,
-        endDate,
-        durationMonths,
-      },
+      term: { startDate, endDate, durationMonths },
       financials: {
         rentAmount: agreed.monthlyRent,
         depositAmount: agreed.securityDeposit,
         lateFeeAmount: offer.property.financials?.lateFeeAmount || 0,
         lateFeeGracePeriodDays: offer.property.financials?.lateFeeGracePeriodDays || 5,
       },
-      // ── Landlord-specified lease conditions ─────────────────────────────────
-      petPolicy: {
-        allowed: Boolean(petAllowed),
-        deposit: petAllowed ? Number(petDeposit) || 0 : 0,
-      },
+      petPolicy: { allowed: Boolean(petAllowed), deposit: petAllowed ? Number(petDeposit) || 0 : 0 },
       utilitiesIncluded: Boolean(utilitiesIncluded),
       utilitiesDetails: utilitiesIncluded ? (utilitiesDetails || '') : '',
       terminationPolicy: terminationPolicy || '',
@@ -282,41 +242,37 @@ const acceptOffer = async (req, res) => {
       rentEscalation: {
         enabled: Boolean(rentEscalationEnabled),
         percentage: Number(rentEscalationPercentage) || 5,
-        nextScheduledAt: rentEscalationEnabled
-          ? (() => { const d = new Date(startDate); d.setFullYear(d.getFullYear() + 1); return d; })()
-          : null,
+        nextScheduledAt: rentEscalationEnabled ? (() => { const d = new Date(startDate); d.setFullYear(d.getFullYear() + 1); return d; })() : null,
       },
     });
 
-    // ── Update this offer ─────────────────────────────────────────────────────
     offer.status = 'accepted';
     offer.agreement = agreement._id;
     await offer.save();
 
-    // Notify the tenant that their offer was accepted and an agreement is ready
+    // ── Notifications ─────────────────────────────────────────────────────────
     try {
-      await sendEmail(
-        offer.tenant.email,
-        'applicationAccepted',
-        offer.tenant.name,
-        offer.property.title
-      );
-    } catch (emailErr) {
-      // Non-fatal — log but don't fail the request if the email bounces
-      console.error('acceptOffer: failed to send tenant notification email:', emailErr.message);
+      await sendEmail(offer.tenant.email, 'applicationAccepted', offer.tenant.name, offer.property.title);
+      await notificationQueue.add('notification', {
+        type: 'APPLICATION_ACCEPTED',
+        data: {
+          tenantId: offer.tenant._id,
+          tenantEmail: offer.tenant.email,
+          tenantPhone: offer.tenant.phoneNumber,
+          tenantName: offer.tenant.name,
+          propertyTitle: offer.property.title,
+          tenantSmsOptIn: true
+        }
+      });
+    } catch (notifyErr) {
+      console.error('acceptOffer notification error:', notifyErr.message);
     }
 
-    // ── Auto-decline all other pending/countered offers for the same property ─
     await Offer.updateMany(
-      {
-        property: offer.property._id,
-        _id: { $ne: offer._id },
-        status: { $in: ['pending', 'countered'] },
-      },
+      { property: offer.property._id, _id: { $ne: offer._id }, status: { $in: ['pending', 'countered'] } },
       { $set: { status: 'declined' } }
     );
 
-    // ── Mark property as occupied ─────────────────────────────────────────────
     await Property.findByIdAndUpdate(offer.property._id, { status: 'occupied', isListed: false });
 
     res.json({ message: 'Offer accepted — agreement drafted', offer, agreement });
@@ -326,20 +282,37 @@ const acceptOffer = async (req, res) => {
 };
 
 // ─── PUT /api/offers/:id/decline ──────────────────────────────────────────────
-// Landlord declines a single offer.
 const declineOffer = async (req, res) => {
   try {
-    const offer = await Offer.findById(req.params.id);
+    const offer = await Offer.findById(req.params.id)
+      .populate('tenant', 'name email phoneNumber')
+      .populate('property', 'title');
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
-
     if (offer.landlord.toString() !== req.user._id.toString())
       return res.status(403).json({ message: 'Only the landlord can decline an offer' });
-
     if (!['pending', 'countered'].includes(offer.status))
       return res.status(400).json({ message: `Offer is already ${offer.status}` });
 
     offer.status = 'declined';
     await offer.save();
+
+    // ── Notifications ─────────────────────────────────────────────────────────
+    try {
+      await sendEmail(offer.tenant.email, 'applicationRejected', offer.tenant.name, offer.property.title);
+      await notificationQueue.add('notification', {
+        type: 'APPLICATION_REJECTED',
+        data: {
+          tenantId: offer.tenant._id,
+          tenantEmail: offer.tenant.email,
+          tenantPhone: offer.tenant.phoneNumber,
+          tenantName: offer.tenant.name,
+          propertyTitle: offer.property.title,
+          tenantSmsOptIn: true
+        }
+      });
+    } catch (notifyErr) {
+      console.error('declineOffer notification error:', notifyErr.message);
+    }
 
     res.json({ message: 'Offer declined', offer });
   } catch (err) {
@@ -348,19 +321,15 @@ const declineOffer = async (req, res) => {
 };
 
 // ─── DELETE /api/offers/:id ───────────────────────────────────────────────────
-// Tenant withdraws their pending or countered offer.
 const withdrawOffer = async (req, res) => {
   try {
     const offer = await Offer.findById(req.params.id);
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
-
     if (offer.tenant.toString() !== req.user._id.toString())
       return res.status(403).json({ message: 'Not authorised' });
-
     if (!['pending', 'countered'].includes(offer.status))
       return res.status(400).json({ message: `Cannot withdraw — offer is already ${offer.status}` });
 
-    // Mark as withdrawn (keeps it in history) instead of hard-deleting
     offer.status = 'withdrawn';
     await offer.save();
     res.json({ message: 'Offer withdrawn' });
