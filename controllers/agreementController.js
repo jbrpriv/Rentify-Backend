@@ -375,15 +375,24 @@ const respondToRenewal = async (req, res) => {
       });
     } else {
       agreement.renewalProposal.status = 'rejected';
-      agreement.status = 'expired';
+
+      // Only expire if the lease term has actually ended.
+      // A rejected renewal on a still-active lease should not immediately expire it —
+      // the lease continues until its natural end date.
+      const leaseEnded = agreement.term && agreement.term.endDate && new Date(agreement.term.endDate) <= new Date();
+      if (leaseEnded) {
+        agreement.status = 'expired';
+        // BUG-04: Mark property vacant only when the lease has actually ended
+        await Property.findByIdAndUpdate(agreement.property, { status: 'vacant' });
+      }
+
       agreement.auditLog.push({
         action: 'RENEWAL_REJECTED',
         actor: req.user._id,
-        details: 'Tenant declined renewal proposal',
+        details: leaseEnded
+          ? 'Tenant declined renewal — lease expired (end date passed)'
+          : 'Tenant declined renewal — lease remains active until end date',
       });
-
-      // BUG-04: Mark property vacant when tenant rejects renewal
-      await Property.findByIdAndUpdate(agreement.property, { status: 'vacant' });
     }
 
     // NEW-02: Queue RENEWAL_RESPONDED for landlord on BOTH accept and reject
