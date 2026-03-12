@@ -161,7 +161,7 @@ const startRentScheduler = () => {
             agreement.auditLog.push({
               action:    'LATE_FEE_APPLIED',
               timestamp: new Date(),
-              details:   `Late fee of Rs. ${lateFeeAmount} applied to ${entry.dueDate} rent entry. ${daysPastDue} days past due.`,
+              details:   `Late fee of $${lateFeeAmount} applied to ${entry.dueDate} rent entry. ${daysPastDue} days past due.`,
             });
 
             const t = agreement.tenant;
@@ -306,7 +306,7 @@ const startRentScheduler = () => {
         agreement.auditLog.push({
           action:    'RENT_ESCALATED',
           timestamp: new Date(),
-          details:   `Rent increased by ${pct}% from Rs. ${oldRent.toLocaleString()} to Rs. ${newRent.toLocaleString()}. Next escalation: ${nextDate.toDateString()}.`,
+          details:   `Rent increased by ${pct}% from $${oldRent.toLocaleString()} to $${newRent.toLocaleString()}. Next escalation: ${nextDate.toDateString()}.`,
         });
 
         await agreement.save();

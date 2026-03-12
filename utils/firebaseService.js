@@ -28,16 +28,16 @@ const getAdmin = () => {
 
 // ─── Push Notification Templates ─────────────────────────────────────────────
 const pushTemplates = {
-  rentDueReminder:    (amount, property) => ({ title: '💰 Rent Due Soon',       body: `Rs. ${amount?.toLocaleString()} due for ${property}` }),
-  rentOverdue:        (amount, property) => ({ title: '⚠️ Rent Overdue',         body: `Your rent of Rs. ${amount?.toLocaleString()} for ${property} is overdue` }),
-  lateFeeApplied:     (fee, property)    => ({ title: '💸 Late Fee Applied',     body: `A late fee of Rs. ${fee} has been added for ${property}` }),
+  rentDueReminder:    (amount, property) => ({ title: '💰 Rent Due Soon',       body: `$${amount?.toLocaleString()} due for ${property}` }),
+  rentOverdue:        (amount, property) => ({ title: '⚠️ Rent Overdue',         body: `Your rent of $${amount?.toLocaleString()} for ${property} is overdue` }),
+  lateFeeApplied:     (fee, property)    => ({ title: '💸 Late Fee Applied',     body: `A late fee of $${fee} has been added for ${property}` }),
   newMessage:         (sender)           => ({ title: '💬 New Message',          body: `You have a new message from ${sender}` }),
   maintenanceUpdate:  (title, status)    => ({ title: '🔧 Maintenance Update',   body: `"${title}" is now ${status}` }),
   applicationUpdate:  (property, status) => ({ title: '📋 Application Update',  body: `Your application for ${property} was ${status}` }),
   agreementAction:    (action)           => ({ title: '📄 Agreement Update',     body: action }),
   disputeUpdate:      (title)            => ({ title: '⚖️ Dispute Update',       body: `Your dispute "${title}" has been updated` }),
   leaseExpiring:      (property, days)   => ({ title: '📅 Lease Expiring Soon',  body: `Your lease at ${property} expires in ${days} days` }),
-  lateFeeApplied:     (fee, property)    => ({ title: '💸 Late Fee Applied',     body: `A late fee of Rs. ${fee} has been added for ${property}` }),
+  lateFeeApplied:     (fee, property)    => ({ title: '💸 Late Fee Applied',     body: `A late fee of $${fee} has been added for ${property}` }),
 };
 
 /**

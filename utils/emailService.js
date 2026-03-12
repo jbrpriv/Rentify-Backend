@@ -62,7 +62,7 @@ const templates = {
         <strong>Property:</strong> ${propertyTitle}<br/>
         <strong>Lease Start:</strong> ${new Date(startDate).toDateString()}<br/>
         <strong>Lease End:</strong> ${new Date(endDate).toDateString()}<br/>
-        <strong>Monthly Rent:</strong> Rs. ${Number(rentAmount).toLocaleString()}
+        <strong>Monthly Rent:</strong> $${Number(rentAmount).toLocaleString()}
       </div>
       <p>Please log in to RentifyPro to review and sign your agreement.</p>
       <a href="${process.env.CLIENT_URL}/dashboard/agreements" class="button">View Agreement</a>
@@ -124,7 +124,7 @@ const templates = {
       <p>This is a friendly reminder that your rent is due soon.</p>
       <div class="detail-box">
         <strong>Property:</strong> ${propertyTitle}<br/>
-        <strong>Amount Due:</strong> Rs. ${Number(amount).toLocaleString()}<br/>
+        <strong>Amount Due:</strong> $${Number(amount).toLocaleString()}<br/>
         <strong>Due Date:</strong> ${new Date(dueDate).toDateString()}
       </div>
       <a href="${process.env.CLIENT_URL}/dashboard" class="button">Go to Dashboard</a>
@@ -139,7 +139,7 @@ const templates = {
       <p>Your rent payment is <strong>overdue</strong>. Please make payment immediately to avoid additional late fees.</p>
       <div class="detail-box" style="border-left: 4px solid #dc2626;">
         <strong>Property:</strong> ${propertyTitle}<br/>
-        <strong>Overdue Amount:</strong> Rs. ${Number(amount).toLocaleString()}<br/>
+        <strong>Overdue Amount:</strong> $${Number(amount).toLocaleString()}<br/>
         <strong>Original Due Date:</strong> ${new Date(dueDate).toDateString()}
       </div>
       <p style="color:#dc2626;"><strong>Failure to pay may result in late fees and affect your tenancy.</strong></p>
@@ -229,7 +229,7 @@ const templates = {
       <p>Your payment has been confirmed and your lease is now <strong>active</strong>.</p>
       <div class="detail-box">
         <strong>Property:</strong> ${propertyTitle}<br/>
-        <strong>Amount Paid:</strong> Rs. ${Number(amount).toLocaleString()}
+        <strong>Amount Paid:</strong> $${Number(amount).toLocaleString()}
       </div>
       <p>Your full rent schedule is now available in your dashboard.</p>
       <a href="${process.env.CLIENT_URL}/dashboard/my-lease" class="button">View Lease & Schedule</a>
@@ -295,7 +295,7 @@ const templates = {
       <p>A late fee has been applied to your account because your rent payment is overdue.</p>
       <div class="detail-box" style="border-left: 4px solid #d97706;">
         <strong>Property:</strong> ${propertyTitle}<br/>
-        <strong>Late Fee Amount:</strong> Rs. ${Number(feeAmount).toLocaleString()}<br/>
+        <strong>Late Fee Amount:</strong> $${Number(feeAmount).toLocaleString()}<br/>
         <strong>Original Due Date:</strong> ${new Date(dueDate).toDateString()}
       </div>
       <p>Please make payment as soon as possible to avoid further charges.</p>
@@ -313,7 +313,7 @@ const templates = {
         <strong>Receipt Number:</strong> ${receiptNumber}<br/>
         <strong>Property:</strong> ${propertyTitle}<br/>
         <strong>Period:</strong> ${month}<br/>
-        <strong>Amount Paid:</strong> Rs. ${Number(amount).toLocaleString()}<br/>
+        <strong>Amount Paid:</strong> $${Number(amount).toLocaleString()}<br/>
         <strong>Date:</strong> ${new Date().toDateString()}
       </div>
       <p>A PDF copy of your receipt is available in your dashboard.</p>
@@ -330,7 +330,7 @@ const templates = {
       <div class="detail-box">
         <strong>Property:</strong> ${propertyTitle}<br/>
         <strong>Proposed New End Date:</strong> ${new Date(newEndDate).toDateString()}<br/>
-        <strong>Proposed Rent:</strong> Rs. ${Number(newRentAmount).toLocaleString()} / month
+        <strong>Proposed Rent:</strong> $${Number(newRentAmount).toLocaleString()} / month
       </div>
       <p>Please log in to accept or decline the renewal proposal.</p>
       <a href="${process.env.CLIENT_URL}/dashboard/agreements" class="button">Review Proposal</a>

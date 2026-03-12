@@ -286,7 +286,7 @@ const proposeRenewal = async (req, res) => {
       action: 'RENEWAL_PROPOSED',
       actor: req.user._id,
       ipAddress: req.ip,
-      details: `Renewal proposed until ${newEndDate}. New rent: Rs. ${newRentAmount || agreement.financials.rentAmount}`,
+      details: `Renewal proposed until ${newEndDate}. New rent: $${newRentAmount || agreement.financials.rentAmount}`,
     });
 
     await agreement.save();
@@ -299,6 +299,25 @@ const proposeRenewal = async (req, res) => {
       newEndDate,
       newRentAmount || agreement.financials.rentAmount
     );
+
+    // BUG-05: Queue in-app notification so tenant sees it on notifications page
+    try {
+      const notificationQueue = require('../queues/notificationQueue');
+      await notificationQueue.add(`RENEWAL_PROPOSED-${agreement._id}`, {
+        type: 'RENEWAL_PROPOSED',
+        data: {
+          agreementId: agreement._id.toString(),
+          tenantId: agreement.tenant._id.toString(),
+          tenantEmail: agreement.tenant.email,
+          tenantName: agreement.tenant.name,
+          propertyTitle: agreement.property.title,
+          newEndDate,
+          newRentAmount: newRentAmount || agreement.financials.rentAmount,
+        },
+      });
+    } catch (notifyErr) {
+      logger.error('RENEWAL_PROPOSED notification queue error', { err: notifyErr.message });
+    }
 
     res.json({ message: 'Renewal proposal sent to tenant', agreement });
   } catch (error) {
@@ -327,22 +346,32 @@ const respondToRenewal = async (req, res) => {
 
     if (accept) {
       const proposal = agreement.renewalProposal;
+      const oldEndDate = new Date(agreement.term.endDate);
 
       agreement.term.endDate = proposal.newEndDate || agreement.term.endDate;
       agreement.financials.rentAmount = proposal.newRentAmount || agreement.financials.rentAmount;
       agreement.status = 'active';
       agreement.renewalProposal.status = 'accepted';
 
-      const newStart = new Date(agreement.term.startDate);
+      // NEW-08: durationMonths should reflect the EXTENSION length, not total tenure
       const newEnd = new Date(agreement.term.endDate);
-      agreement.term.durationMonths =
-        (newEnd.getFullYear() - newStart.getFullYear()) * 12 +
-        (newEnd.getMonth() - newStart.getMonth());
+      const extensionMonths =
+        (newEnd.getFullYear() - oldEndDate.getFullYear()) * 12 +
+        (newEnd.getMonth() - oldEndDate.getMonth());
+      agreement.term.durationMonths = extensionMonths;
+
+      // NEW-06: Append new rentSchedule entries for the extended period
+      const newRent = agreement.financials.rentAmount;
+      for (let i = 1; i <= extensionMonths; i++) {
+        const dueDate = new Date(oldEndDate);
+        dueDate.setMonth(oldEndDate.getMonth() + i);
+        agreement.rentSchedule.push({ dueDate, amount: newRent, status: 'pending' });
+      }
 
       agreement.auditLog.push({
         action: 'RENEWAL_ACCEPTED',
         actor: req.user._id,
-        details: `Tenant accepted renewal until ${agreement.term.endDate}. Duration updated to ${agreement.term.durationMonths} months.`,
+        details: `Tenant accepted renewal until ${agreement.term.endDate}. Extended by ${extensionMonths} months, ${extensionMonths} new schedule entries added.`,
       });
     } else {
       agreement.renewalProposal.status = 'rejected';
@@ -351,6 +380,32 @@ const respondToRenewal = async (req, res) => {
         actor: req.user._id,
         details: 'Tenant declined renewal proposal',
       });
+
+      // BUG-04: Mark property vacant when tenant rejects renewal
+      await Property.findByIdAndUpdate(agreement.property, { status: 'vacant' });
+    }
+
+    // NEW-02: Queue RENEWAL_RESPONDED for landlord on BOTH accept and reject
+    try {
+      const notificationQueue = require('../queues/notificationQueue');
+      const landlordUser = await User.findById(agreement.landlord).select('name email phoneNumber smsOptIn');
+      if (landlordUser) {
+        await notificationQueue.add(`RENEWAL_RESPONDED-${agreement._id}`, {
+          type: 'RENEWAL_RESPONDED',
+          data: {
+            agreementId: agreement._id.toString(),
+            landlordId: landlordUser._id.toString(),
+            landlordEmail: landlordUser.email,
+            landlordName: landlordUser.name,
+            landlordPhone: landlordUser.phoneNumber,
+            landlordSmsOptIn: landlordUser.smsOptIn,
+            accepted: Boolean(accept),
+            propertyTitle: agreement.property?.title || '',
+          },
+        });
+      }
+    } catch (notifyErr) {
+      logger.error('RENEWAL_RESPONDED notification queue error', { err: notifyErr.message });
     }
 
     await agreement.save();
@@ -480,7 +535,7 @@ const sendSigningInvites = async (req, res) => {
       return res.status(403).json({ message: 'Only the landlord can send signing invitations' });
     }
 
-    if (!['draft', 'pending_signature'].includes(agreement.status)) {
+    if (!['draft', 'sent', 'pending_signature'].includes(agreement.status)) {
       return res.status(400).json({ message: 'Agreement must be in draft or pending signature status to send invitations' });
     }
 
@@ -579,7 +634,7 @@ const signViaToken = async (req, res) => {
         details: 'Both parties signed via secure token links. Agreement is fully executed.',
       });
     } else {
-      agreement.status = 'pending_signature';
+      agreement.status = 'sent';
       agreement.auditLog.push({
         action: 'PARTIAL_SIGNATURE',
         timestamp: new Date(),
@@ -722,6 +777,56 @@ const getAgreementPreview = async (req, res) => {
   }
 };
 
+// @desc    Public PDF preview — validates the signing token, no Bearer auth required
+// @route   GET /api/agreements/:id/preview/public
+// @access  Public (signing-token authenticated)
+// NEW-03: The sign page is an unauthenticated flow; the standard /preview route
+// requires a Bearer token which doesn't exist for unsigned users.
+const getAgreementPreviewPublic = async (req, res) => {
+  try {
+    const { token, party } = req.query;
+    if (!token || !party) {
+      return res.status(400).json({ message: 'token and party query params are required' });
+    }
+
+    const agreement = await Agreement.findById(req.params.id)
+      .populate('property', 'title address')
+      .populate('tenant', 'name email')
+      .populate('landlord', 'name email');
+
+    if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
+
+    // Validate the signing token
+    const signingToken = agreement.signingTokens?.find(
+      (t) => t.party === party && t.token === token && !t.used
+    );
+    if (!signingToken) {
+      return res.status(401).json({ message: 'Invalid or already used signing token' });
+    }
+    if (new Date() > signingToken.expiresAt) {
+      return res.status(401).json({ message: 'Signing link has expired' });
+    }
+
+    if (agreement.documentUrl && isS3Configured()) {
+      const { getAgreementPDFUrl } = require('../utils/s3Service');
+      const url = await getAgreementPDFUrl(agreement.documentUrl, 1800);
+      return res.json({ url, source: 's3', expiresIn: 1800 });
+    }
+
+    const pdfBuffer = await generateAgreementPDFBuffer(agreement, agreement.landlord, agreement.tenant, agreement.property);
+    const base64 = pdfBuffer.toString('base64');
+
+    res.json({
+      source: 'generated',
+      base64,
+      mimeType: 'application/pdf',
+      filename: `agreement-${agreement._id}.pdf`,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 
 // @desc    Get a single agreement by ID (party or admin only)
 // @route   GET /api/agreements/:id
@@ -814,6 +919,7 @@ module.exports = {
   getVersionHistory,
   snapshotAgreement,
   getAgreementPreview,
+  getAgreementPreviewPublic,
   saveVersionSnapshot,
   updateEscalation,
 };

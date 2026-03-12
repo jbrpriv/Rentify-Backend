@@ -441,6 +441,69 @@ const notificationWorker = new Worker(
         break;
       }
 
+
+      case 'RENEWAL_PROPOSED': {
+        // BUG-05: Notify tenant of incoming renewal proposal
+        const { tenantId, tenantEmail, tenantName, propertyTitle, agreementId, newEndDate, newRentAmount } = data;
+
+        await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'renewal proposed');
+
+        if (tenantId) await saveLog({
+          userId: tenantId,
+          type: 'agreement_renewal_pending',
+          title: 'Lease Renewal Proposed',
+          body: `Your landlord has proposed to renew your lease at ${propertyTitle} until ${new Date(newEndDate).toDateString()} at $${Number(newRentAmount).toLocaleString()}/mo.`,
+          agreementId,
+          channels: { push: true },
+        });
+        break;
+      }
+
+      case 'RENEWAL_RESPONDED': {
+        // BUG-05: Notify landlord of tenant's renewal response
+        const { landlordId, landlordEmail, landlordName, agreementId, accepted, propertyTitle } = data;
+
+        await pushToUser(landlordId, 'applicationUpdate', propertyTitle, accepted ? 'renewal accepted' : 'renewal rejected');
+
+        if (landlordId) await saveLog({
+          userId: landlordId,
+          type: 'agreement_renewal_responded',
+          title: accepted ? 'Renewal Accepted' : 'Renewal Declined',
+          body: accepted
+            ? `Your tenant has accepted the lease renewal for ${propertyTitle}.`
+            : `Your tenant has declined the lease renewal for ${propertyTitle}. The property will be marked as vacant.`,
+          agreementId,
+          channels: { push: true },
+        });
+        break;
+      }
+
+      case 'LEASE_ACTIVATED': {
+        // BUG-05: Notify both parties when lease becomes active
+        const { tenantId, landlordId, propertyTitle, agreementId } = data;
+
+        await pushToUser(tenantId, 'applicationUpdate', propertyTitle, 'lease activated');
+        await saveLog({
+          userId: tenantId,
+          type: 'agreement_signed',
+          title: 'Lease Activated!',
+          body: `Your lease for ${propertyTitle} is now active. Welcome to your new home!`,
+          agreementId,
+          channels: { push: true },
+        });
+
+        await pushToUser(landlordId, 'applicationUpdate', propertyTitle, 'lease activated');
+        await saveLog({
+          userId: landlordId,
+          type: 'agreement_signed',
+          title: 'Lease Activated',
+          body: `The lease for ${propertyTitle} has been activated. Rent collection is now scheduled.`,
+          agreementId,
+          channels: { push: true },
+        });
+        break;
+      }
+
       default:
         logger.warn(`Unknown job type: ${type}`);
     }

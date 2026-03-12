@@ -35,7 +35,7 @@ const paymentSchema = mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'paid', 'failed', 'refunded'],
+      enum: ['pending', 'paid', 'failed', 'refunded', 'retry_scheduled'],
       default: 'pending',
     },
 
@@ -73,7 +73,7 @@ const paymentSchema = mongoose.Schema(
     // ─── Multi-Gateway Support ─────────────────────────────────────
     gateway: {
       type:    String,
-      enum:    ['stripe', 'razorpay', 'paypal', 'manual'],
+      enum:    ['stripe', 'paypal', 'manual'],
       default: 'stripe',
     },
     gatewayPaymentId: { type: String, default: null },
@@ -111,5 +111,12 @@ paymentSchema.pre('save', function () {
     this.receiptNumber = `RCP-${new Date().getFullYear()}-${ts}-${rand}`;
   }
 });
+
+// Component 0: Unique partial index — prevents duplicate paid rent records for the same month
+// Only enforced when status='paid' AND type='rent' to avoid blocking failed/pending records
+paymentSchema.index(
+  { agreement: 1, dueDate: 1 },
+  { unique: true, partialFilterExpression: { status: 'paid', type: 'rent' } }
+);
 
 module.exports = mongoose.model('Payment', paymentSchema);

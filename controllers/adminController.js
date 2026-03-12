@@ -6,12 +6,20 @@ const Clause = require('../models/Clause');
 const MaintenanceRequest = require('../models/MaintenanceRequest');
 const logger = require('../utils/logger');
 
+// Revenue amounts for MRR calculation (cents). Sourced from env vars so they
+// stay in sync with the billing plans without any hardcoded numbers here.
+const MRR_CENTS = {
+  pro:        parseInt(process.env.PLAN_PRICE_PRO_CENTS        || '1500', 10),
+  enterprise: parseInt(process.env.PLAN_PRICE_ENTERPRISE_CENTS || '3000', 10),
+};
+
 // @desc    Get platform-wide stats
 // @route   GET /api/admin/stats
 // @access  Private (Admin)
 const getStats = async (req, res) => {
   try {
-    const TIER_PRICES = { pro: 2999, enterprise: 9999 };
+    // Revenue approximations for stats calculation (not Stripe price IDs)
+    const PLAN_REVENUE = MRR_CENTS; // Pro=$15/mo, Enterprise=$30/mo
 
     const [
       totalUsers,
@@ -36,7 +44,7 @@ const getStats = async (req, res) => {
     ]);
 
     const monthlySubscriptionRevenue =
-      (totalPro * TIER_PRICES.pro) + (totalEnterprise * TIER_PRICES.enterprise);
+      (totalPro * PLAN_REVENUE.pro) + (totalEnterprise * PLAN_REVENUE.enterprise);
 
     const usersBySubscription = await User.aggregate([
       { $group: { _id: { $ifNull: ['$subscriptionTier', 'free'] }, count: { $sum: 1 } } },
@@ -598,7 +606,7 @@ const getBillingUsers = async (req, res) => {
         free: freeCt,
         pro: proCt,
         enterprise: enterpriseCt,
-        totalMRR: (proCt * 2999) + (enterpriseCt * 9999),
+        totalMRR: (proCt * MRR_CENTS.pro) + (enterpriseCt * MRR_CENTS.enterprise),
       },
     });
   } catch (error) {
@@ -649,29 +657,6 @@ const getClauseVariables = (req, res) => {
   res.json(CLAUSE_VARIABLES);
 };
 
-module.exports = {
-  getStats,
-  getUsers,
-  getUserById,
-  toggleUserBan,
-  changeUserRole,
-  getAllAgreements,
-  getAuditLogs,
-  getClauses,
-  createClause,
-  reviewClause,
-  archiveClause,
-  getAllProperties,
-  kickTenantFromProperty,
-  getAdminAnalytics,
-  getBillingUsers,
-  getPendingVerifications,
-  getApprovedVerifications,
-  approveVerification,
-  rejectVerification,
-  getClauseVariables,
-};
-
 // ─── Document Verification Admin Functions ─────────────────────────────────
 const { getTenantDocumentUrl, isS3Configured } = require('../utils/s3Service');
 
@@ -686,6 +671,8 @@ async function resolveDocUrls(docs = []) {
   }));
 }
 
+// BUG-12 fix: declared above module.exports so these remain safe if ever
+// converted to const arrow functions (hoisting would not apply to those).
 async function getPendingVerifications(req, res) {
   try {
     const users = await User.find({ verificationStatus: 'pending' })
@@ -733,3 +720,26 @@ async function rejectVerification(req, res) {
     res.json({ message: 'User documents rejected' });
   } catch (err) { res.status(500).json({ message: err.message }); }
 }
+
+module.exports = {
+  getStats,
+  getUsers,
+  getUserById,
+  toggleUserBan,
+  changeUserRole,
+  getAllAgreements,
+  getAuditLogs,
+  getClauses,
+  createClause,
+  reviewClause,
+  archiveClause,
+  getAllProperties,
+  kickTenantFromProperty,
+  getAdminAnalytics,
+  getBillingUsers,
+  getPendingVerifications,
+  getApprovedVerifications,
+  approveVerification,
+  rejectVerification,
+  getClauseVariables,
+};

@@ -1,3 +1,4 @@
+const logger = require('../utils/logger');
 const Offer = require('../models/Offer');
 const Property = require('../models/Property');
 const Agreement = require('../models/Agreement');
@@ -265,7 +266,7 @@ const acceptOffer = async (req, res) => {
         }
       });
     } catch (notifyErr) {
-      console.error('acceptOffer notification error:', notifyErr.message);
+      logger.error('acceptOffer notification error', { err: notifyErr.message });
     }
 
     await Offer.updateMany(
@@ -311,7 +312,7 @@ const declineOffer = async (req, res) => {
         }
       });
     } catch (notifyErr) {
-      console.error('declineOffer notification error:', notifyErr.message);
+      logger.error('declineOffer notification error', { err: notifyErr.message });
     }
 
     res.json({ message: 'Offer declined', offer });

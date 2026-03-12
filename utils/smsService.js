@@ -19,16 +19,16 @@ const getClient = () => {
 
 const smsTemplates = {
   paymentReceived: (propertyTitle, amount, month) =>
-    `RentifyPro: Payment of Rs. ${Number(amount).toLocaleString()} for ${propertyTitle} (${month}) has been received. Thank you! View receipt: ${process.env.CLIENT_URL}/dashboard/payments`,
+    `RentifyPro: Payment of $${Number(amount).toLocaleString()} for ${propertyTitle} (${month}) has been received. Thank you! View receipt: ${process.env.CLIENT_URL}/dashboard/payments`,
 
   rentDueReminder: (propertyTitle, amount, dueDate) =>
-    `RentifyPro: Your rent of Rs. ${Number(amount).toLocaleString()} for ${propertyTitle} is due on ${new Date(dueDate).toDateString()}. Log in to pay: ${process.env.CLIENT_URL}/dashboard/my-lease`,
+    `RentifyPro: Your rent of $${Number(amount).toLocaleString()} for ${propertyTitle} is due on ${new Date(dueDate).toDateString()}. Log in to pay: ${process.env.CLIENT_URL}/dashboard/my-lease`,
 
   rentOverdue: (propertyTitle, amount) =>
-    `RentifyPro: Your rent of Rs. ${Number(amount).toLocaleString()} for ${propertyTitle} is OVERDUE. A late fee may be applied. Please pay immediately: ${process.env.CLIENT_URL}/dashboard/my-lease`,
+    `RentifyPro: Your rent of $${Number(amount).toLocaleString()} for ${propertyTitle} is OVERDUE. A late fee may be applied. Please pay immediately: ${process.env.CLIENT_URL}/dashboard/my-lease`,
 
   lateFeeApplied: (propertyTitle, feeAmount) =>
-    `RentifyPro: A late fee of Rs. ${Number(feeAmount).toLocaleString()} has been applied to your account for ${propertyTitle}. View details: ${process.env.CLIENT_URL}/dashboard/my-lease`,
+    `RentifyPro: A late fee of $${Number(feeAmount).toLocaleString()} has been applied to your account for ${propertyTitle}. View details: ${process.env.CLIENT_URL}/dashboard/my-lease`,
 
   applicationAccepted: (propertyTitle) =>
     `RentifyPro: Congratulations! Your application for ${propertyTitle} was accepted. Sign your agreement: ${process.env.CLIENT_URL}/dashboard/my-lease`,

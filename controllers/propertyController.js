@@ -51,7 +51,8 @@ const createProperty = async (req, res) => {
 // @desc    Get properties (role-aware)
 const getProperties = async (req, res) => {
   try {
-    let filter = {};
+    const showArchived = req.query.archived === 'true';
+    let filter = { isArchived: showArchived ? true : { $ne: true } };
     if (req.user.role === 'landlord') filter.landlord = req.user._id;
     else if (req.user.role === 'property_manager') filter.managedBy = req.user._id;
 

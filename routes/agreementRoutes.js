@@ -7,7 +7,7 @@ const {
   proposeRenewal, respondToRenewal,
   getAvailableClauses, updateAgreementClauses, getDocumentUrl,
   sendSigningInvites, signViaToken,
-  getVersionHistory, snapshotAgreement, getAgreementPreview,
+  getVersionHistory, snapshotAgreement, getAgreementPreview, getAgreementPreviewPublic,
   updateEscalation,
 } = require('../controllers/agreementController');
 
@@ -27,6 +27,8 @@ router.get('/:id', protect, getAgreementById);
 
 // Inline PDF preview (base64 or S3 signed URL)
 router.get('/:id/preview', protect, getAgreementPreview);
+// Public preview — validated via signing token query param (for sign/ page)
+router.get('/:id/preview/public', getAgreementPreviewPublic);
 
 // S3 document vault — get pre-signed download URL (H3)
 router.get('/:id/document-url', protect, getDocumentUrl);

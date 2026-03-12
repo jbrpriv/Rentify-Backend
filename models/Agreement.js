@@ -110,14 +110,8 @@ const agreementSchema = mongoose.Schema(
     // ─── Payment Tracking ──────────────────────────────────────────
     isPaid: { type: Boolean, default: false },
     stripeSessionId: { type: String },
-    paymentHistory: [
-      {
-        amount: { type: Number },
-        date: { type: Date, default: Date.now },
-        status: { type: String, enum: ['pending', 'paid', 'failed'] },
-        stripePaymentIntent: { type: String },
-      }
-    ],
+    // paymentHistory removed — Payment records live exclusively in the Payment collection.
+    // See Component 0 (double-payment fix). Run a migration to $unset this field on existing docs.
 
 
     // ─── Renewal Proposal ──────────────────────────────────────────

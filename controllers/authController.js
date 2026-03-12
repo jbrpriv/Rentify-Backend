@@ -22,6 +22,21 @@ const setRefreshCookie = (res, token) => {
   });
 };
 
+// NEW-04: Non-HttpOnly role cookie so Next.js middleware can enforce
+// role-based routing without a DB lookup on every request.
+// It carries no security value on its own — the real auth gate is always the
+// API's protect middleware; this is purely for client-side UX routing.
+const setRoleCookie = (res, role) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.cookie('userRole', role, {
+    httpOnly: false,            // must be readable by Next.js middleware
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    path: '/',
+  });
+};
+
 // ─── REGISTER ─────────────────────────────────────────────────────────────────
 const registerUser = async (req, res) => {
   const errors = validationResult(req);
@@ -44,6 +59,7 @@ const registerUser = async (req, res) => {
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
+    setRoleCookie(res, user.role);
     await sendEmail(user.email, 'emailOTP', user.name, emailOtp);
     res.status(201).json({ _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: false, token: accessToken });
   } else {
@@ -91,6 +107,7 @@ const loginUser = async (req, res) => {
   const accessToken = generateAccessToken(user._id);
   const refreshToken = generateRefreshToken(user._id);
   setRefreshCookie(res, refreshToken);
+  setRoleCookie(res, user.role);
 
   res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, isPhoneVerified: user.isPhoneVerified, twoFactorEnabled: user.twoFactorEnabled || false, token: accessToken });
 };
@@ -127,6 +144,7 @@ const superLogin = async (req, res) => {
   const accessToken = generateAccessToken(user._id);
   const refreshToken = generateRefreshToken(user._id);
   setRefreshCookie(res, refreshToken);
+  setRoleCookie(res, user.role);
 
   res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, isPhoneVerified: user.isPhoneVerified, twoFactorEnabled: user.twoFactorEnabled || false, token: accessToken });
 };
@@ -151,6 +169,7 @@ const refreshToken = async (req, res) => {
     const newRefreshToken = generateRefreshToken(user._id);
 
     setRefreshCookie(res, newRefreshToken);
+    setRoleCookie(res, user.role);
 
     res.json({ token: newAccessToken });
 
@@ -163,6 +182,7 @@ const refreshToken = async (req, res) => {
 const logoutUser = (req, res) => {
   const isProd = process.env.NODE_ENV === 'production';
   // Clear cookie with same options it was set with, otherwise some browsers ignore it
+  res.clearCookie('userRole');
   res.clearCookie('refreshToken', {
     httpOnly: true,
     secure: isProd,
@@ -305,6 +325,7 @@ const verifyPhoneOTP = async (req, res) => {
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
+    setRoleCookie(res, user.role);
 
     res.json({
       _id: user._id,
@@ -403,6 +424,7 @@ const validate2FALogin = async (req, res) => {
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
+    setRoleCookie(res, user.role);
     res.json({ _id: user._id, name: user.name, email: user.email, role: user.role, token: accessToken });
   } catch (error) { res.status(500).json({ message: error.message }); }
 };
@@ -434,6 +456,7 @@ const facebookComplete = async (req, res) => {
         const accessToken = generateAccessToken(existing._id);
         const refreshToken = generateRefreshToken(existing._id);
         setRefreshCookie(res, refreshToken);
+        setRoleCookie(res, existing.role);
         return res.json({
           _id: existing._id,
           name: existing.name,
@@ -452,6 +475,7 @@ const facebookComplete = async (req, res) => {
       const accessToken = generateAccessToken(existing._id);
       const refreshToken = generateRefreshToken(existing._id);
       setRefreshCookie(res, refreshToken);
+      setRoleCookie(res, existing.role);
       return res.json({
         _id: existing._id,
         name: existing.name,
@@ -476,6 +500,7 @@ const facebookComplete = async (req, res) => {
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
     setRefreshCookie(res, refreshToken);
+    setRoleCookie(res, user.role);
 
     res.status(201).json({
       _id: user._id,
@@ -520,7 +545,8 @@ const abandonOAuthAccount = async (req, res) => {
 
     await User.findByIdAndDelete(user._id);
     const isProd = process.env.NODE_ENV === 'production';
-    res.clearCookie('refreshToken', {
+    res.clearCookie('userRole');
+  res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
@@ -534,6 +560,7 @@ const abandonOAuthAccount = async (req, res) => {
 
 module.exports = {
   setRefreshCookie, // ← [FIX] exported so authRoutes.js OAuth callback uses same config
+  setRoleCookie,
   registerUser, loginUser, superLogin, refreshToken, logoutUser,
   verifyEmail, resendVerification,
   forgotPassword, resetPassword,

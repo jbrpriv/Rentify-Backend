@@ -180,7 +180,7 @@ const createCheckoutSession = async (req, res) => {
       line_items: [
         {
           price_data: {
-            currency: process.env.STRIPE_CURRENCY || 'pkr',
+            currency: process.env.STRIPE_CURRENCY || 'usd',
             product_data: {
               name: petDeposit > 0 ? 'Security Deposit + Pet Deposit + 1st Month Rent' : 'Security Deposit + 1st Month Rent',
               description: `Property: ${agreement.property.title}`,
@@ -265,11 +265,6 @@ const handleStripeWebhook = async (req, res) => {
       isPaid: true,
       rentSchedule: schedule,
       $push: {
-        paymentHistory: {
-          amount: session.amount_total / 100,
-          status: 'paid',
-          stripePaymentIntent: session.payment_intent,
-        },
         auditLog: {
           action: 'LEASE_ACTIVATED',
           timestamp: new Date(),
@@ -304,6 +299,22 @@ const handleStripeWebhook = async (req, res) => {
     }
 
     logger.info('Lease activated', { agreementId });
+
+    // BUG-05: Queue in-app LEASE_ACTIVATED notification for both parties
+    try {
+      const notificationQueue = require('../queues/notificationQueue');
+      await notificationQueue.add(`LEASE_ACTIVATED-${agreementId}`, {
+        type: 'LEASE_ACTIVATED',
+        data: {
+          agreementId,
+          tenantId: agreement.tenant._id.toString(),
+          landlordId: agreement.landlord._id.toString(),
+          propertyTitle: agreement.property.title,
+        },
+      });
+    } catch (notifyErr) {
+      logger.error('LEASE_ACTIVATED notification queue error', { err: notifyErr.message });
+    }
   }
 
   // ─── Monthly rent payment ─────────────────────────────────────────────────
@@ -621,8 +632,19 @@ const createRentCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: "This month's rent has already been paid" });
     }
 
+    // Component 0: Idempotency guard — block duplicate Payment record for same rent month
+    const existingPaid = await Payment.findOne({
+      agreement: agreementId,
+      dueDate: entry.dueDate,
+      status: 'paid',
+      type: 'rent',
+    });
+    if (existingPaid) {
+      return res.status(400).json({ message: "This month's rent is already paid" });
+    }
+
     const totalAmount = entry.amount + (entry.lateFeeAmount || 0);
-    const currency = process.env.STRIPE_CURRENCY || 'pkr';
+    const currency = process.env.STRIPE_CURRENCY || 'usd';
     const month = new Date(entry.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' });
 
     const session = await stripe.checkout.sessions.create({
@@ -633,7 +655,7 @@ const createRentCheckoutSession = async (req, res) => {
             currency,
             product_data: {
               name: `Monthly Rent — ${month}`,
-              description: `Property: ${agreement.property.title}${entry.lateFeeAmount ? ` (incl. Rs. ${entry.lateFeeAmount} late fee)` : ''}`,
+              description: `Property: ${agreement.property.title}${entry.lateFeeAmount ? ` (incl. $${entry.lateFeeAmount} late fee)` : ''}`,
             },
             unit_amount: Math.round(totalAmount * 100),
           },
@@ -689,7 +711,7 @@ const getActiveCheckoutUrl = async (req, res) => {
     }
 
     const totalAmount = entry.amount + (entry.lateFeeAmount || 0);
-    const currency = process.env.STRIPE_CURRENCY || 'pkr';
+    const currency = process.env.STRIPE_CURRENCY || 'usd';
     const month = new Date(entry.dueDate).toLocaleString('default', { month: 'long', year: 'numeric' });
 
     const session = await stripe.checkout.sessions.create({
@@ -700,7 +722,7 @@ const getActiveCheckoutUrl = async (req, res) => {
             currency,
             product_data: {
               name: `Monthly Rent — ${month}`,
-              description: `Property: ${agreement.property?.title || 'N/A'}${entry.lateFeeAmount ? ` (incl. Rs. ${entry.lateFeeAmount} late fee)` : ''}`,
+              description: `Property: ${agreement.property?.title || 'N/A'}${entry.lateFeeAmount ? ` (incl. $${entry.lateFeeAmount} late fee)` : ''}`,
             },
             unit_amount: Math.round(totalAmount * 100),
           },

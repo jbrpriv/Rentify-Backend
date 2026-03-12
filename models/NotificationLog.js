@@ -40,6 +40,8 @@ const notificationLogSchema = mongoose.Schema(
                 'agreement_expiring',
                 'agreement_expired',
                 'agreement_renewed',
+                'agreement_renewal_pending',
+                'agreement_renewal_responded',
                 'maintenance_update',
                 'dispute_update',
                 'document_expiring',

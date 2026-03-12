@@ -181,7 +181,7 @@ const subscribe = async (req, res) => {
 
     res.json({ url: session.url });
   } catch (error) {
-    console.error('[billing] subscribe error:', error.message);
+    logger.error('[billing] subscribe error', { err: error.message });
     res.status(500).json({ message: error.message });
   }
 };
@@ -284,7 +284,7 @@ const getPlans = async (_req, res) => {
         tier: 'free',
         name: 'Free',
         price: 0,
-        currency: 'PKR',
+        currency: 'USD',
         interval: 'month',
         features: [
           '1 property listing (max)',
@@ -297,8 +297,8 @@ const getPlans = async (_req, res) => {
       {
         tier: 'pro',
         name: 'Pro',
-        price: 2999,
-        currency: 'PKR',
+        price: 15,
+        currency: 'USD',
         interval: 'month',
         stripePriceId: TIER_PRICES.pro || null,
         features: [
@@ -314,8 +314,8 @@ const getPlans = async (_req, res) => {
       {
         tier: 'enterprise',
         name: 'Enterprise',
-        price: 9999,
-        currency: 'PKR',
+        price: 30,
+        currency: 'USD',
         interval: 'month',
         stripePriceId: TIER_PRICES.enterprise || null,
         features: [

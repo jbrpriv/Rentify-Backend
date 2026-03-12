@@ -1,3 +1,4 @@
+const logger = require('../utils/logger');
 const Message = require('../models/Message');
 const MaintenanceRequest = require('../models/MaintenanceRequest');
 const Agreement = require('../models/Agreement');
@@ -31,7 +32,7 @@ const logNotification = async ({
       },
     });
   } catch (err) {
-    console.error('[NotificationLog] Failed to persist:', err.message);
+    logger.error('[NotificationLog] Failed to persist', { err: err.message });
   }
 };
 
