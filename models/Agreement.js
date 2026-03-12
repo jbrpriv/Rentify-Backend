@@ -116,12 +116,15 @@ const agreementSchema = mongoose.Schema(
 
     // ─── Renewal Proposal ──────────────────────────────────────────
     renewalProposal: {
-      proposedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-      newEndDate: { type: Date, default: null },
-      newRentAmount: { type: Number, default: null },
-      notes: { type: String, default: '' },
-      status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
-      proposedAt: { type: Date, default: null },
+      type: {
+        proposedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        newEndDate: { type: Date },
+        newRentAmount: { type: Number },
+        notes: { type: String, default: '' },
+        status: { type: String, enum: ['pending', 'accepted', 'rejected'] },
+        proposedAt: { type: Date },
+      },
+      default: null,
     },
 
     // ─── Rent Escalation ───────────────────────────────────────────
