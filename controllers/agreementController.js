@@ -375,6 +375,7 @@ const respondToRenewal = async (req, res) => {
       });
     } else {
       agreement.renewalProposal.status = 'rejected';
+      agreement.status = 'expired';
       agreement.auditLog.push({
         action: 'RENEWAL_REJECTED',
         actor: req.user._id,
