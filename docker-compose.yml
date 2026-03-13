@@ -13,9 +13,29 @@ services:
       - .env
     environment:
       NODE_ENV: production
+      MONGO_URI: mongodb://mongo:27017/rentifypro
+      REDIS_URL: redis://redis:6379
     depends_on:
+      mongo:
+        condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - rentify-net
+
+  mongo:
+    image: mongo:7
+    container_name: rentifypro-mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - rentify-net
 
@@ -32,6 +52,9 @@ services:
       retries: 5
     networks:
       - rentify-net
+
+volumes:
+  mongo-data:
 
 networks:
   rentify-net:

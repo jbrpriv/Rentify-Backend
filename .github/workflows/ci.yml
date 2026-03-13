@@ -124,8 +124,22 @@ jobs:
             --service rentifypro-backend-canary \
             --force-new-deployment
 
-      - name: Wait & validate canary (5 min)
-        run: sleep 300
+      - name: Validate canary health (5 min polling)
+        env:
+          HEALTH_URL: ${{ secrets.CANARY_HEALTH_URL }}
+        run: |
+          echo "Polling canary health at $HEALTH_URL ..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL/api/health" || echo "000")
+            echo "Attempt $i/30 — HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Canary is healthy"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "❌ Canary failed health checks after 5 minutes — aborting promotion"
+          exit 1
 
       - name: Promote canary to full production
         run: |

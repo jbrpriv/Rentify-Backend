@@ -1,4 +1,38 @@
+# Version control
 .git
-*.log
+.gitignore
+
+# Environment files
 .env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Dependencies (reinstalled in image)
 node_modules
+
+# Test & coverage
+coverage/
+__tests__/
+*.test.js
+*.spec.js
+
+# E2E tests
+cypress/
+
+# Load tests
+artillery/
+
+# Dev & build artifacts
+*.md
+.eslintrc*
+.prettierrc*
+jest.config*
+nodemon.json
+
+# OS
+.DS_Store
+Thumbs.db
