@@ -89,10 +89,10 @@ const sendSMS = async (to, templateName, ...args) => {
 
     const body = template(...args);
 
-    // Normalize phone number: must be in E.164 format with country code (e.g. +14155551234)
-    // If no '+' prefix, we cannot safely assume a country code — reject it.
-    if (!to.startsWith('+')) {
-      console.warn(`SMS skipped [${templateName}]: phone number "${to}" is missing country code (+XX prefix)`);
+    // Validate E.164 format: + followed by 7-15 digits (covers every country worldwide)
+    const E164_REGEX = /^\+[1-9]\d{6,14}$/;
+    if (!E164_REGEX.test(to)) {
+      console.warn(`SMS skipped [${templateName}]: phone number "${to}" is not valid E.164 format`);
       return false;
     }
     const normalizedTo = to;
@@ -129,8 +129,10 @@ const sendOTP = async (phoneNumber) => {
     const twilioClient = getClient();
     if (!twilioClient) return { success: false, reason: 'SERVICE_ERROR' };
 
-    if (!phoneNumber.startsWith('+')) {
-      console.error(`OTP send skipped: phone number "${phoneNumber}" is missing country code (+XX prefix)`);
+    // E.164 validation: + followed by 7-15 digits (covers every country worldwide)
+    const E164_REGEX = /^\+[1-9]\d{6,14}$/;
+    if (!E164_REGEX.test(phoneNumber)) {
+      console.error(`OTP send skipped: phone number "${phoneNumber}" is not valid E.164 format`);
       return { success: false, reason: 'INVALID_FORMAT' };
     }
     const normalizedPhone = phoneNumber;
@@ -161,8 +163,9 @@ const verifyOTP = async (phoneNumber, code) => {
     const twilioClient = getClient();
     if (!twilioClient) return false;
 
-    if (!phoneNumber.startsWith('+')) {
-      console.error(`OTP verify skipped: phone number "${phoneNumber}" is missing country code (+XX prefix)`);
+    const E164_REGEX = /^\+[1-9]\d{6,14}$/;
+    if (!E164_REGEX.test(phoneNumber)) {
+      console.error(`OTP verify skipped: phone number "${phoneNumber}" is not valid E.164 format`);
       return false;
     }
     const normalizedPhone = phoneNumber;
