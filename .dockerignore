@@ -1,7 +1,7 @@
 # Version control
 .git
 .gitignore
-
+mongodb-database-tools-amazon2-x86_64-100.7.0.tgz
 # Environment files
 .env
 .env.*
