@@ -89,8 +89,13 @@ const sendSMS = async (to, templateName, ...args) => {
 
     const body = template(...args);
 
-    // Normalize phone number: ensure it has a + prefix
-    const normalizedTo = to.startsWith('+') ? to : `+92${to.replace(/^0/, '')}`;
+    // Normalize phone number: must be in E.164 format with country code (e.g. +14155551234)
+    // If no '+' prefix, we cannot safely assume a country code — reject it.
+    if (!to.startsWith('+')) {
+      console.warn(`SMS skipped [${templateName}]: phone number "${to}" is missing country code (+XX prefix)`);
+      return false;
+    }
+    const normalizedTo = to;
 
     await twilioClient.messages.create({
       body,
@@ -124,7 +129,11 @@ const sendOTP = async (phoneNumber) => {
     const twilioClient = getClient();
     if (!twilioClient) return false;
 
-    const normalizedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+92${phoneNumber.replace(/^0/, '')}`;
+    if (!phoneNumber.startsWith('+')) {
+      console.error(`OTP send skipped: phone number "${phoneNumber}" is missing country code (+XX prefix)`);
+      return false;
+    }
+    const normalizedPhone = phoneNumber;
 
     await twilioClient.verify.v2
       .services(process.env.TWILIO_VERIFY_SERVICE_SID)
@@ -152,7 +161,11 @@ const verifyOTP = async (phoneNumber, code) => {
     const twilioClient = getClient();
     if (!twilioClient) return false;
 
-    const normalizedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+92${phoneNumber.replace(/^0/, '')}`;
+    if (!phoneNumber.startsWith('+')) {
+      console.error(`OTP verify skipped: phone number "${phoneNumber}" is missing country code (+XX prefix)`);
+      return false;
+    }
+    const normalizedPhone = phoneNumber;
 
     const result = await twilioClient.verify.v2
       .services(process.env.TWILIO_VERIFY_SERVICE_SID)
