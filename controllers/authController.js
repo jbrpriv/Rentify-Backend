@@ -283,9 +283,12 @@ const sendPhoneOTP = async (req, res) => {
       });
     }
 
-    const result = await sendOTP(user.phoneNumber);
-    if (!result.success) {
-      if (result.reason === 'INVALID_FORMAT') {
+    const otpResult = await sendOTP(user.phoneNumber);
+    // Support both legacy boolean `true` and new `{ success, reason }` return shapes
+    const otpSuccess = otpResult === true || (otpResult && otpResult.success);
+    const otpReason = otpResult && otpResult.reason;
+    if (!otpSuccess) {
+      if (otpReason === 'INVALID_FORMAT') {
         return res.status(400).json({
           message: 'Invalid phone number format. Please enter your number in international format (e.g. +14155551234).',
           code: 'INVALID_PHONE_FORMAT',

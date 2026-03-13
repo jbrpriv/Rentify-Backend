@@ -146,7 +146,10 @@ const sendOTP = async (phoneNumber) => {
     return { success: true };
   } catch (error) {
     console.error('OTP send failed:', error.message);
-    return { success: false, reason: 'SERVICE_ERROR' };
+    // Twilio 21211/60200 = invalid To number; surface as INVALID_FORMAT not SERVICE_ERROR
+    const isInvalidNumber = error.code === 21211 || error.code === 60200
+      || /invalid.*parameter.*to|invalid.*phone/i.test(error.message);
+    return { success: false, reason: isInvalidNumber ? 'INVALID_FORMAT' : 'SERVICE_ERROR' };
   }
 };
 
