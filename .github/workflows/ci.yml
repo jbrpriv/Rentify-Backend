@@ -48,102 +48,65 @@ jobs:
       - name: Run unit & integration tests
         run: npm test -- --forceExit --detectOpenHandles
 
-  # ─── Deploy to Staging (ECS) ─────────────────────────────────────────────
+  # ─── Deploy to Staging ────────────────────────────────────────────────────
   deploy-staging:
-    name: Deploy → Staging
+    name: Deploy → Staging (EC2)
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/staging'
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Deploy to staging EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ${{ secrets.AWS_REGION }}
+          host:     ${{ secrets.STAGING_EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key:      ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/app
+            git pull origin staging
+            docker compose up -d --build
+            docker image prune -f
+            pm2 restart stripe-billing
+            pm2 restart stripe-payments
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build & push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/rentifypro-backend:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/rentifypro-backend:$IMAGE_TAG
-          echo "IMAGE=$ECR_REGISTRY/rentifypro-backend:$IMAGE_TAG" >> $GITHUB_ENV
-
-      - name: Deploy to ECS (Staging)
-        run: |
-          aws ecs update-service \
-            --cluster rentifypro-staging \
-            --service rentifypro-backend \
-            --force-new-deployment
-
-  # ─── Canary Deploy to Production ─────────────────────────────────────────
+  # ─── Deploy to Production ─────────────────────────────────────────────────
   deploy-production:
-    name: Deploy → Production (Canary)
+    name: Deploy → Production (EC2)
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     environment: production
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Deploy to production EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ${{ secrets.AWS_REGION }}
+          host:     ${{ secrets.PROD_EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key:      ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/Rentify-Backend
+            git pull origin main
+            docker-compose down
+            docker-compose up -d --build
+            docker image prune -f
+            pm2 restart stripe-billing
+            pm2 restart stripe-payments
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build & push Docker image
+      - name: Validate production health
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          HEALTH_URL: ${{ secrets.PROD_HEALTH_URL }}
         run: |
-          docker build -t $ECR_REGISTRY/rentifypro-backend:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/rentifypro-backend:$IMAGE_TAG
-
-      - name: Canary deploy (10% traffic)
-        run: |
-          aws ecs update-service \
-            --cluster rentifypro-production \
-            --service rentifypro-backend-canary \
-            --force-new-deployment
-
-      - name: Validate canary health (5 min polling)
-        env:
-          HEALTH_URL: ${{ secrets.CANARY_HEALTH_URL }}
-        run: |
-          echo "Polling canary health at $HEALTH_URL ..."
+          echo "Polling production health at $HEALTH_URL ..."
           for i in $(seq 1 30); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL/api/health" || echo "000")
             echo "Attempt $i/30 — HTTP $STATUS"
             if [ "$STATUS" = "200" ]; then
-              echo "✅ Canary is healthy"
+              echo "✅ Production is healthy"
               exit 0
             fi
             sleep 10
           done
-          echo "❌ Canary failed health checks after 5-minutes — aborting promotion"
+          echo "❌ Health checks failed after 5 minutes"
           exit 1
-
-      - name: Promote canary to full production
-        run: |
-          aws ecs update-service \
-            --cluster rentifypro-production \
-            --service rentifypro-backend \
-            --force-new-deployment
