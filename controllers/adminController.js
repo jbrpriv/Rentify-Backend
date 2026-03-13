@@ -9,7 +9,7 @@ const logger = require('../utils/logger');
 // Revenue amounts for MRR calculation (cents). Sourced from env vars so they
 // stay in sync with the billing plans without any hardcoded numbers here.
 const MRR_CENTS = {
-  pro:        parseInt(process.env.PLAN_PRICE_PRO_CENTS        || '1500', 10),
+  pro: parseInt(process.env.PLAN_PRICE_PRO_CENTS || '1500', 10),
   enterprise: parseInt(process.env.PLAN_PRICE_ENTERPRISE_CENTS || '3000', 10),
 };
 
@@ -43,8 +43,9 @@ const getStats = async (req, res) => {
       MaintenanceRequest.countDocuments({ status: { $in: ['open', 'in_progress'] } }),
     ]);
 
+    // Divide by 100 to convert from cents to dollars before sending to client
     const monthlySubscriptionRevenue =
-      (totalPro * PLAN_REVENUE.pro) + (totalEnterprise * PLAN_REVENUE.enterprise);
+      Math.round(((totalPro * PLAN_REVENUE.pro) + (totalEnterprise * PLAN_REVENUE.enterprise)) / 100);
 
     const usersBySubscription = await User.aggregate([
       { $group: { _id: { $ifNull: ['$subscriptionTier', 'free'] }, count: { $sum: 1 } } },
@@ -70,7 +71,7 @@ const getStats = async (req, res) => {
         users: totalUsers,
         pro: totalPro,
         enterprise: totalEnterprise,
-        free: totalUsers - totalPro - totalEnterprise,
+        free: Math.max(0, totalUsers - totalPro - totalEnterprise),
         properties: totalProperties,
         agreements: totalAgreements,
         activeAgreements,
@@ -81,6 +82,7 @@ const getStats = async (req, res) => {
       monthlySubscriptionRevenue,
       usersBySubscription,
       agreementsByMonth,
+      generatedAt: new Date().toISOString(),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -606,7 +608,7 @@ const getBillingUsers = async (req, res) => {
         free: freeCt,
         pro: proCt,
         enterprise: enterpriseCt,
-        totalMRR: (proCt * MRR_CENTS.pro) + (enterpriseCt * MRR_CENTS.enterprise),
+        totalMRR: Math.round(((proCt * MRR_CENTS.pro) + (enterpriseCt * MRR_CENTS.enterprise)) / 100),
       },
     });
   } catch (error) {
@@ -634,8 +636,8 @@ const CLAUSE_VARIABLES = [
   { key: 'propertyTitle', label: 'Property Title', group: 'Property', description: 'Listing title of the property' },
   { key: 'propertyAddress', label: 'Property Address', group: 'Property', description: 'Full street, city, and state address' },
   // Financials
-  { key: 'rentAmount', label: 'Rent Amount', group: 'Financials', description: 'Monthly rent (PKR formatted)' },
-  { key: 'depositAmount', label: 'Security Deposit', group: 'Financials', description: 'Security deposit amount (PKR formatted)' },
+  { key: 'rentAmount', label: 'Rent Amount', group: 'Financials', description: 'Monthly rent (USD formatted)' },
+  { key: 'depositAmount', label: 'Security Deposit', group: 'Financials', description: 'Security deposit amount (USD formatted)' },
   { key: 'lateFeeAmount', label: 'Late Fee Amount', group: 'Financials', description: 'Late fee charged after grace period' },
   { key: 'lateFeeGraceDays', label: 'Late Fee Grace Days', group: 'Financials', description: 'Number of days before late fee is applied' },
   // Term

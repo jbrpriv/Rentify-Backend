@@ -17,10 +17,12 @@ const createProperty = async (req, res) => {
 
       const existingCount = await Property.countDocuments({ landlord: req.user._id });
 
-      if (existingCount >= maxAllowed) {
+      // maxAllowed === -1 means unlimited (enterprise). Skip the check entirely.
+      if (maxAllowed !== -1 && existingCount >= maxAllowed) {
         const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+        const limitDisplay = maxAllowed === -1 ? 'Unlimited' : maxAllowed;
         return res.status(403).json({
-          message: `Your ${tierLabel} plan allows a maximum of ${maxAllowed} propert${maxAllowed === 1 ? 'y' : 'ies'}. Upgrade your plan to add more.`,
+          message: `Your ${tierLabel} plan allows a maximum of ${limitDisplay} propert${maxAllowed === 1 ? 'y' : 'ies'}. Upgrade your plan to add more.`,
           limitReached: true,
           tier,
           maxProperties: maxAllowed,
