@@ -391,64 +391,63 @@ const templates = {
     `,
   }),
 
-  // ── Support request notification (sent to admin) ─────────────────────────────
-  supportRequest: ({ email, category, message, ip }) => ({
-    subject: `[Support] ${category} request from ${email}`,
+  // ── Support request notification (sent to admin)
+  // Called as: sendEmail(adminEmail, 'supportRequest', name, email, phone, subject, category, message)
+  supportRequest: (name, email, phone, subject, category, message) => ({
+    subject: `[Support] ${category} — ${subject} from ${email}`,
     html: `
-      <!DOCTYPE html>
-      <html>
-      <head><meta charset="utf-8"><style>
+      <!DOCTYPE html><html><head><meta charset="utf-8"><style>
         body{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:0}
-        .container{max-width:600px;margin:30px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)}
-        .header{background:#2563eb;color:white;padding:24px 32px}.header h1{margin:0;font-size:24px}
-        .body{padding:32px;color:#374151;line-height:1.6}
-        .detail-box{background:#f0f7ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin:16px 0}
-        .footer{background:#f9fafb;padding:16px 32px;text-align:center;color:#9ca3af;font-size:13px;border-top:1px solid #e5e7eb}
+        .c{max-width:600px;margin:30px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+        .h{background:#2563eb;color:white;padding:24px 32px}.h h1{margin:0;font-size:22px}
+        .b{padding:32px;color:#374151;line-height:1.6}
+        .box{background:#f0f7ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin:16px 0}
+        .f{background:#f9fafb;padding:16px 32px;text-align:center;color:#9ca3af;font-size:13px;border-top:1px solid #e5e7eb}
       </style></head>
-      <body><div class="container">
-        <div class="header"><h1>\uD83C\uDFE0 RentifyPro — Support Request</h1></div>
-        <div class="body">
-          <h2>New Support Ticket</h2>
-          <div class="detail-box">
-            <strong>From:</strong> ${email}<br/>
-            <strong>Category:</strong> ${category}<br/>
-            <strong>IP Address:</strong> ${ip || 'N/A'}<br/>
+      <body><div class="c">
+        <div class="h"><h1>🏠 RentifyPro — New Support Request</h1></div>
+        <div class="b">
+          <div class="box">
+            <strong>Name:</strong> ${name}<br/>
+            <strong>Email:</strong> ${email}<br/>
+            <strong>Phone:</strong> ${phone || 'Not provided'}<br/>
+            <strong>Subject:</strong> ${subject}<br/>
+            <strong>Category:</strong> ${category}
           </div>
           <p><strong>Message:</strong></p>
-          <p style="background:#f9fafb;padding:16px;border-radius:6px;color:#374151">${message || '(no message body provided)'}</p>
+          <p style="background:#f9fafb;padding:16px;border-radius:6px;white-space:pre-wrap">${message || '(no message body)'}</p>
         </div>
-        <div class="footer">\u00a9 ${new Date().getFullYear()} RentifyPro. Automated support notification.</div>
+        <div class="f">© ${new Date().getFullYear()} RentifyPro · Automated support notification</div>
       </div></body></html>
     `,
   }),
 
-  // ── Support acknowledgement (sent to user who submitted the request) ─────────
-  supportAcknowledgement: ({ name, category }) => ({
+  // ── Support acknowledgement (sent to user who submitted the request)
+  // Called as: sendEmail(userEmail, 'supportAcknowledgement', name, subject)
+  supportAcknowledgement: (name, subject) => ({
     subject: `We got your message — RentifyPro Support`,
     html: `
-      <!DOCTYPE html>
-      <html>
-      <head><meta charset="utf-8"><style>
+      <!DOCTYPE html><html><head><meta charset="utf-8"><style>
         body{font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:0}
-        .container{max-width:600px;margin:30px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)}
-        .header{background:#2563eb;color:white;padding:24px 32px}.header h1{margin:0;font-size:24px}
-        .body{padding:32px;color:#374151;line-height:1.6}
-        .detail-box{background:#f0f7ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin:16px 0}
-        .footer{background:#f9fafb;padding:16px 32px;text-align:center;color:#9ca3af;font-size:13px;border-top:1px solid #e5e7eb}
+        .c{max-width:600px;margin:30px auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+        .h{background:#2563eb;color:white;padding:24px 32px}.h h1{margin:0;font-size:22px}
+        .b{padding:32px;color:#374151;line-height:1.6}
+        .box{background:#f0f7ff;border-left:4px solid #2563eb;padding:16px;border-radius:4px;margin:16px 0}
+        .f{background:#f9fafb;padding:16px 32px;text-align:center;color:#9ca3af;font-size:13px;border-top:1px solid #e5e7eb}
       </style></head>
-      <body><div class="container">
-        <div class="header"><h1>\uD83C\uDFE0 RentifyPro</h1></div>
-        <div class="body">
-          <h2>We received your request, ${name || 'there'}!</h2>
-          <p>Thanks for reaching out. Our team has received your <strong>${category}</strong> support request and will respond within 1\u20132 business days.</p>
-          <div class="detail-box">
-            <strong>Category:</strong> ${category}<br/>
+      <body><div class="c">
+        <div class="h"><h1>🏠 RentifyPro</h1></div>
+        <div class="b">
+          <h2>We received your message, ${name || 'there'}!</h2>
+          <p>Thanks for reaching out. Our team has received your request and will respond within 1–2 business days.</p>
+          <div class="box">
+            <strong>Subject:</strong> ${subject || 'General Enquiry'}<br/>
             <strong>Status:</strong> Under review
           </div>
-          <p>In the meantime, you can check our help centre or reply to this email if you have additional information to add.</p>
-          <p>\u2014 The RentifyPro Support Team</p>
+          <p>If you have anything to add, simply reply to this email.</p>
+          <p>— The RentifyPro Support Team</p>
         </div>
-        <div class="footer">\u00a9 ${new Date().getFullYear()} RentifyPro. This is an automated message.</div>
+        <div class="f">© ${new Date().getFullYear()} RentifyPro · This is an automated message</div>
       </div></body></html>
     `,
   }),
