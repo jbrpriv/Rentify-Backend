@@ -123,15 +123,15 @@ const sendOTP = async (phoneNumber) => {
   try {
     if (!process.env.TWILIO_VERIFY_SERVICE_SID) {
       console.warn('TWILIO_VERIFY_SERVICE_SID not configured. OTP not sent.');
-      return false;
+      return { success: false, reason: 'SERVICE_ERROR' };
     }
 
     const twilioClient = getClient();
-    if (!twilioClient) return false;
+    if (!twilioClient) return { success: false, reason: 'SERVICE_ERROR' };
 
     if (!phoneNumber.startsWith('+')) {
       console.error(`OTP send skipped: phone number "${phoneNumber}" is missing country code (+XX prefix)`);
-      return false;
+      return { success: false, reason: 'INVALID_FORMAT' };
     }
     const normalizedPhone = phoneNumber;
 
@@ -141,10 +141,10 @@ const sendOTP = async (phoneNumber) => {
       .create({ to: normalizedPhone, channel: 'sms' });
 
     console.log(`OTP sent → ${normalizedPhone}`);
-    return true;
+    return { success: true };
   } catch (error) {
     console.error('OTP send failed:', error.message);
-    return false;
+    return { success: false, reason: 'SERVICE_ERROR' };
   }
 };
 

@@ -283,8 +283,14 @@ const sendPhoneOTP = async (req, res) => {
       });
     }
 
-    const sent = await sendOTP(user.phoneNumber);
-    if (!sent) {
+    const result = await sendOTP(user.phoneNumber);
+    if (!result.success) {
+      if (result.reason === 'INVALID_FORMAT') {
+        return res.status(400).json({
+          message: 'Invalid phone number format. Please enter your number in international format (e.g. +14155551234).',
+          code: 'INVALID_PHONE_FORMAT',
+        });
+      }
       return res.status(503).json({
         message: 'SMS service is temporarily unavailable. Please try again shortly.',
         code: 'OTP_SEND_FAILED',
@@ -546,7 +552,7 @@ const abandonOAuthAccount = async (req, res) => {
     await User.findByIdAndDelete(user._id);
     const isProd = process.env.NODE_ENV === 'production';
     res.clearCookie('userRole');
-  res.clearCookie('refreshToken', {
+    res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
