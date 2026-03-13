@@ -10,12 +10,8 @@ const redisConnection = new Redis(redisUrl, {
   // Required by BullMQ — disables per-command retry so the queue manages retries itself
   maxRetriesPerRequest: null,
 
-  // Don't queue commands while disconnected — fail fast so callers can handle it
-  enableOfflineQueue: false,
-
   // Connection timeouts (ms)
-  connectTimeout: 10_000,  // 10s to establish initial connection
-  commandTimeout: 5_000,  // 5s max per command
+  connectTimeout: 15_000,  // 15s to establish initial connection
 
   // Reconnection backoff: 200ms → 400ms → 800ms … capped at 5s, max 20 attempts
   retryStrategy(attempt) {
