@@ -36,6 +36,18 @@ const chainMock = (value) => {
   return chain;
 };
 
+/**
+ * Creates a thenable chain for models that use:
+ *   await Model.findById(id).populate(...).populate(...).populate(...)
+ * Each .populate() returns the same object; awaiting it resolves to `value`.
+ */
+const makeThenable = (value) => {
+  const chain = {};
+  chain.populate = jest.fn().mockReturnValue(chain);
+  chain.then = (resolve, reject) => Promise.resolve(value).then(resolve, reject);
+  return chain;
+};
+
 const landlordDoc = { _id: 'l1', name: 'Landlord', email: 'l@x.com', phoneNumber: '0300', smsOptIn: false };
 const propertyDoc = { _id: 'prop1', landlord: landlordDoc, managedBy: null };
 
@@ -49,14 +61,10 @@ describe('createRequest', () => {
 
     const createdDoc = { _id: 'maint1' };
     MaintenanceRequest.create = jest.fn().mockResolvedValue(createdDoc);
-    // findById used for the populated response after create
-    MaintenanceRequest.findById = jest.fn().mockReturnValue({
-      populate: jest.fn().mockReturnThis(),
-    });
-    // Resolve the chained populate calls to a full doc
-    const mockPopulate = jest.fn().mockReturnThis();
-    MaintenanceRequest.findById = jest.fn().mockReturnValue({ populate: mockPopulate });
-    mockPopulate.mockResolvedValue({ _id: 'maint1', title: 'Tap leak', tenant: {}, landlord: {} });
+    // findById after create — chains 3 x .populate() then is awaited
+    MaintenanceRequest.findById = jest.fn().mockReturnValue(
+      makeThenable({ _id: 'maint1', title: 'Tap leak', tenant: {}, landlord: {} })
+    );
   });
 
   it('creates and returns the request with 201 for a tenant with an active lease', async () => {
@@ -187,30 +195,21 @@ describe('getRequestById', () => {
   };
 
   it('returns the request for the tenant who created it', async () => {
-    const mockPop = jest.fn().mockReturnThis();
-    MaintenanceRequest.findById = jest.fn().mockReturnValue({ populate: mockPop });
-    mockPop.mockResolvedValue(requestDoc);
-
+    MaintenanceRequest.findById = jest.fn().mockReturnValue(makeThenable(requestDoc));
     const res = mockRes();
     await getRequestById(mockReq({}, { _id: tenantId, role: 'tenant' }, { params: { id: 'maint1' } }), res);
     expect(res.json).toHaveBeenCalledWith(requestDoc);
   });
 
   it('returns 403 when an unrelated user tries to access the request', async () => {
-    const mockPop = jest.fn().mockReturnThis();
-    MaintenanceRequest.findById = jest.fn().mockReturnValue({ populate: mockPop });
-    mockPop.mockResolvedValue(requestDoc);
-
+    MaintenanceRequest.findById = jest.fn().mockReturnValue(makeThenable(requestDoc));
     const res = mockRes();
     await getRequestById(mockReq({}, { _id: 'unrelated', role: 'tenant' }, { params: { id: 'maint1' } }), res);
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
   it('returns 404 when request does not exist', async () => {
-    const mockPop = jest.fn().mockReturnThis();
-    MaintenanceRequest.findById = jest.fn().mockReturnValue({ populate: mockPop });
-    mockPop.mockResolvedValue(null);
-
+    MaintenanceRequest.findById = jest.fn().mockReturnValue(makeThenable(null));
     const res = mockRes();
     await getRequestById(mockReq({}, { _id: tenantId, role: 'tenant' }, { params: { id: 'nope' } }), res);
     expect(res.status).toHaveBeenCalledWith(404);
