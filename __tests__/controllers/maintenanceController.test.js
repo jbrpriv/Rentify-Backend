@@ -4,8 +4,8 @@ jest.mock('../../models/Agreement');
 jest.mock('../../queues/notificationQueue', () => ({ add: jest.fn().mockResolvedValue(true) }));
 
 const MaintenanceRequest = require('../../models/MaintenanceRequest');
-const Property           = require('../../models/Property');
-const Agreement          = require('../../models/Agreement');
+const Property = require('../../models/Property');
+const Agreement = require('../../models/Agreement');
 
 const {
   createRequest,
@@ -29,9 +29,9 @@ const mockReq = (body = {}, user = {}, extras = {}) => ({
 const chainMock = (value) => {
   const chain = {
     populate: jest.fn().mockReturnThis(),
-    sort:     jest.fn().mockReturnThis(),
-    skip:     jest.fn().mockReturnThis(),
-    limit:    jest.fn().mockResolvedValue(value),
+    sort: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue(value),
   };
   return chain;
 };
@@ -48,7 +48,7 @@ describe('createRequest', () => {
     Agreement.findOne = jest.fn().mockResolvedValue({ _id: 'agr1' }); // active lease exists
 
     const createdDoc = { _id: 'maint1' };
-    MaintenanceRequest.create   = jest.fn().mockResolvedValue(createdDoc);
+    MaintenanceRequest.create = jest.fn().mockResolvedValue(createdDoc);
     // findById used for the populated response after create
     MaintenanceRequest.findById = jest.fn().mockReturnValue({
       populate: jest.fn().mockReturnThis(),
@@ -110,7 +110,7 @@ describe('createRequest', () => {
 // ── getRequests ───────────────────────────────────────────────────────────────
 describe('getRequests', () => {
   const setupFind = (results = []) => {
-    MaintenanceRequest.find           = jest.fn().mockReturnValue(chainMock(results));
+    MaintenanceRequest.find = jest.fn().mockReturnValue(chainMock(results));
     MaintenanceRequest.countDocuments = jest.fn().mockResolvedValue(results.length);
   };
 
@@ -131,7 +131,7 @@ describe('getRequests', () => {
     expect(filter.landlord).toBe('landlord1');
   });
 
-  it('scopes results to the PM's assignedTo field', async () => {
+  it("scopes results to the PM's assignedTo field", async () => {
     setupFind([]);
     const res = mockRes();
     await getRequests(mockReq({}, { _id: 'pm1', role: 'property_manager' }, { query: {} }), res);
@@ -167,7 +167,7 @@ describe('getRequests', () => {
   });
 
   it('returns 500 on database error', async () => {
-    MaintenanceRequest.find           = jest.fn().mockReturnValue({ populate: jest.fn().mockReturnThis(), sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockRejectedValue(new Error('DB')) });
+    MaintenanceRequest.find = jest.fn().mockReturnValue({ populate: jest.fn().mockReturnThis(), sort: jest.fn().mockReturnThis(), skip: jest.fn().mockReturnThis(), limit: jest.fn().mockRejectedValue(new Error('DB')) });
     MaintenanceRequest.countDocuments = jest.fn().mockResolvedValue(0);
     const res = mockRes();
     await getRequests(mockReq({}, { role: 'admin' }, { query: {} }), res);
@@ -177,11 +177,11 @@ describe('getRequests', () => {
 
 // ── getRequestById ────────────────────────────────────────────────────────────
 describe('getRequestById', () => {
-  const tenantId   = 'tenant1';
+  const tenantId = 'tenant1';
   const landlordId = 'landlord1';
   const requestDoc = {
-    _id:      'maint1',
-    tenant:   { _id: tenantId,   toString: () => tenantId   },
+    _id: 'maint1',
+    tenant: { _id: tenantId, toString: () => tenantId },
     landlord: { _id: landlordId, toString: () => landlordId },
     assignedTo: null,
   };
@@ -220,12 +220,12 @@ describe('getRequestById', () => {
 // ── updateRequest ─────────────────────────────────────────────────────────────
 describe('updateRequest', () => {
   const requestDoc = () => ({
-    _id:    'maint1',
+    _id: 'maint1',
     status: 'open',
     tenant: { _id: 't1', email: 't@x.com', phoneNumber: '0300', name: 'T', smsOptIn: false },
-    title:  'Leaking tap',
+    title: 'Leaking tap',
     statusHistory: [],
-    save:   jest.fn().mockResolvedValue(true),
+    save: jest.fn().mockResolvedValue(true),
   });
 
   it('updates status and pushes to statusHistory', async () => {
@@ -278,9 +278,9 @@ describe('updateRequest', () => {
 describe('deleteRequest', () => {
   it('allows the tenant-owner to delete their own open request', async () => {
     const doc = {
-      _id:       'maint1',
-      tenant:    { toString: () => 'tenant1' },
-      status:    'open',
+      _id: 'maint1',
+      tenant: { toString: () => 'tenant1' },
+      status: 'open',
       deleteOne: jest.fn().mockResolvedValue(true),
     };
     MaintenanceRequest.findById = jest.fn().mockResolvedValue(doc);
@@ -292,9 +292,9 @@ describe('deleteRequest', () => {
 
   it('allows admin to delete any request', async () => {
     const doc = {
-      _id:       'maint1',
-      tenant:    { toString: () => 'tenant1' },
-      status:    'in_progress',
+      _id: 'maint1',
+      tenant: { toString: () => 'tenant1' },
+      status: 'in_progress',
       deleteOne: jest.fn().mockResolvedValue(true),
     };
     MaintenanceRequest.findById = jest.fn().mockResolvedValue(doc);
@@ -305,7 +305,7 @@ describe('deleteRequest', () => {
 
   it('returns 403 when a non-admin tries to delete a non-open or unrelated request', async () => {
     const doc = {
-      _id:    'maint1',
+      _id: 'maint1',
       tenant: { toString: () => 'tenant1' },
       status: 'in_progress',   // not 'open' — tenant cannot delete
       deleteOne: jest.fn(),
