@@ -49,6 +49,21 @@ const logger = require('./utils/logger');
 const { morganMiddleware } = require('./utils/logger');
 
 require('dotenv').config({ override: false });
+
+// ─── Startup env validation ───────────────────────────────────────────────────
+// Fail fast with a clear message rather than crashing on the first request.
+const REQUIRED_ENV = [
+  'MONGO_URI',
+  'JWT_SECRET',
+  'JWT_REFRESH_SECRET',
+];
+const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k]);
+if (missingEnv.length > 0) {
+  // logger may not be ready yet, so use console.error once here intentionally
+  console.error(`[startup] Missing required environment variables: ${missingEnv.join(', ')}. Exiting.`);
+  process.exit(1);
+}
+
 const dns = require('node:dns');
 dns.setDefaultResultOrder('ipv4first');
 require('node:dns/promises').setServers(['8.8.8.8', '8.8.4.4']);
@@ -59,6 +74,7 @@ const cookieParser = require('cookie-parser');
 const { Server } = require('socket.io');
 const passport = require('./config/passport');
 const connectDB = require('./config/db');
+const mongoose = require('mongoose');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 const { startRentScheduler } = require('./schedulers/rentScheduler');
@@ -187,7 +203,10 @@ app.use((req, res, next) => {
 app.use(passport.initialize());
 
 // ─── Swagger ──────────────────────────────────────────────────────────────────
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// ─── Swagger — development / staging only ─────────────────────────────────────
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 app.use('/api/auth', loginLimiter, authRoutes);
@@ -209,8 +228,16 @@ app.use('/api/data-deletion', generalLimiter, dataDeletionRoutes);
 app.use('/api/support', generalLimiter, supportRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/health', async (_req, res) => {
+  const dbState = mongoose.connection.readyState; // 1 = connected
+  if (dbState !== 1) {
+    return res.status(503).json({
+      status: 'degraded',
+      db: 'disconnected',
+      timestamp: new Date().toISOString(),
+    });
+  }
+  res.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() });
 });
 
 // ─── 404 fallback ─────────────────────────────────────────────────────────────
@@ -244,10 +271,38 @@ if (process.env.NODE_ENV !== 'test') {
   connectDB().then(() => {
     httpServer.listen(PORT, () => {
       logger.info(`🚀 RentifyPro server running on port ${PORT}`);
-      logger.info(`📖 Swagger docs: http://localhost:${PORT}/api-docs`);
+      if (process.env.NODE_ENV !== 'production') {
+        logger.info(`📖 Swagger docs: http://localhost:${PORT}/api-docs`);
+      }
       startRentScheduler();
     });
   });
 }
+
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+// Allows in-flight requests to finish before the process exits.
+// Required for zero-downtime deploys on Docker / Kubernetes.
+const shutdown = (signal) => {
+  logger.info(`${signal} received — shutting down gracefully`);
+  httpServer.close(async () => {
+    logger.info('HTTP server closed');
+    try {
+      await mongoose.connection.close();
+      logger.info('MongoDB connection closed');
+    } catch (err) {
+      logger.error('Error closing MongoDB connection', { err: err.message });
+    }
+    process.exit(0);
+  });
+
+  // Force-exit if graceful shutdown takes longer than 15 seconds
+  setTimeout(() => {
+    logger.error('Graceful shutdown timed out — forcing exit');
+    process.exit(1);
+  }, 15_000);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 module.exports = { app, io, onlineUsers };

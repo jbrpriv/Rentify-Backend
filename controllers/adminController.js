@@ -211,18 +211,17 @@ const changeUserRole = async (req, res) => {
 // @query   status= | search= (landlord/tenant/property name) | page= | limit=
 const getAllAgreements = async (req, res) => {
   try {
-    const { status, search, page = 1, limit = 200 } = req.query;
+    const { status, search, page = 1, limit = 50 } = req.query;
+    const safeLimit = Math.min(200, Math.max(1, Number(limit)));
     const filter = {};
     if (status) filter.status = status;
 
-    // Fetch with a generous limit so we can do cross-populate search in memory.
-    // For large installations this should become a $lookup aggregation pipeline.
     const agreements = await Agreement.find(filter)
       .populate('landlord', 'name email')
       .populate('tenant', 'name email')
       .populate('property', 'title address')
       .sort('-createdAt')
-      .limit(Number(limit));
+      .limit(safeLimit);
 
     let result = agreements;
     if (search) {
