@@ -1,5 +1,4 @@
 const rateLimit = require('express-rate-limit');
-const { ipKeyGenerator } = require('express-rate-limit');
 // ─── Auth routes (strictest) ──────────────────────────────────────────────────
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 minutes
@@ -64,7 +63,7 @@ const generalLimiter = rateLimit({
 const notificationCountLimiter = rateLimit({
   windowMs: 60 * 1000,       // 1 minute window
   max: 30,                   // 30 polls/min per user is plenty (vs every-second storm)
-  keyGenerator: (req) => req.user?._id?.toString() || ipKeyGenerator(req),
+  keyGenerator: (req) => req.user?._id?.toString() || req.ip,
   message: { message: 'Too many count requests. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,

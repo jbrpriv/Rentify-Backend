@@ -66,7 +66,7 @@ if (missingEnv.length > 0) {
 
 const dns = require('node:dns');
 dns.setDefaultResultOrder('ipv4first');
-require('node:dns/promises').setServers(['8.8.8.8', '8.8.4.4']);
+// require('node:dns/promises').setServers(['8.8.8.8', '8.8.4.4']);
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
