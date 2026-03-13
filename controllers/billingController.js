@@ -83,9 +83,15 @@ const getBillingStatus = async (req, res) => {
       .select('subscriptionTier name email stripeCustomerId');
     const tier = user.subscriptionTier || 'free';
 
+    const rawLimits = TIER_LIMITS[tier] || TIER_LIMITS.free;
+    const limits = {
+      ...rawLimits,
+      maxProperties: rawLimits.maxProperties === -1 ? null : rawLimits.maxProperties,
+    };
+
     res.json({
       tier,
-      limits: TIER_LIMITS[tier] || TIER_LIMITS.free,
+      limits,
       stripeCustomerId: user.stripeCustomerId || null,
       stripeConfigured: stripeConfigured(),
     });
@@ -327,7 +333,7 @@ const getPlans = async (_req, res) => {
           'SLA guarantee',
           'API access',
         ],
-        limits: TIER_LIMITS.enterprise,
+        limits: { ...TIER_LIMITS.enterprise, maxProperties: null },
       },
     ],
   });

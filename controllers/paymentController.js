@@ -226,7 +226,7 @@ const handleStripeWebhook = async (req, res) => {
     const agreement = await Agreement.findById(agreementId)
       .populate('tenant', 'name email phoneNumber smsOptIn')
       .populate('landlord', 'name email')
-      .populate('property', 'title');
+      .populate('property', 'title address');
 
     if (!agreement) {
       logger.error('Webhook: Agreement not found', { agreementId });
@@ -328,7 +328,7 @@ const handleStripeWebhook = async (req, res) => {
     const agreement = await Agreement.findById(agreementId)
       .populate('tenant', 'name email phoneNumber smsOptIn')
       .populate('landlord', 'name email')
-      .populate('property', 'title');
+      .populate('property', 'title address');
 
     if (!agreement) {
       logger.error('Webhook: Agreement not found for monthly rent', { agreementId });
