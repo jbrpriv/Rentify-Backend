@@ -152,7 +152,7 @@ function financialTable(doc, rows, y) {
 
 function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
   // Box
-  doc.save().roundedRect(x, y, blockW, 148, 6).stroke(C.gray300).restore();
+  doc.save().roundedRect(x, y, blockW, 118, 6).stroke(C.gray300).restore();
 
   // Label
   rect(doc, x, y, blockW, 22, C.navy);
@@ -166,17 +166,21 @@ function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
     try {
       const base64 = sigData.replace(/^data:image\/\w+;base64,/, '');
       const imgBuf = Buffer.from(base64, 'base64');
-      doc.image(imgBuf, x + 10, cy, { width: blockW - 20, height: 62 });
+      doc.image(imgBuf, x + 10, cy, {
+        fit: [blockW - 20, 36],
+        align: 'left',
+        valign: 'center',
+      });
     } catch (_) {
       doc.save().font(FONT.oblique).fontSize(8).fillColor(C.gray500)
         .text('[Signature image unavailable]', x + 10, cy + 14, { lineBreak: false })
         .restore();
     }
-    cy += 68;
+    cy += 44;
   } else {
     // blank line
-    hr(doc, cy + 24, C.gray500, x + 10, blockW - 20);
-    cy += 34;
+    hr(doc, cy + 14, C.gray500, x + 10, blockW - 20);
+    cy += 22;
   }
 
   doc.save().font(FONT.bold).fontSize(8.5).fillColor(C.gray900)
@@ -468,7 +472,13 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
     y = sectionHeading(doc, '05  Additional Clauses', y);
 
     resolvedClauses.forEach((clause, i) => {
-      const bodyH = doc.heightOfString(clause.body, { width: CONTENT_W - 18 });
+      const bodyText = String(clause.body || '');
+
+      // Measure using the same typography we render with, to avoid overestimation
+      // that can create unnecessary near-empty pages.
+      doc.save().font(FONT.regular).fontSize(9);
+      const bodyH = doc.heightOfString(bodyText, { width: CONTENT_W - 20 });
+      doc.restore();
 
       if (y + bodyH + 50 > PAGE.height - 80) {
         doc.addPage();
@@ -484,7 +494,7 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
       y += 24;
 
       doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-        .text(clause.body, PAGE.margin + 10, y, { width: CONTENT_W - 20 })
+        .text(bodyText, PAGE.margin + 10, y, { width: CONTENT_W - 20 })
         .restore();
       y += bodyH + 16;
     });
@@ -518,7 +528,7 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
     agreement.signatures?.landlord?.signedAt,
     PAGE.margin, y, sigW
   );
-  y += 160;
+  y += 130;
   signatureBlock(
     doc, 'TENANT SIGNATURE',
     tenant,
@@ -527,7 +537,7 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
     PAGE.margin, y, sigW
   );
 
-  y += 170;
+  y += 140;
   hr(doc, y, C.gray300);
   y += 16;
 
