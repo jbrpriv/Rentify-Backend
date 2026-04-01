@@ -72,10 +72,12 @@ const getDisputes = async (req, res) => {
     const skip = (Number(page) - 1) * Number(limit);
     const [disputes, total] = await Promise.all([
       Dispute.find(filter)
-        .populate('filedBy',   'name email role')
-        .populate('against',   'name email role')
-        .populate('property',  'title address')
-        .populate('agreement', 'status term financials')
+        .populate('filedBy',          'name email role')
+        .populate('against',          'name email role')
+        .populate('property',         'title address')
+        .populate('agreement',        'status term financials')
+        .populate('resolvedBy',       'name email')
+        .populate('comments.author',  'name email role')
         .sort('-createdAt')
         .skip(skip)
         .limit(Number(limit)),
