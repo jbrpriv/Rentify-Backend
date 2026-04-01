@@ -440,6 +440,13 @@ function _buildPDF(doc, agreement, landlord, tenant, property, currencyCtx) {
     },
   ];
   y = financialTable(doc, finRows, y);
+  y += 6;
+  
+  // ── USD notation ──
+  doc.save()
+    .font(FONT.regular).fontSize(7).fillColor(C.gray500)
+    .text('* All monetary amounts above are in US Dollars (USD)', PAGE.margin, y, { lineBreak: false, width: CONTENT_W })
+    .restore();
   y += 12;
 
   // ── Utilities & Policies section ──
@@ -838,7 +845,7 @@ function _buildReceiptPDF(doc, payment, tenant, property, currencyCtx) {
   doc.save()
     .fillOpacity(1).font(FONT.regular).fontSize(7.5).fillColor(C.gray500)
     .text(
-      'This receipt confirms that the payment shown above has been received and processed. Please retain this document for your personal records and tax purposes. This receipt does not waive any other obligations under the lease agreement.',
+      `This receipt confirms that the payment shown above has been received and processed in USD. All amounts are in US Dollars. Please retain this document for your personal records and tax purposes. This receipt does not waive any other obligations under the lease agreement.`,
       M + 14, y + 22, { width: CW - 28, lineBreak: true }
     )
     .restore();
