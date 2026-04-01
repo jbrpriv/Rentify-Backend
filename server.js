@@ -119,18 +119,16 @@ const io = new Server(httpServer, {
   },
 });
 
-const onlineUsers = new Map();
-
 io.on('connection', (socket) => {
   socket.on('register', (userId) => {
     if (userId) {
-      onlineUsers.set(userId.toString(), socket.id);
+      socket.join(userId.toString());
       socket.userId = userId.toString();
     }
   });
 
   socket.on('disconnect', () => {
-    if (socket.userId) onlineUsers.delete(socket.userId);
+    // Socket.io handles leaving rooms automatically
   });
 });
 
@@ -321,4 +319,4 @@ const shutdown = (signal) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-module.exports = { app, io, onlineUsers };
+module.exports = { app, io };

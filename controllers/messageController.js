@@ -7,9 +7,6 @@ const User = require('../models/User');
 const getIO = () => {
   try { return require('../server').io; } catch { return null; }
 };
-const getOnlineUsers = () => {
-  try { return require('../server').onlineUsers; } catch { return new Map(); }
-};
 
 // @desc    Send a message
 // @route   POST /api/messages
@@ -52,10 +49,14 @@ const sendMessage = async (req, res) => {
 
     // Emit real-time event to receiver if online
     const io = getIO();
-    const onlineUsers = getOnlineUsers();
-    const receiverIsOnline = !!onlineUsers.get(receiverId.toString());
-    if (io && receiverIsOnline) {
-      io.to(onlineUsers.get(receiverId.toString())).emit('new_message', populated);
+    let receiverIsOnline = false;
+    
+    if (io) {
+      const room = io.sockets.adapter.rooms.get(receiverId.toString());
+      receiverIsOnline = room && room.size > 0;
+      if (receiverIsOnline) {
+        io.to(receiverId.toString()).emit('new_message', populated);
+      }
     }
 
     // M9: Queue email + SMS notification for offline receivers
