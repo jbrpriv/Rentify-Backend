@@ -152,7 +152,7 @@ function financialTable(doc, rows, y) {
 
 function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
   // Box
-  doc.save().roundedRect(x, y, blockW, 110, 6).stroke(C.gray300).restore();
+  doc.save().roundedRect(x, y, blockW, 148, 6).stroke(C.gray300).restore();
 
   // Label
   rect(doc, x, y, blockW, 22, C.navy);
@@ -166,17 +166,17 @@ function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
     try {
       const base64 = sigData.replace(/^data:image\/\w+;base64,/, '');
       const imgBuf = Buffer.from(base64, 'base64');
-      doc.image(imgBuf, x + 10, cy, { width: blockW - 20, height: 40 });
+      doc.image(imgBuf, x + 10, cy, { width: blockW - 20, height: 62 });
     } catch (_) {
       doc.save().font(FONT.oblique).fontSize(8).fillColor(C.gray500)
         .text('[Signature image unavailable]', x + 10, cy + 14, { lineBreak: false })
         .restore();
     }
-    cy += 46;
+    cy += 68;
   } else {
     // blank line
-    hr(doc, cy + 16, C.gray500, x + 10, blockW - 20);
-    cy += 24;
+    hr(doc, cy + 24, C.gray500, x + 10, blockW - 20);
+    cy += 34;
   }
 
   doc.save().font(FONT.bold).fontSize(8.5).fillColor(C.gray900)
@@ -185,12 +185,12 @@ function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
   cy += 12;
 
   if (signedAt) {
-    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.green)
-      .text(`✓ Signed  ${new Date(signedAt).toLocaleString('en-US')}`, x + 10, cy, { lineBreak: false })
+    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray700)
+      .text(`Signed on ${new Date(signedAt).toLocaleString('en-US')}`, x + 10, cy, { lineBreak: false })
       .restore();
   } else {
-    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.amber)
-      .text('⚠ Pending Signature', x + 10, cy, { lineBreak: false })
+    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray700)
+      .text('Pending Signature', x + 10, cy, { lineBreak: false })
       .restore();
   }
 }
@@ -352,15 +352,17 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   y = sectionHeading(doc, '01  Financial Terms', y);
 
   const petDeposit = agreement.petPolicy?.allowed ? (agreement.petPolicy?.deposit || 0) : 0;
+  const maintenanceFee = property?.financials?.maintenanceFee || 0;
   const finRows = [
     { label: 'Monthly Rent', value: fmt.money(agreement.financials?.rentAmount) },
     { label: 'Security Deposit', value: fmt.money(agreement.financials?.depositAmount) },
+    { label: 'Maintenance Fee', value: fmt.money(maintenanceFee) },
     { label: 'Late Fee', value: fmt.money(agreement.financials?.lateFeeAmount || 0) },
     { label: 'Late Fee Grace Period', value: `${agreement.financials?.lateFeeGracePeriodDays || 5} days` },
     ...(petDeposit > 0 ? [{ label: 'Pet Deposit (non-refundable)', value: fmt.money(petDeposit) }] : []),
     {
       label: 'Total Move-In Cost',
-      value: fmt.money((agreement.financials?.rentAmount || 0) + (agreement.financials?.depositAmount || 0) + petDeposit),
+      value: fmt.money((agreement.financials?.rentAmount || 0) + (agreement.financials?.depositAmount || 0) + maintenanceFee + petDeposit),
       highlight: true,
     },
   ];
@@ -374,8 +376,8 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   const col2x = PAGE.margin + CONTENT_W / 2 + 6;
   const halfW = CONTENT_W / 2 - 6;
 
-  infoRow(doc, 'Utilities', agreement.utilitiesIncluded ? '✓ Included in rent' : '✗ Not included', col1x, y, halfW);
-  infoRow(doc, 'Pet Policy', agreement.petPolicy?.allowed ? `✓ Allowed  (deposit: ${fmt.money(agreement.petPolicy?.deposit)})` : '✗ No pets permitted', col2x, y, halfW);
+  infoRow(doc, 'Utilities', agreement.utilitiesIncluded ? 'Included in rent' : 'Not included', col1x, y, halfW);
+  infoRow(doc, 'Pet Policy', agreement.petPolicy?.allowed ? `Allowed (deposit: ${fmt.money(agreement.petPolicy?.deposit)})` : 'No pets permitted', col2x, y, halfW);
   y += 32;
 
   if (agreement.utilitiesDetails) {
@@ -388,8 +390,40 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   }
   y += 8;
 
+  // ── Rent escalation section ──
+  if (y > PAGE.height - 150) {
+    doc.addPage();
+    addPageFurniture(doc, pageNum, '—');
+    y = 56;
+  }
+
+  y = sectionHeading(doc, '03  Rent Escalation', y);
+
+  if (agreement.rentEscalation?.enabled) {
+    const escalationPct = Number(agreement.rentEscalation?.percentage || 0);
+    const currentRent = Number(agreement.financials?.rentAmount || 0);
+    const yearOneIncrease = (currentRent * escalationPct) / 100;
+    const nextEscalatedRent = currentRent + yearOneIncrease;
+
+    infoRow(doc, 'Escalation Status', 'Enabled', col1x, y, halfW);
+    infoRow(doc, 'Annual Increase', `${escalationPct}%`, col2x, y, halfW);
+    y += 32;
+
+    infoRow(doc, 'Current Rent', fmt.money(currentRent), col1x, y, halfW);
+    infoRow(doc, 'Projected Rent After Escalation', fmt.money(nextEscalatedRent), col2x, y, halfW);
+    y += 32;
+
+    infoRow(doc, 'Next Scheduled Escalation', fmt.date(agreement.rentEscalation?.nextScheduledAt), col1x, y, CONTENT_W);
+    y += 32;
+  } else {
+    infoRow(doc, 'Escalation Status', 'Disabled', col1x, y, CONTENT_W);
+    y += 32;
+  }
+
+  y += 8;
+
   // ── Standard clauses section ──
-  y = sectionHeading(doc, '03  Standard Conditions', y);
+  y = sectionHeading(doc, '04  Standard Conditions', y);
 
   const standardClauses = [
     'The Tenant shall keep the property in clean and habitable condition throughout the tenancy.',
@@ -431,7 +465,7 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
       y = 56;
     }
 
-    y = sectionHeading(doc, '04  Additional Clauses', y);
+    y = sectionHeading(doc, '05  Additional Clauses', y);
 
     resolvedClauses.forEach((clause, i) => {
       const bodyH = doc.heightOfString(clause.body, { width: CONTENT_W - 18 });
@@ -461,23 +495,22 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   addPageFurniture(doc, pageNum, '—');
   y = 56;
 
-  y = sectionHeading(doc, '05  Digital Signatures', y);
+  y = sectionHeading(doc, '06  Digital Signatures', y);
   y += 12;
 
   // Status banner
   const bothSigned = agreement.signatures?.landlord?.signed && agreement.signatures?.tenant?.signed;
-  const bannerColor = bothSigned ? C.green : C.amber;
   const bannerText = bothSigned
-    ? '✓  Both parties have signed — this agreement is fully executed.'
-    : '⚠  This agreement is pending one or more signatures.';
-  rect(doc, PAGE.margin, y, CONTENT_W, 28, bannerColor + '1A');
-  doc.save().rect(PAGE.margin, y, CONTENT_W, 28).stroke(bannerColor).restore();
-  doc.save().font(FONT.bold).fontSize(9).fillColor(bannerColor)
+    ? 'This agreement is fully executed by all parties.'
+    : 'This agreement is pending one or more signatures.';
+  rect(doc, PAGE.margin, y, CONTENT_W, 28, C.gray100);
+  doc.save().rect(PAGE.margin, y, CONTENT_W, 28).stroke(C.gray300).restore();
+  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray700)
     .text(bannerText, PAGE.margin + 12, y + 9, { lineBreak: false })
     .restore();
   y += 40;
 
-  const sigW = (CONTENT_W - 16) / 2;
+  const sigW = CONTENT_W;
   signatureBlock(
     doc, 'LANDLORD SIGNATURE',
     landlord,
@@ -485,17 +518,23 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
     agreement.signatures?.landlord?.signedAt,
     PAGE.margin, y, sigW
   );
+  y += 160;
   signatureBlock(
     doc, 'TENANT SIGNATURE',
     tenant,
     agreement.signatures?.tenant?.drawData,
     agreement.signatures?.tenant?.signedAt,
-    PAGE.margin + sigW + 16, y, sigW
+    PAGE.margin, y, sigW
   );
 
-  y += 130;
+  y += 170;
   hr(doc, y, C.gray300);
   y += 16;
+
+  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900)
+    .text('E-SIGNATURE ACKNOWLEDGEMENT', PAGE.margin, y, { width: CONTENT_W, align: 'center' })
+    .restore();
+  y += 14;
 
   doc.save().font(FONT.regular).fontSize(8).fillColor(C.gray500)
     .text(
