@@ -36,6 +36,7 @@ const createProperty = async (req, res) => {
       title: req.body.title,
       type: req.body.type,
       address: req.body.address,
+      location: req.body.location,
       specs: req.body.specs,
       financials: req.body.financials,
       leaseTerms: req.body.leaseTerms,
@@ -102,7 +103,7 @@ const updateProperty = async (req, res) => {
     const isAdmin = req.user.role === 'admin';
     if (!isOwner && !isAdmin) return res.status(403).json({ message: 'Not authorized' });
 
-    const allowed = ['title', 'address', 'type', 'specs', 'financials', 'leaseTerms', 'amenities', 'listingDescription', 'images', 'status'];
+    const allowed = ['title', 'address', 'location', 'type', 'specs', 'financials', 'leaseTerms', 'amenities', 'listingDescription', 'images', 'status'];
     allowed.forEach(f => { if (req.body[f] !== undefined) property[f] = req.body[f]; });
 
     await property.save();

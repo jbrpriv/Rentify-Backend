@@ -36,6 +36,19 @@ const propertySchema = mongoose.Schema(
       country:    { type: String, default: 'Pakistan' },
     },
 
+    // GeoJSON point [lng, lat]
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point',
+      },
+      coordinates: {
+        type: [Number],
+        default: undefined,
+      },
+    },
+
     type: {
       type: String,
       enum: ['apartment', 'house', 'commercial', 'studio'],

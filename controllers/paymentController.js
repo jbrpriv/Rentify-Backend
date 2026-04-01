@@ -176,6 +176,7 @@ const createCheckoutSession = async (req, res) => {
     const depositAmount = agreement.financials.depositAmount || 0;
     const petDeposit = agreement.petPolicy?.allowed ? (agreement.petPolicy?.deposit || 0) : 0;
     const totalAmount = rentAmount + depositAmount + petDeposit;
+    const totalAmountCents = Math.round(totalAmount * 100);
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -187,7 +188,7 @@ const createCheckoutSession = async (req, res) => {
               name: petDeposit > 0 ? 'Security Deposit + Pet Deposit + 1st Month Rent' : 'Security Deposit + 1st Month Rent',
               description: `Property: ${agreement.property.title}`,
             },
-            unit_amount: totalAmount * 100,
+            unit_amount: totalAmountCents,
           },
           quantity: 1,
         },

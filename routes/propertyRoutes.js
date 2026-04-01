@@ -18,6 +18,8 @@ router.route('/')
       body('financials.securityDeposit').isNumeric().withMessage('Deposit must be a number'),
       body('address.city').trim().escape().notEmpty().withMessage('City is required'),
       body('address.street').trim().escape().notEmpty().withMessage('Street is required'),
+      body('location.coordinates').isArray({ min: 2, max: 2 }).withMessage('Location is required'),
+      body('location.coordinates.*').isNumeric().withMessage('Location coordinates must be numbers'),
     ],
     createProperty
   )
