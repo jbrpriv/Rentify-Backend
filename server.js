@@ -209,7 +209,15 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
-app.use('/api/auth', loginLimiter, authRoutes);
+app.use(
+  '/api/auth',
+  (req, res, next) => {
+    // Do not throttle refresh-token exchanges like login brute-force attempts.
+    if (req.path === '/refresh') return next();
+    return loginLimiter(req, res, next);
+  },
+  authRoutes
+);
 app.use('/api/users', generalLimiter, userRoutes);
 app.use('/api/properties', propertyLimiter, propertyRoutes);
 app.use('/api/agreements', generalLimiter, agreementRoutes);
@@ -221,7 +229,15 @@ app.use('/api/disputes', generalLimiter, disputeRoutes);
 app.use('/api/upload', uploadLimiter, uploadRoutes);
 app.use('/api/admin', generalLimiter, adminRoutes);
 app.use('/api/notifications', generalLimiter, notificationRoutes);
-app.use('/api/offers', offerLimiter, offerRoutes);
+app.use(
+  '/api/offers',
+  (req, res, next) => {
+    // Browsing pages often do read-only offer checks; throttle writes only.
+    if (req.method === 'GET') return next();
+    return offerLimiter(req, res, next);
+  },
+  offerRoutes
+);
 app.use('/api/agreement-templates', generalLimiter, agreementTemplateRoutes);
 app.use('/api/billing', generalLimiter, billingRoutes);
 app.use('/api/data-deletion', generalLimiter, dataDeletionRoutes);

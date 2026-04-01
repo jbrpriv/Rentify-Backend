@@ -8,15 +8,33 @@ const { validationResult } = require('express-validator');
 const { sendEmail } = require('../utils/emailService');
 const { sendOTP, verifyOTP, sendSMS } = require('../utils/smsService');
 
+const resolveCookieSettings = () => {
+  const envSecure = process.env.COOKIE_SECURE;
+  const envSameSite = (process.env.COOKIE_SAMESITE || '').toLowerCase();
+  const clientUrl = process.env.CLIENT_URL || '';
+
+  const secure = envSecure === 'true'
+    ? true
+    : envSecure === 'false'
+      ? false
+      : clientUrl.startsWith('https://');
+
+  const sameSite = ['none', 'lax', 'strict'].includes(envSameSite)
+    ? envSameSite
+    : (secure ? 'none' : 'lax');
+
+  return { secure, sameSite };
+};
+
 // ─── [FIX] Exported so authRoutes.js OAuth callback uses the same cookie config
 // This ensures sameSite:'none' is used consistently everywhere, which is
 // required for cross-origin requests (Vercel frontend + nip.io API).
 const setRefreshCookie = (res, token) => {
-  const isProd = process.env.NODE_ENV === 'production';
+  const { secure, sameSite } = resolveCookieSettings();
   res.cookie('refreshToken', token, {
     httpOnly: true,
-    secure: isProd,           // must be true when sameSite:'none'
-    sameSite: isProd ? 'none' : 'lax', // 'none' for cross-site prod, 'lax' for cross-port dev
+    secure,
+    sameSite,
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/',
   });
@@ -27,11 +45,11 @@ const setRefreshCookie = (res, token) => {
 // It carries no security value on its own — the real auth gate is always the
 // API's protect middleware; this is purely for client-side UX routing.
 const setRoleCookie = (res, role) => {
-  const isProd = process.env.NODE_ENV === 'production';
+  const { secure, sameSite } = resolveCookieSettings();
   res.cookie('userRole', role, {
     httpOnly: false,            // must be readable by Next.js middleware
-    secure: isProd,
-    sameSite: isProd ? 'none' : 'lax',
+    secure,
+    sameSite,
     maxAge: 30 * 24 * 60 * 60 * 1000,
     path: '/',
   });
@@ -180,13 +198,13 @@ const refreshToken = async (req, res) => {
 
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
 const logoutUser = (req, res) => {
-  const isProd = process.env.NODE_ENV === 'production';
+  const { secure, sameSite } = resolveCookieSettings();
   // Clear cookie with same options it was set with, otherwise some browsers ignore it
   res.clearCookie('userRole');
   res.clearCookie('refreshToken', {
     httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? 'none' : 'lax',
+    secure,
+    sameSite,
     path: '/',
   });
   res.json({ message: 'Logged out successfully' });
