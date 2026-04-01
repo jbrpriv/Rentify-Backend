@@ -91,6 +91,34 @@ function addPageFurniture(doc, pageNum, totalPages, title = 'RENTAL AGREEMENT') 
   doc.y = savedY;
 }
 
+function finalizeAgreementPagination(doc, title = 'RENTAL AGREEMENT') {
+  const range = doc.bufferedPageRange();
+  const totalPages = range.count;
+
+  for (let i = range.start + 1; i < range.start + range.count; i++) {
+    const pageNum = i + 1;
+    doc.switchToPage(i);
+
+    // Repaint only the top bar so the final page counter can include total pages.
+    rect(doc, 0, 0, PAGE.width, 36, C.navy);
+
+    doc.save()
+      .font(FONT.bold).fontSize(11).fillColor(C.white)
+      .text('RentifyPro', PAGE.margin, 12, { lineBreak: false })
+      .restore();
+    doc.save()
+      .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
+      .text(title, 0, 14, { align: 'center', lineBreak: false, width: PAGE.width })
+      .restore();
+    doc.save()
+      .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
+      .text(`Page ${pageNum} of ${totalPages}`, PAGE.margin, 14, {
+        align: 'right', lineBreak: false, width: CONTENT_W,
+      })
+      .restore();
+  }
+}
+
 // ─── Section heading ──────────────────────────────────────────────────────────
 
 function sectionHeading(doc, label, y) {
@@ -102,6 +130,26 @@ function sectionHeading(doc, label, y) {
     .text(label.toUpperCase(), PAGE.margin + 12, y + 7, { lineBreak: false })
     .restore();
   return y + 32;
+}
+
+function majorSectionHeading(doc, code, title, subtitle, y) {
+  doc.save()
+    .font(FONT.bold).fontSize(17).fillColor(C.navy)
+    .text(`${code}  ${title}`, PAGE.margin, y, { lineBreak: false })
+    .restore();
+
+  y += 22;
+
+  if (subtitle) {
+    doc.save()
+      .font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+      .text(subtitle, PAGE.margin, y, { width: CONTENT_W, lineBreak: false })
+      .restore();
+    y += 14;
+  }
+
+  hr(doc, y, C.gray300);
+  return y + 12;
 }
 
 // ─── Two-column info row ──────────────────────────────────────────────────────
@@ -149,24 +197,27 @@ function financialTable(doc, rows, y) {
 
 // ─── Signature block ──────────────────────────────────────────────────────────
 
-function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
+function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW, opts = {}) {
+  const blockH = opts.blockH || 136;
+  const headerH = 24;
+
   // Box
-  doc.save().roundedRect(x, y, blockW, 118, 6).stroke(C.gray300).restore();
+  doc.save().roundedRect(x, y, blockW, blockH, 7).stroke(C.gray300).restore();
 
   // Label
-  rect(doc, x, y, blockW, 22, C.navy);
+  rect(doc, x, y, blockW, headerH, C.navy);
   doc.save().font(FONT.bold).fontSize(8).fillColor(C.white)
-    .text(label, x + 10, y + 7, { lineBreak: false })
+    .text(label, x + 10, y + 8, { lineBreak: false })
     .restore();
 
-  let cy = y + 30;
+  let cy = y + headerH + 10;
 
   if (sigData) {
     try {
       const base64 = sigData.replace(/^data:image\/\w+;base64,/, '');
       const imgBuf = Buffer.from(base64, 'base64');
-      doc.image(imgBuf, x + 10, cy, {
-        fit: [blockW - 20, 36],
+      doc.image(imgBuf, x + 12, cy, {
+        fit: [blockW - 24, 34],
         align: 'left',
         valign: 'center',
       });
@@ -175,25 +226,29 @@ function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW) {
         .text('[Signature image unavailable]', x + 10, cy + 14, { lineBreak: false })
         .restore();
     }
-    cy += 44;
+    cy += 42;
   } else {
     // blank line
-    hr(doc, cy + 14, C.gray500, x + 10, blockW - 20);
-    cy += 22;
+    hr(doc, cy + 14, C.gray500, x + 12, blockW - 24);
+    cy += 24;
   }
 
+  const metaY = Math.max(cy + 4, y + blockH - 34);
+
   doc.save().font(FONT.bold).fontSize(8.5).fillColor(C.gray900)
-    .text(person?.name || '________________', x + 10, cy, { lineBreak: false })
+    .text(person?.name || '________________', x + 12, metaY, { lineBreak: false, width: blockW - 24 })
     .restore();
-  cy += 12;
 
   if (signedAt) {
     doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray700)
-      .text(`Signed on ${new Date(signedAt).toLocaleString('en-US')}`, x + 10, cy, { lineBreak: false })
+      .text(`Signed on ${new Date(signedAt).toLocaleString('en-US')}`, x + 12, metaY + 12, {
+        lineBreak: false,
+        width: blockW - 24,
+      })
       .restore();
   } else {
     doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray700)
-      .text('Pending Signature', x + 10, cy, { lineBreak: false })
+      .text('Pending Signature', x + 12, metaY + 12, { lineBreak: false, width: blockW - 24 })
       .restore();
   }
 }
@@ -281,9 +336,11 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
     .text(landlord?.email || '—', PAGE.margin + 10, y + 38, { lineBreak: false, width: cardW - 20 })
     .restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-    .text(landlord?.phoneNumber || '—', PAGE.margin + 10, y + 52, { lineBreak: false, width: cardW - 20 })
-    .restore();
+  if (landlord?.phoneNumber) {
+    doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+      .text(landlord.phoneNumber, PAGE.margin + 10, y + 52, { lineBreak: false, width: cardW - 20 })
+      .restore();
+  }
 
   // Tenant card
   const cx2 = PAGE.margin + cardW + 12;
@@ -298,9 +355,11 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
     .text(tenant?.email || '—', cx2 + 10, y + 38, { lineBreak: false, width: cardW - 20 })
     .restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-    .text(tenant?.phoneNumber || '—', cx2 + 10, y + 52, { lineBreak: false, width: cardW - 20 })
-    .restore();
+  if (tenant?.phoneNumber) {
+    doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+      .text(tenant.phoneNumber, cx2 + 10, y + 52, { lineBreak: false, width: cardW - 20 })
+      .restore();
+  }
 
   y += 92;
 
@@ -468,34 +527,54 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
       y = 56;
     }
 
-    y = sectionHeading(doc, '05  Additional Clauses', y);
+    y = majorSectionHeading(
+      doc,
+      '05',
+      'ADDITIONAL CLAUSES',
+      'Custom clauses selected by the parties are included below and form part of this agreement.',
+      y
+    );
 
     resolvedClauses.forEach((clause, i) => {
+      const clauseTitle = String(clause.title || `Clause ${i + 1}`);
       const bodyText = String(clause.body || '');
+      const innerW = CONTENT_W - 28;
+      const clauseLabel = `${i + 1}. ${clauseTitle}`;
 
       // Measure using the same typography we render with, to avoid overestimation
       // that can create unnecessary near-empty pages.
-      doc.save().font(FONT.regular).fontSize(9);
-      const bodyH = doc.heightOfString(bodyText, { width: CONTENT_W - 20 });
+      doc.save().font(FONT.bold).fontSize(10);
+      const titleH = doc.heightOfString(clauseLabel, { width: innerW });
       doc.restore();
 
-      if (y + bodyH + 50 > PAGE.height - 80) {
+      doc.save().font(FONT.regular).fontSize(9);
+      const bodyH = doc.heightOfString(bodyText, { width: innerW });
+      doc.restore();
+
+      const cardH = Math.max(74, 20 + titleH + bodyH + 24);
+
+      if (y + cardH > PAGE.height - 86) {
         doc.addPage();
         addPageFurniture(doc, pageNum, '—');
         y = 56;
       }
 
-      // Clause header
-      rect(doc, PAGE.margin, y, CONTENT_W, 20, C.gray100);
+      doc.save().roundedRect(PAGE.margin, y, CONTENT_W, cardH, 7).stroke(C.gray300).restore();
+      rect(doc, PAGE.margin, y, CONTENT_W, 22, C.lightBlue);
       doc.save().font(FONT.bold).fontSize(9).fillColor(C.navy)
-        .text(`${i + 1}.  ${clause.title}`, PAGE.margin + 10, y + 5, { lineBreak: false })
+        .text('ADDITIONAL TERM', PAGE.margin + 10, y + 7, { lineBreak: false })
         .restore();
-      y += 24;
+      y += 30;
+
+      doc.save().font(FONT.bold).fontSize(10).fillColor(C.gray900)
+        .text(clauseLabel, PAGE.margin + 14, y, { width: innerW })
+        .restore();
+      y += titleH + 8;
 
       doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-        .text(bodyText, PAGE.margin + 10, y, { width: CONTENT_W - 20 })
+        .text(bodyText, PAGE.margin + 14, y, { width: innerW })
         .restore();
-      y += bodyH + 16;
+      y += bodyH + 14;
     });
   }
 
@@ -504,43 +583,50 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   addPageFurniture(doc, pageNum, '—');
   y = 56;
 
-  y = sectionHeading(doc, '06  Digital Signatures', y);
-  y += 12;
+  y = majorSectionHeading(
+    doc,
+    '06',
+    'DIGITAL SIGNATURES',
+    'Each signature below confirms acceptance of all clauses, including additional dynamic clauses.',
+    y
+  );
 
   // Status banner
   const bothSigned = agreement.signatures?.landlord?.signed && agreement.signatures?.tenant?.signed;
   const bannerText = bothSigned
     ? 'This agreement is fully executed by all parties.'
     : 'This agreement is pending one or more signatures.';
-  rect(doc, PAGE.margin, y, CONTENT_W, 28, C.gray100);
-  doc.save().rect(PAGE.margin, y, CONTENT_W, 28).stroke(C.gray300).restore();
+  rect(doc, PAGE.margin, y, CONTENT_W, 30, C.gray100);
+  doc.save().roundedRect(PAGE.margin, y, CONTENT_W, 30, 4).stroke(C.gray300).restore();
   doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray700)
-    .text(bannerText, PAGE.margin + 12, y + 9, { lineBreak: false })
+    .text(bannerText, PAGE.margin + 12, y + 10, { lineBreak: false })
     .restore();
-  y += 40;
+  y += 44;
 
-  const sigW = CONTENT_W;
+  const sigGap = 16;
+  const sigW = (CONTENT_W - sigGap) / 2;
+  const sigH = 136;
   signatureBlock(
     doc, 'LANDLORD SIGNATURE',
     landlord,
     agreement.signatures?.landlord?.drawData,
     agreement.signatures?.landlord?.signedAt,
-    PAGE.margin, y, sigW
+    PAGE.margin, y, sigW, { blockH: sigH }
   );
-  y += 130;
+
   signatureBlock(
     doc, 'TENANT SIGNATURE',
     tenant,
     agreement.signatures?.tenant?.drawData,
     agreement.signatures?.tenant?.signedAt,
-    PAGE.margin, y, sigW
+    PAGE.margin + sigW + sigGap, y, sigW, { blockH: sigH }
   );
 
-  y += 140;
+  y += sigH + 20;
   hr(doc, y, C.gray300);
   y += 16;
 
-  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900)
+  doc.save().font(FONT.bold).fontSize(10).fillColor(C.gray900)
     .text('E-SIGNATURE ACKNOWLEDGEMENT', PAGE.margin, y, { width: CONTENT_W, align: 'center' })
     .restore();
   y += 14;
@@ -745,20 +831,34 @@ function _buildReceiptPDF(doc, payment, tenant, property) {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const generateAgreementPDF = (agreement, landlord, tenant, property, res) => {
-  const doc = new PDFDocument({ margin: PAGE.margin, size: 'A4', autoFirstPage: true });
+  const doc = new PDFDocument({
+    margin: PAGE.margin,
+    size: 'A4',
+    autoFirstPage: true,
+    bufferPages: true,
+  });
   doc.pipe(res);
   _buildPDF(doc, agreement, landlord, tenant, property);
+  finalizeAgreementPagination(doc, 'RENTAL AGREEMENT');
+  doc.flushPages();
   doc.end();
 };
 
 const generateAgreementPDFBuffer = (agreement, landlord, tenant, property) => {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: PAGE.margin, size: 'A4', autoFirstPage: true });
+    const doc = new PDFDocument({
+      margin: PAGE.margin,
+      size: 'A4',
+      autoFirstPage: true,
+      bufferPages: true,
+    });
     const chunks = [];
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     _buildPDF(doc, agreement, landlord, tenant, property);
+    finalizeAgreementPagination(doc, 'RENTAL AGREEMENT');
+    doc.flushPages();
     doc.end();
   });
 };
