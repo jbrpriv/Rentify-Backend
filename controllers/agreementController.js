@@ -217,6 +217,8 @@ const getAgreements = async (req, res) => {
 // @access  Private (Landlord or Tenant)
 const downloadAgreementPDF = async (req, res) => {
   try {
+    const currency = (req.query.currency || req.headers['x-currency'] || 'USD').toString().toUpperCase();
+
     const agreement = await Agreement.findById(req.params.id)
       .populate('landlord', 'name email')
       .populate('tenant', 'name email')
@@ -246,7 +248,7 @@ const downloadAgreementPDF = async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
 
-    generateAgreementPDF(agreement, agreement.landlord, agreement.tenant, agreement.property, res);
+    await generateAgreementPDF(agreement, agreement.landlord, agreement.tenant, agreement.property, res, { currency });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

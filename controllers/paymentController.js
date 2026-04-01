@@ -37,6 +37,8 @@ const getAvailableGateways = (_req, res) => {
 // @access  Private — tenant (own payments), landlord (their properties), admin
 const downloadReceipt = async (req, res) => {
   try {
+    const currency = (req.query.currency || req.headers['x-currency'] || 'USD').toString().toUpperCase();
+
     const payment = await Payment.findById(req.params.paymentId)
       .populate('tenant', 'name email')
       .populate('landlord', 'name email')
@@ -56,7 +58,7 @@ const downloadReceipt = async (req, res) => {
     }
 
     // ── If we have an S3 key, return a signed URL ────────────────────────────
-    if (payment.receiptUrl && isS3Configured()) {
+    if (currency === 'USD' && payment.receiptUrl && isS3Configured()) {
       try {
         const signedUrl = await getReceiptPDFUrl(payment.receiptUrl);
         return res.json({ url: signedUrl });
@@ -74,7 +76,7 @@ const downloadReceipt = async (req, res) => {
       return res.status(422).json({ message: 'Receipt cannot be generated — missing tenant or property data' });
     }
 
-    const pdfBuffer = await generateReceiptPDFBuffer(payment, tenant, property);
+    const pdfBuffer = await generateReceiptPDFBuffer(payment, tenant, property, { currency });
 
     // If S3 is configured, upload now, backfill receiptUrl, and return a signed URL.
     // This handles the common case where the webhook's fire-and-forget upload silently
