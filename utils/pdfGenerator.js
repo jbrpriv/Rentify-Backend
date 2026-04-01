@@ -126,7 +126,7 @@ function sectionHeading(doc, label, y) {
   doc.save()
     .rect(PAGE.margin, y, 4, 24).fill(C.blue).restore();
   doc.save()
-    .font(FONT.bold).fontSize(9).fillColor(C.navy)
+    .font(FONT.bold).fontSize(8.25).fillColor(C.navy)
     .text(label.toUpperCase(), PAGE.margin + 12, y + 7, { lineBreak: false })
     .restore();
   return y + 32;
@@ -134,18 +134,18 @@ function sectionHeading(doc, label, y) {
 
 function majorSectionHeading(doc, code, title, subtitle, y) {
   doc.save()
-    .font(FONT.bold).fontSize(17).fillColor(C.navy)
+    .font(FONT.bold).fontSize(14).fillColor(C.navy)
     .text(`${code}  ${title}`, PAGE.margin, y, { lineBreak: false })
     .restore();
 
-  y += 22;
+  y += 19;
 
   if (subtitle) {
     doc.save()
-      .font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
+      .font(FONT.regular).fontSize(8).fillColor(C.gray500)
       .text(subtitle, PAGE.margin, y, { width: CONTENT_W, lineBreak: false })
       .restore();
-    y += 14;
+    y += 12;
   }
 
   hr(doc, y, C.gray300);
@@ -198,7 +198,7 @@ function financialTable(doc, rows, y) {
 // ─── Signature block ──────────────────────────────────────────────────────────
 
 function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW, opts = {}) {
-  const blockH = opts.blockH || 136;
+  const blockH = opts.blockH || 110;
   const headerH = 24;
 
   // Box
@@ -210,33 +210,36 @@ function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW, opt
     .text(label, x + 10, y + 8, { lineBreak: false })
     .restore();
 
-  let cy = y + headerH + 10;
+  let cy = y + headerH + 8;
 
   if (sigData) {
     try {
       const base64 = sigData.replace(/^data:image\/\w+;base64,/, '');
       const imgBuf = Buffer.from(base64, 'base64');
-      doc.image(imgBuf, x + 12, cy, {
-        fit: [blockW - 24, 34],
-        align: 'left',
+      const sigW = Math.max(80, blockW - 72);
+      const sigH = 24;
+      const sigX = x + (blockW - sigW) / 2;
+      doc.image(imgBuf, sigX, cy, {
+        fit: [sigW, sigH],
+        align: 'center',
         valign: 'center',
       });
     } catch (_) {
       doc.save().font(FONT.oblique).fontSize(8).fillColor(C.gray500)
-        .text('[Signature image unavailable]', x + 10, cy + 14, { lineBreak: false })
+        .text('[Signature image unavailable]', x + 12, cy + 8, { lineBreak: false, width: blockW - 24, align: 'center' })
         .restore();
     }
-    cy += 42;
+    cy += 30;
   } else {
     // blank line
-    hr(doc, cy + 14, C.gray500, x + 12, blockW - 24);
-    cy += 24;
+    hr(doc, cy + 12, C.gray500, x + 36, blockW - 72);
+    cy += 18;
   }
 
-  const metaY = Math.max(cy + 4, y + blockH - 34);
+  const metaY = Math.max(cy + 2, y + blockH - 30);
 
   doc.save().font(FONT.bold).fontSize(8.5).fillColor(C.gray900)
-    .text(person?.name || '________________', x + 12, metaY, { lineBreak: false, width: blockW - 24 })
+    .text(person?.name || '________________', x + 12, metaY, { lineBreak: false, width: blockW - 24, align: 'center' })
     .restore();
 
   if (signedAt) {
@@ -244,11 +247,12 @@ function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW, opt
       .text(`Signed on ${new Date(signedAt).toLocaleString('en-US')}`, x + 12, metaY + 12, {
         lineBreak: false,
         width: blockW - 24,
+        align: 'center',
       })
       .restore();
   } else {
     doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray700)
-      .text('Pending Signature', x + 12, metaY + 12, { lineBreak: false, width: blockW - 24 })
+      .text('Pending Signature', x + 12, metaY + 12, { lineBreak: false, width: blockW - 24, align: 'center' })
       .restore();
   }
 }
@@ -411,7 +415,13 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   y = 56;
 
   // ── Financials section ──
-  y = sectionHeading(doc, '01  Financial Terms', y);
+  y = majorSectionHeading(
+    doc,
+    '01',
+    'FINANCIAL TERMS',
+    'Core rent, deposit, and move-in financial obligations.',
+    y
+  );
 
   const petDeposit = agreement.petPolicy?.allowed ? (agreement.petPolicy?.deposit || 0) : 0;
   const maintenanceFee = property?.financials?.maintenanceFee || 0;
@@ -432,7 +442,13 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   y += 12;
 
   // ── Utilities & Policies section ──
-  y = sectionHeading(doc, '02  Utilities & Policies', y);
+  y = majorSectionHeading(
+    doc,
+    '02',
+    'UTILITIES & POLICIES',
+    'Utility coverage, pet policy, and lease policy conditions.',
+    y
+  );
 
   const col1x = PAGE.margin;
   const col2x = PAGE.margin + CONTENT_W / 2 + 6;
@@ -459,7 +475,13 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
     y = 56;
   }
 
-  y = sectionHeading(doc, '03  Rent Escalation', y);
+  y = majorSectionHeading(
+    doc,
+    '03',
+    'RENT ESCALATION',
+    'Future rent adjustment schedule and projected amounts.',
+    y
+  );
 
   if (agreement.rentEscalation?.enabled) {
     const escalationPct = Number(agreement.rentEscalation?.percentage || 0);
@@ -485,7 +507,13 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
   y += 8;
 
   // ── Standard clauses section ──
-  y = sectionHeading(doc, '04  Standard Conditions', y);
+  y = majorSectionHeading(
+    doc,
+    '04',
+    'STANDARD CONDITIONS',
+    'Base legal conditions that apply throughout the tenancy.',
+    y
+  );
 
   const standardClauses = [
     'The Tenant shall keep the property in clean and habitable condition throughout the tenancy.',
@@ -605,7 +633,7 @@ function _buildPDF(doc, agreement, landlord, tenant, property) {
 
   const sigGap = 16;
   const sigW = (CONTENT_W - sigGap) / 2;
-  const sigH = 136;
+  const sigH = 110;
   signatureBlock(
     doc, 'LANDLORD SIGNATURE',
     landlord,
