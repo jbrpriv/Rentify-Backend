@@ -2,9 +2,11 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const PdfTheme = require('../models/PdfTheme');
 
+const path = require('path');
+
 // Determine env file based on environment
 const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
-dotenv.config({ path: `../${envFile}` });
+dotenv.config({ path: path.join(__dirname, '..', envFile) });
 
 const themes = [
   {
