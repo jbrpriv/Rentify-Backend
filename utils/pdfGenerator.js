@@ -886,7 +886,7 @@ const generateAgreementPDF = async (agreement, landlord, tenant, property, res, 
   const builder = createPdfBuilder(theme);
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
   const doc = new PDFDocument({
-    margin: PAGE.margin,
+    margin: 50,
     size: 'A4',
     autoFirstPage: true,
     bufferPages: true,
@@ -904,7 +904,7 @@ const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property,
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
-      margin: PAGE.margin,
+      margin: 50,
       size: 'A4',
       autoFirstPage: true,
       bufferPages: true,
