@@ -899,8 +899,8 @@ function finalizeClassicPagination(doc, title = 'RENTAL AGREEMENT') {
   for (let i = range.start + 1; i < range.start + range.count; i++) {
     doc.switchToPage(i);
     const savedY = doc.y;
-    // Repaint ONLY the top header area with the final page count
-    // (footer was already drawn inline during build — same pattern as Modern layout)
+    // Wipe just the header strip so redrawn text isn't doubled
+    rect(doc, 0, 0, PAGE.width, 40, C.white);
     doc.save().moveTo(PAGE.margin, 36).lineTo(PAGE.width - PAGE.margin, 36).lineWidth(1).strokeColor(C.gray900).stroke().restore();
     doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900)
       .text('RentifyPro', PAGE.margin, 22, { lineBreak: false }).restore();
@@ -1036,13 +1036,20 @@ function _buildClassicPDF(doc, agreement, landlord, tenant, property, currencyCt
     y += 10;
   }
 
-  doc.addPage();
-  addClassicPageFurniture(doc, pageNum, '—');
-  y = 56;
+  // ── Signatures — only start a new page if content won't fit ──
+  const sigBlockHeight = 180; // approx: section heading + intro + sig lines
+  if (y + sigBlockHeight > PAGE.height - 60) {
+    doc.addPage();
+    addClassicPageFurniture(doc, pageNum, '—');
+    y = 56;
+  } else {
+    y += 20; // breathing room
+  }
+
   y = classicSection('VII', 'SIGNATURES AND ACKNOWLEDGEMENT', y);
   doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-    .text('IN WITNESS WHEREOF, the parties hereto have executed this Residential Rental Agreement as of the date first written above. By executing this Agreement below, both parties declare that they have read, understood, and agree to be bound by all terms and conditions set forth herein.', PAGE.margin, y, { width: CONTENT_W, align: 'justify' }).restore();
-  y += 54;
+    .text('IN WITNESS WHEREOF, the parties hereto have executed this Residential Rental Agreement as of the date first written above. By executing this Agreement below, both parties declare that they have read, understood, and agree to be bound by all terms and conditions set forth herein. The parties acknowledge that electronic signatures applied via the RentifyPro platform constitute legally binding signatures under applicable electronic signature laws.', PAGE.margin, y, { width: CONTENT_W, align: 'justify' }).restore();
+  y += doc.heightOfString('IN WITNESS WHEREOF...', { width: CONTENT_W }) + 24;
 
   const sigGapC = 32;
   const sigWC = (CONTENT_W - sigGapC) / 2;
@@ -1105,8 +1112,8 @@ function finalizeMinimalistPagination(doc, agreementId) {
   for (let i = range.start + 1; i < range.start + range.count; i++) {
     doc.switchToPage(i);
     const savedY = doc.y;
-    // Repaint ONLY the top header area with the final page count
-    // (footer was already drawn inline during build — same pattern as Modern layout)
+    // Wipe just the header strip so redrawn text isn't doubled
+    rect(doc, 0, 0, PAGE.width, 48, C.white);
     doc.save().moveTo(0, 44).lineTo(PAGE.width, 44).lineWidth(0.4).strokeColor(C.gray300).stroke().restore();
     doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray900)
       .text('RENTIFYPRO', PAGE.margin, 28, { lineBreak: false }).restore();
@@ -1276,14 +1283,20 @@ function _buildMinimalistPDF(doc, agreement, landlord, tenant, property, currenc
     });
   }
 
-  // ── Signatures ──
-  doc.addPage();
-  addMinimalistPageFurniture(doc, pageNum, '—', agreement._id);
-  y = 64;
+  // ── Signatures — only start a new page if not enough room ──
+  const sigBlockHeightM = 160;
+  if (y + sigBlockHeightM > PAGE.height - 60) {
+    doc.addPage();
+    addMinimalistPageFurniture(doc, pageNum, '—', agreement._id);
+    y = 64;
+  } else {
+    y += 24;
+  }
+
   y = miniSection('SIGNATURES', y);
   doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-    .text('By signing below, each party acknowledges full reading, understanding, and acceptance of this Agreement.', PAGE.margin, y, { width: CONTENT_W }).restore();
-  y += 40;
+    .text('By signing below, each party confirms they have read and fully accept all terms of this Agreement. Electronic signatures applied through RentifyPro are legally binding under applicable e-signature laws and carry the same legal weight as handwritten signatures.', PAGE.margin, y, { width: CONTENT_W }).restore();
+  y += doc.heightOfString('By signing below...', { width: CONTENT_W }) + 28;
 
   const sigGapM = 40;
   const sigWM = (CONTENT_W - sigGapM) / 2;
