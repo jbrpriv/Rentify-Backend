@@ -1,56 +1,60 @@
 const AgreementTemplate = require('../models/AgreementTemplate');
-const Clause = require('../models/Clause');
+const PdfTheme = require('../models/PdfTheme');
+const { generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const ALLOWED_FONTS = ['Helvetica', 'Times-Roman', 'Courier'];
 
-const populate = (q) =>
+const populateTemplate = (q) =>
   q
     .populate('landlord', 'name email')
-    .populate('clauseIds', 'title body category jurisdiction isApproved')
+    .populate('baseTheme')
     .populate('reviewedBy', 'name email');
 
-// ─── GET /api/agreement-templates ────────────────────────────────────────────
-// Landlord → own templates (all statuses)
-// Admin    → every template on the platform
+function normalizeCustomizations(input = {}) {
+  return {
+    primaryColor: typeof input.primaryColor === 'string' ? input.primaryColor : '',
+    accentColor: typeof input.accentColor === 'string' ? input.accentColor : '',
+    backgroundColor: typeof input.backgroundColor === 'string' ? input.backgroundColor : '',
+    fontFamily: ALLOWED_FONTS.includes(input.fontFamily) ? input.fontFamily : '',
+    fontSizeScale:
+      typeof input.fontSizeScale === 'number'
+        ? Math.min(1.4, Math.max(0.8, input.fontSizeScale))
+        : 1.0,
+  };
+}
+
+function normalizeStandardClauses(input = {}) {
+  return {
+    maintenance: typeof input.maintenance === 'string' ? input.maintenance.trim() : '',
+    subletting: typeof input.subletting === 'string' ? input.subletting.trim() : '',
+    entry: typeof input.entry === 'string' ? input.entry.trim() : '',
+    damage: typeof input.damage === 'string' ? input.damage.trim() : '',
+    repairs: typeof input.repairs === 'string' ? input.repairs.trim() : '',
+  };
+}
+
 const getTemplates = async (req, res) => {
   try {
     const filter = { isArchived: false };
 
     if (req.user.role === 'admin') {
-      // Admin sees all — optional landlordId filter via query
       if (req.query.landlordId) filter.landlord = req.query.landlordId;
       if (req.query.status) filter.status = req.query.status;
     } else {
-      // Landlord sees their own templates OR any approved template
-      filter.$or = [
-        { landlord: req.user._id },
-        { status: 'approved' }
-      ];
+      filter.landlord = req.user._id;
     }
 
-    // ── Jurisdiction / region filter ────────────────────────────────────────
-    if (req.query.jurisdiction) {
-      filter.jurisdiction = req.query.jurisdiction;
-    }
-
-    const templates = await populate(
-      AgreementTemplate.find(filter).sort('-createdAt')
-    );
-
-    // Include jurisdiction list for UI filter dropdowns
-    const allJurisdictions = await AgreementTemplate.distinct('jurisdiction', { isArchived: false });
-
-    res.json({ templates, jurisdictions: allJurisdictions.filter(Boolean).sort() });
+    const templates = await populateTemplate(AgreementTemplate.find(filter).sort('-createdAt'));
+    res.json(templates);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ─── GET /api/agreement-templates/:id ────────────────────────────────────────
 const getTemplateById = async (req, res) => {
   try {
-    const template = await populate(AgreementTemplate.findById(req.params.id));
-    if (!template) return res.status(404).json({ message: 'Template not found' });
+    const template = await populateTemplate(AgreementTemplate.findById(req.params.id));
+    if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
 
     const isOwner = template.landlord._id.toString() === req.user._id.toString();
     if (!isOwner && req.user.role !== 'admin') {
@@ -63,117 +67,108 @@ const getTemplateById = async (req, res) => {
   }
 };
 
-// ─── POST /api/agreement-templates ───────────────────────────────────────────
-// Landlord creates a new template. Saved as 'pending' — admin must approve
-// before it can be used in offer acceptance.
+const getAvailableTemplates = async (req, res) => {
+  try {
+    const templates = await populateTemplate(
+      AgreementTemplate.find({
+        landlord: req.user._id,
+        status: 'approved',
+        isArchived: false,
+      }).sort('-updatedAt')
+    );
+
+    const themes = await PdfTheme.find({ isGlobal: true }).sort({ name: 1 });
+
+    res.json({ templates, themes });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 const createTemplate = async (req, res) => {
   try {
     if (!['landlord', 'property_manager', 'admin'].includes(req.user.role)) {
-      // Admins are allowed to create global templates. Landlords create pending templates.
       return res.status(403).json({ message: 'Only landlords or admins can create agreement templates' });
     }
 
-    const { name, description, clauseIds } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ message: 'Template name is required' });
+    const { name, description, jurisdiction, baseTheme } = req.body;
+    if (!name || !baseTheme) {
+      return res.status(400).json({ message: 'name and baseTheme are required' });
     }
 
-    // Validate that every clauseId either belongs to the approved pool
-    // or was created by this landlord (their own pending suggestions)
-    const ids = Array.isArray(clauseIds) ? clauseIds : [];
-
-    if (ids.length > 0) {
-      const validClauses = await Clause.find({
-        _id: { $in: ids },
-        isArchived: false,
-        $or: [
-          { isApproved: true },
-          { createdBy: req.user._id },
-        ],
-      }).select('_id');
-
-      const validIds = new Set(validClauses.map((c) => c._id.toString()));
-      const invalid = ids.filter((id) => !validIds.has(id.toString()));
-
-      if (invalid.length > 0) {
-        return res.status(400).json({
-          message: `Some clause IDs are invalid or not accessible: ${invalid.join(', ')}`,
-        });
-      }
+    const baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+    if (!baseThemeDoc) {
+      return res.status(404).json({ message: 'Base theme not found' });
     }
 
     const template = await AgreementTemplate.create({
       landlord: req.user._id,
       name: name.trim(),
       description: (description || '').trim(),
-      clauseIds: ids,
-      status: 'pending',
-      jurisdiction: (req.body.jurisdiction || 'general').trim().toLowerCase(),
+      jurisdiction: (jurisdiction || 'general').trim().toLowerCase(),
+      baseTheme,
+      customizations: normalizeCustomizations(req.body.customizations),
+      standardClauses: normalizeStandardClauses(req.body.standardClauses),
+      status: req.user.role === 'admin' ? 'approved' : 'pending',
+      reviewedBy: req.user.role === 'admin' ? req.user._id : null,
+      reviewedAt: req.user.role === 'admin' ? new Date() : null,
     });
 
-    const populated = await populate(AgreementTemplate.findById(template._id));
+    const populated = await populateTemplate(AgreementTemplate.findById(template._id));
     res.status(201).json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ─── PUT /api/agreement-templates/:id ────────────────────────────────────────
-// Landlord edits their own template. Editing resets status to 'pending'
-// so admin reviews changes.
 const updateTemplate = async (req, res) => {
   try {
     const template = await AgreementTemplate.findById(req.params.id);
-    if (!template) return res.status(404).json({ message: 'Template not found' });
+    if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
 
     if (template.landlord.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorised' });
     }
 
-    const { name, description, clauseIds } = req.body;
-
-    if (name) template.name = name.trim();
-    if (description !== undefined) template.description = description.trim();
-
-    if (Array.isArray(clauseIds)) {
-      // Re-validate clauses
-      if (clauseIds.length > 0) {
-        const validClauses = await Clause.find({
-          _id: { $in: clauseIds },
-          isArchived: false,
-          $or: [
-            { isApproved: true },
-            { createdBy: req.user._id },
-          ],
-        }).select('_id');
-
-        const validIds = new Set(validClauses.map((c) => c._id.toString()));
-        const invalid = clauseIds.filter((id) => !validIds.has(id.toString()));
-        if (invalid.length > 0) {
-          return res.status(400).json({ message: `Invalid clause IDs: ${invalid.join(', ')}` });
-        }
-      }
-
-      template.clauseIds = clauseIds;
+    if (!['pending', 'rejected'].includes(template.status)) {
+      return res.status(400).json({ message: 'Only pending or rejected templates can be edited' });
     }
 
-    // Reset to pending so admin re-reviews changes
-    template.status = 'pending';
-    template.reviewedBy = null;
-    template.reviewedAt = null;
-    template.rejectionReason = '';
+    const { name, description, jurisdiction, baseTheme } = req.body;
+
+    if (name !== undefined) template.name = name.trim();
+    if (description !== undefined) template.description = description.trim();
+    if (jurisdiction !== undefined) template.jurisdiction = jurisdiction.trim().toLowerCase();
+
+    if (baseTheme !== undefined) {
+      const baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+      if (!baseThemeDoc) return res.status(404).json({ message: 'Base theme not found' });
+      template.baseTheme = baseTheme;
+    }
+
+    if (req.body.customizations !== undefined) {
+      template.customizations = normalizeCustomizations(req.body.customizations);
+    }
+
+    if (req.body.standardClauses !== undefined) {
+      template.standardClauses = normalizeStandardClauses(req.body.standardClauses);
+    }
+
+    if (template.status === 'rejected') {
+      template.status = 'pending';
+      template.reviewedBy = null;
+      template.reviewedAt = null;
+      template.rejectionReason = '';
+    }
 
     await template.save();
-    const populated = await populate(AgreementTemplate.findById(template._id));
+    const populated = await populateTemplate(AgreementTemplate.findById(template._id));
     res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ─── DELETE /api/agreement-templates/:id ─────────────────────────────────────
-// Landlord deletes their own template. Admin can delete any.
 const deleteTemplate = async (req, res) => {
   try {
     const template = await AgreementTemplate.findById(req.params.id);
@@ -184,49 +179,165 @@ const deleteTemplate = async (req, res) => {
       return res.status(403).json({ message: 'Not authorised' });
     }
 
-    // Soft-delete so historical agreements retain reference context
     template.isArchived = true;
     await template.save();
 
-    res.json({ message: 'Template deleted' });
+    res.json({ message: 'Template archived' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// ─── PUT /api/agreement-templates/:id/review ─────────────────────────────────
-// Admin approves or rejects a template.
-const reviewTemplate = async (req, res) => {
+const previewTemplatePDF = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Admin only' });
     }
 
-    const { approved, rejectionReason } = req.body;
+    const template = await populateTemplate(
+      AgreementTemplate.findById(req.params.id)
+    );
+
+    if (!template || template.isArchived) {
+      return res.status(404).json({ message: 'Template not found' });
+    }
+
+    const now = new Date();
+    const end = new Date(now);
+    end.setMonth(end.getMonth() + 12);
+
+    const sampleAgreement = {
+      _id: template._id,
+      agreementTemplate: template,
+      term: {
+        startDate: now,
+        endDate: end,
+        durationMonths: 12,
+      },
+      financials: {
+        rentAmount: 1200,
+        depositAmount: 1200,
+        lateFeeAmount: 35,
+        lateFeeGracePeriodDays: 5,
+      },
+      utilitiesIncluded: false,
+      utilitiesDetails: 'Electricity and internet are tenant responsibility.',
+      petPolicy: { allowed: false, deposit: 0 },
+      terminationPolicy: '30-day written notice required for termination.',
+      clauseSet: [],
+      signatures: {
+        landlord: { signed: false },
+        tenant: { signed: false },
+      },
+      rentEscalation: { enabled: false, percentage: 0 },
+    };
+
+    const sampleLandlord = {
+      name: template.landlord?.name || 'Sample Landlord',
+      email: template.landlord?.email || 'landlord@example.com',
+    };
+
+    const sampleTenant = {
+      name: 'Sample Tenant',
+      email: 'tenant@example.com',
+    };
+
+    const sampleProperty = {
+      title: 'Sample Property',
+      address: {
+        street: '123 Main Street',
+        city: 'Sample City',
+        state: 'Sample State',
+      },
+      financials: {
+        maintenanceFee: 50,
+      },
+    };
+
+    const pdfBuffer = await generateAgreementPDFBuffer(
+      sampleAgreement,
+      sampleLandlord,
+      sampleTenant,
+      sampleProperty,
+      { currency: 'USD' }
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=template-preview-${template._id}.pdf`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const approveTemplate = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin only' });
+    }
 
     const template = await AgreementTemplate.findById(req.params.id);
-    if (!template) return res.status(404).json({ message: 'Template not found' });
+    if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
 
-    template.status = approved ? 'approved' : 'rejected';
+    template.status = 'approved';
     template.reviewedBy = req.user._id;
     template.reviewedAt = new Date();
-    template.rejectionReason = approved ? '' : (rejectionReason || 'Not approved');
+    template.rejectionReason = '';
 
     await template.save();
-    const populated = await populate(AgreementTemplate.findById(template._id));
+
+    const populated = await populateTemplate(AgreementTemplate.findById(template._id));
     res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-// @desc    Increment usage count when a template is used to create an agreement
-// @route   POST /api/agreement-templates/:id/use
-// @access  Private (landlord / admin)
+const rejectTemplate = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin only' });
+    }
+
+    const { rejectionReason } = req.body;
+    if (!rejectionReason || !rejectionReason.trim()) {
+      return res.status(400).json({ message: 'rejectionReason is required' });
+    }
+
+    const template = await AgreementTemplate.findById(req.params.id);
+    if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
+
+    template.status = 'rejected';
+    template.reviewedBy = req.user._id;
+    template.reviewedAt = new Date();
+    template.rejectionReason = rejectionReason.trim();
+
+    await template.save();
+
+    const populated = await populateTemplate(AgreementTemplate.findById(template._id));
+    res.json(populated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const reviewTemplate = async (req, res) => {
+  const { approved, rejectionReason } = req.body;
+  req.body = approved
+    ? {}
+    : { rejectionReason: rejectionReason || '' };
+
+  if (approved) {
+    return approveTemplate(req, res);
+  }
+
+  return rejectTemplate(req, res);
+};
+
 const useTemplate = async (req, res) => {
   try {
     const template = await AgreementTemplate.findById(req.params.id);
-    if (!template) return res.status(404).json({ message: 'Template not found' });
+    if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
 
     template.usageCount = (template.usageCount || 0) + 1;
     template.lastUsedAt = new Date();
@@ -238,9 +349,6 @@ const useTemplate = async (req, res) => {
   }
 };
 
-// @desc    Get template usage analytics (admin only)
-// @route   GET /api/agreement-templates/analytics
-// @access  Private (admin)
 const getTemplateAnalytics = async (req, res) => {
   try {
     const templates = await AgreementTemplate.find({ isArchived: false })
@@ -267,9 +375,13 @@ const getTemplateAnalytics = async (req, res) => {
 module.exports = {
   getTemplates,
   getTemplateById,
+  getAvailableTemplates,
   createTemplate,
   updateTemplate,
   deleteTemplate,
+  previewTemplatePDF,
+  approveTemplate,
+  rejectTemplate,
   reviewTemplate,
   useTemplate,
   getTemplateAnalytics,

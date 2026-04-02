@@ -3,7 +3,6 @@ const Offer = require('../models/Offer');
 const Property = require('../models/Property');
 const Agreement = require('../models/Agreement');
 const AgreementTemplate = require('../models/AgreementTemplate');
-const Clause = require('../models/Clause');
 const { sendEmail } = require('../utils/emailService');
 const notificationQueue = require('../queues/notificationQueue');
 
@@ -201,22 +200,16 @@ const acceptOffer = async (req, res) => {
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + durationMonths);
 
-    let clauseSet = [];
+    let agreementTemplate = null;
     if (templateId) {
-      const tmpl = await AgreementTemplate.findById(templateId).populate('clauseIds');
+      const tmpl = await AgreementTemplate.findById(templateId).select('_id landlord status isArchived');
       if (!tmpl) return res.status(404).json({ message: 'Agreement template not found' });
       if (tmpl.landlord.toString() !== req.user._id.toString())
         return res.status(403).json({ message: 'That template does not belong to you' });
       if (tmpl.status !== 'approved') return res.status(400).json({ message: 'Template must be approved by admin before use' });
+      if (tmpl.isArchived) return res.status(400).json({ message: 'Template is archived and cannot be used' });
 
-      clauseSet = (tmpl.clauseIds || []).map(c => ({
-        clauseId: c._id,
-        title: c.title,
-        body: c.body,
-      }));
-
-      const approvedIds = tmpl.clauseIds.filter(c => c.isApproved).map(c => c._id);
-      if (approvedIds.length > 0) await Clause.updateMany({ _id: { $in: approvedIds } }, { $inc: { usageCount: 1 } });
+      agreementTemplate = tmpl._id;
     }
 
     const agreement = await Agreement.create({
@@ -234,7 +227,7 @@ const acceptOffer = async (req, res) => {
       utilitiesIncluded: Boolean(utilitiesIncluded),
       utilitiesDetails: utilitiesIncluded ? (utilitiesDetails || '') : '',
       terminationPolicy: terminationPolicy || '',
-      clauseSet,
+      agreementTemplate,
       auditLog: [{
         action: 'CREATED_FROM_OFFER',
         actor: req.user._id,

@@ -93,6 +93,17 @@ async function getAgreementPDFUrl(s3Key, expiresInSeconds = 3600) {
   return url;
 }
 
+async function getAgreementPDFStream(s3Key) {
+  const client = _getClient();
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: s3Key,
+  });
+
+  const response = await client.send(command);
+  return response.Body;
+}
+
 /**
  * Check whether S3 is configured in this environment.
  * Used by controllers to skip S3 upload gracefully when credentials are absent.
@@ -185,6 +196,7 @@ async function getTenantDocumentUrl(s3Key, expiresInSeconds = 3600) {
 module.exports = {
   uploadAgreementPDF,
   getAgreementPDFUrl,
+  getAgreementPDFStream,
   uploadReceiptPDF,
   getReceiptPDFUrl,
   uploadTenantDocument,

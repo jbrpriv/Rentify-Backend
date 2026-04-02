@@ -7,6 +7,11 @@ const pdfThemeSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    description: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     primaryColor: {
       type: String,
       default: '#000000',
@@ -23,6 +28,12 @@ const pdfThemeSchema = new mongoose.Schema(
       type: String,
       enum: ['Helvetica', 'Times-Roman', 'Courier'],
       default: 'Helvetica',
+    },
+    fontSizeScale: {
+      type: Number,
+      min: 0.8,
+      max: 1.4,
+      default: 1.0,
     },
     layoutStyle: {
       type: String,

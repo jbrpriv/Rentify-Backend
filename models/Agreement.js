@@ -88,8 +88,19 @@ const agreementSchema = mongoose.Schema(
     ],
 
     // ─── Document ──────────────────────────────────────────────────
-    documentUrl: { type: String },
-    documentVersion: { type: Number, default: 1 },
+    agreementTemplate: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AgreementTemplate',
+      default: null,
+    },
+    documentUrl: {
+      type: String,
+      default: null,
+    },
+    documentVersion: {
+      type: Number,
+      default: 0,
+    },
 
     // ─── Digital Signatures ────────────────────────────────────────
     signatures: {

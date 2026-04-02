@@ -2,6 +2,7 @@ const PDFDocument = require('pdfkit');
 const { substituteClauses } = require('./clauseSubstitution');
 const { getCurrencyContext } = require('./currencyService');
 const PdfTheme = require('../models/PdfTheme');
+const AgreementTemplate = require('../models/AgreementTemplate');
 
 // ─── Factory ───────────────────────────────────────────────────────────────
 function createPdfBuilder(theme) {
@@ -32,6 +33,17 @@ function createPdfBuilder(theme) {
 
 const PAGE = { width: 595.28, height: 841.89, margin: 50 };
 const CONTENT_W = PAGE.width - PAGE.margin * 2;
+
+function getStandardClauseLines(theme, fmt) {
+  const overrides = theme?._standardClauses || {};
+  return [
+    overrides.maintenance || 'The Tenant shall keep the property in clean and habitable condition throughout the tenancy.',
+    overrides.subletting || 'The Tenant shall not sublet or assign the property without prior written consent from the Landlord.',
+    overrides.entry || 'The Landlord shall provide 24 hours notice before entering the property except in emergencies.',
+    overrides.damage || 'Any damage beyond normal wear and tear shall be deducted from the security deposit.',
+    overrides.repairs || `The Tenant is responsible for minor maintenance and repairs up to ${fmt.money(5000)}.`,
+  ];
+}
 
 // ─── Low-level drawing helpers ────────────────────────────────────────────────
 
@@ -530,13 +542,7 @@ function _buildPDF(doc, agreement, landlord, tenant, property, currencyCtx) {
     y
   );
 
-  const standardClauses = [
-    'The Tenant shall keep the property in clean and habitable condition throughout the tenancy.',
-    'The Tenant shall not sublet or assign the property without prior written consent from the Landlord.',
-    'The Landlord shall provide 24 hours notice before entering the property except in emergencies.',
-    'Any damage beyond normal wear and tear shall be deducted from the security deposit.',
-    `The Tenant is responsible for minor maintenance and repairs up to ${fmt.money(5000)}.`,
-  ];
+  const standardClauses = getStandardClauseLines(theme, fmt);
 
   standardClauses.forEach((text, i) => {
     if (y > PAGE.height - 120) {
@@ -1003,13 +1009,7 @@ function _buildClassicPDF(doc, agreement, landlord, tenant, property, currencyCt
 
   if (y > PAGE.height - 160) { doc.addPage(); addClassicPageFurniture(doc, pageNum, '—'); y = 56; }
   y = classicSection('V', 'STANDARD CONDITIONS', y);
-  const standardClauses = [
-    'The Tenant shall maintain the property in a clean, safe, and habitable condition throughout the duration of the tenancy.',
-    'The Tenant shall not sublet or assign any interest in the property without the prior written consent of the Landlord.',
-    'The Landlord shall provide at least twenty-four (24) hours advance written notice prior to entering the property, except in emergency situations.',
-    'Any damage to the property beyond normal wear and tear shall be deducted from the security deposit upon termination of the tenancy.',
-    `The Tenant shall be responsible for minor maintenance and repairs up to ${fmt.money(5000)} per occurrence.`,
-  ];
+  const standardClauses = getStandardClauseLines(theme, fmt);
   standardClauses.forEach((text, i) => {
     if (y > PAGE.height - 120) { doc.addPage(); addClassicPageFurniture(doc, pageNum, '—'); y = 56; }
     const clause = `${String.fromCharCode(65 + i)}. ${text}`;
@@ -1246,13 +1246,7 @@ function _buildMinimalistPDF(doc, agreement, landlord, tenant, property, currenc
 
   if (y > PAGE.height - 200) { doc.addPage(); addMinimalistPageFurniture(doc, pageNum, '—', agreement._id); y = 64; }
   y = miniSection('STANDARD LEASE CONDITIONS', y);
-  const standardClauses = [
-    'Tenant shall maintain the property in clean and habitable condition throughout the tenancy.',
-    'Tenant shall not sublet without prior written consent from the Landlord.',
-    'Landlord shall provide 24 hours notice before entering the property except in emergencies.',
-    'Damage beyond normal wear and tear shall be deducted from the security deposit.',
-    `Tenant is responsible for minor repairs up to ${fmt.money(5000)}.`,
-  ];
+  const standardClauses = getStandardClauseLines(theme, fmt);
   standardClauses.forEach((text, i) => {
     if (y > PAGE.height - 100) { doc.addPage(); addMinimalistPageFurniture(doc, pageNum, '—', agreement._id); y = 64; }
     doc.save().font(FONT.bold).fontSize(8).fillColor(C.gray900)
@@ -1351,19 +1345,48 @@ const FALLBACK_THEME = {
 };
 
 async function resolveTheme(agreement) {
-  // 1. Agreement has an explicitly assigned theme (populated object)
+  // 1. Agreement has an approved template selected.
+  if (agreement.agreementTemplate) {
+    let templateDoc = null;
+
+    if (typeof agreement.agreementTemplate === 'object' && agreement.agreementTemplate.baseTheme) {
+      templateDoc = agreement.agreementTemplate;
+    } else {
+      templateDoc = await AgreementTemplate.findById(agreement.agreementTemplate)
+        .populate('baseTheme')
+        .lean();
+    }
+
+    if (templateDoc && templateDoc.baseTheme) {
+      const base = templateDoc.baseTheme.toObject ? templateDoc.baseTheme.toObject() : templateDoc.baseTheme;
+      const merged = {
+        ...base,
+        ...(templateDoc.customizations || {}),
+      };
+
+      return {
+        ...merged,
+        _standardClauses: templateDoc.standardClauses || {},
+      };
+    }
+  }
+
+  // 2. Agreement has an explicitly assigned legacy theme (populated object)
   if (agreement.pdfTheme && typeof agreement.pdfTheme === 'object' && agreement.pdfTheme.layoutStyle) {
     return agreement.pdfTheme;
   }
-  // 2. Agreement has a theme ID but not populated — fetch it
+
+  // 3. Agreement has a legacy theme ID but not populated — fetch it
   if (agreement.pdfTheme) {
     const t = await PdfTheme.findById(agreement.pdfTheme).lean();
     if (t) return t;
   }
-  // 3. Fall back to the DB-level global default
+
+  // 4. Fall back to the DB-level global default
   const dbDefault = await PdfTheme.findOne({ isDefault: true }).lean();
   if (dbDefault) return dbDefault;
-  // 4. Last resort: hardcoded fallback
+
+  // 5. Last resort: hardcoded fallback
   return FALLBACK_THEME;
 }
 

@@ -21,14 +21,54 @@ const agreementTemplateSchema = new mongoose.Schema(
       trim:    true,
     },
 
-    // Snapshot of clause ids this template bundles.
-    // Approved clauses + landlord's own pending suggestions are both allowed.
-    clauseIds: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref:  'Clause',
+    // Base global theme this template customizes.
+    baseTheme: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PdfTheme',
+      required: true,
+    },
+
+    // Landlord-level branding overrides layered on top of baseTheme.
+    customizations: {
+      primaryColor: {
+        type: String,
+        default: '',
       },
-    ],
+      accentColor: {
+        type: String,
+        default: '',
+      },
+      backgroundColor: {
+        type: String,
+        default: '',
+      },
+      fontFamily: {
+        type: String,
+        enum: ['', 'Helvetica', 'Times-Roman', 'Courier'],
+        default: '',
+      },
+      fontSizeScale: {
+        type: Number,
+        min: 0.8,
+        max: 1.4,
+        default: 1.0,
+      },
+    },
+
+    // Editable standard legal clauses rendered in the PDF layout.
+    standardClauses: {
+      maintenance: { type: String, default: '' },
+      subletting: { type: String, default: '' },
+      entry: { type: String, default: '' },
+      damage: { type: String, default: '' },
+      repairs: { type: String, default: '' },
+    },
+
+    // Preview artifact key (dummy-data PDF generated for admin review).
+    previewS3Key: {
+      type: String,
+      default: '',
+    },
 
     // ─── Admin approval ────────────────────────────────────────────
     // Templates are visible to the landlord immediately but need
@@ -66,13 +106,6 @@ const agreementTemplateSchema = new mongoose.Schema(
       default: 'general',
       trim:    true,
       // e.g. 'general', 'punjab', 'sindh', 'kpk', 'balochistan', 'islamabad'
-    },
-
-    // ─── Default Theme ─────────────────────────────────────────────
-    defaultPdfTheme: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'PdfTheme',
-      default: null,
     },
 
     // ─── Usage analytics ──────────────────────────────────────────

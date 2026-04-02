@@ -4,9 +4,13 @@ const { protect, isAdmin } = require('../middlewares/authMiddleware');
 const {
   getTemplates,
   getTemplateById,
+  getAvailableTemplates,
   createTemplate,
   updateTemplate,
   deleteTemplate,
+  previewTemplatePDF,
+  approveTemplate,
+  rejectTemplate,
   reviewTemplate,
   useTemplate,
   getTemplateAnalytics,
@@ -14,6 +18,7 @@ const {
 
 // Analytics (admin only) — must be before /:id to avoid route collision
 router.get('/analytics', protect, isAdmin, getTemplateAnalytics);
+router.get('/available', protect, getAvailableTemplates);
 
 // GET  /api/agreement-templates       → landlord: own | admin: all
 // POST /api/agreement-templates       → landlord creates
@@ -27,7 +32,9 @@ router.route('/:id')
   .put(protect, updateTemplate)
   .delete(protect, deleteTemplate);
 
-// PUT /api/agreement-templates/:id/review → admin approves/rejects
+router.get('/:id/preview-pdf', protect, isAdmin, previewTemplatePDF);
+router.put('/:id/approve', protect, isAdmin, approveTemplate);
+router.put('/:id/reject', protect, isAdmin, rejectTemplate);
 router.put('/:id/review', protect, isAdmin, reviewTemplate);
 
 // POST /api/agreement-templates/:id/use → track usage when creating agreement

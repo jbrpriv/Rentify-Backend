@@ -6,14 +6,25 @@ const crypto = require('crypto');
 const logger = require('../utils/logger');
 const { generateAgreementPDF, generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
 const { sendEmail } = require('../utils/emailService');
-const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
+const { uploadAgreementPDF, isS3Configured, getAgreementPDFStream } = require('../utils/s3Service');
+const AgreementTemplate = require('../models/AgreementTemplate');
 
 // @desc    Create a draft agreement directly (landlord only)
 // @route   POST /api/agreements
 // @access  Private (Landlord)
 const createAgreement = async (req, res) => {
   try {
-    const { tenantId, propertyId, startDate, endDate, rentAmount, depositAmount, signerOrder, pdfTheme } = req.body;
+    const {
+      tenantId,
+      propertyId,
+      startDate,
+      endDate,
+      rentAmount,
+      depositAmount,
+      signerOrder,
+      pdfTheme,
+      agreementTemplate,
+    } = req.body;
 
     // Validate tenant exists and has tenant role
     const tenant = await User.findById(tenantId);
@@ -33,6 +44,19 @@ const createAgreement = async (req, res) => {
       return res.status(400).json({ message: 'endDate must be after startDate' });
     }
 
+    if (agreementTemplate) {
+      const template = await AgreementTemplate.findOne({
+        _id: agreementTemplate,
+        landlord: req.user._id,
+        status: 'approved',
+        isArchived: false,
+      }).select('_id');
+
+      if (!template) {
+        return res.status(400).json({ message: 'agreementTemplate must be an approved template you own' });
+      }
+    }
+
     const agreement = await Agreement.create({
       landlord: req.user._id,
       tenant: tenantId,
@@ -44,6 +68,7 @@ const createAgreement = async (req, res) => {
       signatures: { landlord: { signed: false }, tenant: { signed: false } },
       auditLog: [{ action: 'CREATED', actor: req.user._id, details: 'Agreement created directly by landlord' }],
       pdfTheme: pdfTheme || null,
+      agreementTemplate: agreementTemplate || null,
     });
 
     return res.status(201).json(agreement);
@@ -148,7 +173,7 @@ const signAgreement = async (req, res) => {
           .then((s3Key) =>
             Agreement.findByIdAndUpdate(agreement._id, {
               documentUrl: s3Key,
-              documentVersion: (agreement.documentVersion || 1) + 1,
+              documentVersion: (agreement.documentVersion || 0) + 1,
             })
           )
           .catch((err) =>
@@ -224,7 +249,8 @@ const downloadAgreementPDF = async (req, res) => {
       .populate('landlord', 'name email')
       .populate('tenant', 'name email')
       .populate('property')
-      .populate('pdfTheme');
+      .populate('pdfTheme')
+      .populate('agreementTemplate');
 
     if (!agreement) {
       return res.status(404).json({ message: 'Agreement not found' });
@@ -239,16 +265,32 @@ const downloadAgreementPDF = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
+
+    if (agreement.documentUrl && isS3Configured()) {
+      const stream = await getAgreementPDFStream(agreement.documentUrl);
+
+      agreement.auditLog.push({
+        action: 'PDF_DOWNLOADED',
+        actor: req.user._id,
+        ipAddress: req.ip,
+        details: 'PDF served from S3 document vault',
+      });
+      await agreement.save();
+
+      if (stream && typeof stream.pipe === 'function') {
+        return stream.pipe(res);
+      }
+    }
+
     agreement.auditLog.push({
       action: 'PDF_DOWNLOADED',
       actor: req.user._id,
       ipAddress: req.ip,
-      details: 'PDF Document Generated',
+      details: 'PDF generated on demand',
     });
     await agreement.save();
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
 
     await generateAgreementPDF(agreement, agreement.landlord, agreement.tenant, agreement.property, res, { currency });
   } catch (error) {
@@ -338,10 +380,11 @@ const respondToRenewal = async (req, res) => {
     const { accept } = req.body;
     const agreement = await Agreement.findById(req.params.id)
       .populate('landlord', 'name email')
-      .populate('property', 'title');
+      .populate('tenant', 'name email')
+      .populate('property');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
-    if (agreement.tenant.toString() !== req.user._id.toString()) {
+    if ((agreement.tenant._id || agreement.tenant).toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Only the tenant can respond to renewal' });
     }
     if (!agreement.renewalProposal || agreement.renewalProposal.status !== 'pending') {
@@ -387,7 +430,7 @@ const respondToRenewal = async (req, res) => {
       if (leaseEnded) {
         agreement.status = 'expired';
         // BUG-04: Mark property vacant only when the lease has actually ended
-        await Property.findByIdAndUpdate(agreement.property, { status: 'vacant' });
+        await Property.findByIdAndUpdate(agreement.property?._id || agreement.property, { status: 'vacant' });
       }
 
       agreement.auditLog.push({
@@ -423,6 +466,25 @@ const respondToRenewal = async (req, res) => {
     }
 
     await agreement.save();
+
+    if (accept && agreement.signatures?.landlord?.signed && agreement.signatures?.tenant?.signed && isS3Configured()) {
+      try {
+        const pdfBuffer = await generateAgreementPDFBuffer(
+          agreement,
+          agreement.landlord,
+          agreement.tenant,
+          agreement.property
+        );
+        const s3Key = await uploadAgreementPDF(pdfBuffer, agreement._id.toString());
+
+        agreement.documentUrl = s3Key;
+        agreement.documentVersion = (agreement.documentVersion || 0) + 1;
+        await agreement.save();
+      } catch (uploadErr) {
+        logger.error('renewal PDF upload failed', { agreementId: agreement._id, err: uploadErr.message });
+      }
+    }
+
     res.json({ message: accept ? 'Renewal accepted — lease extended!' : 'Renewal declined', agreement });
   } catch (error) {
     res.status(500).json({ message: error.message });
