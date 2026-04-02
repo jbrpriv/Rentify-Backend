@@ -1047,9 +1047,10 @@ function _buildClassicPDF(doc, agreement, landlord, tenant, property, currencyCt
   }
 
   y = classicSection('VII', 'SIGNATURES AND ACKNOWLEDGEMENT', y);
+  const witnessText = 'IN WITNESS WHEREOF, the parties hereto have executed this Residential Rental Agreement as of the date first written above. By executing this Agreement below, both parties declare that they have read, understood, and agree to be bound by all terms and conditions set forth herein. The parties acknowledge that electronic signatures applied via the RentifyPro platform constitute legally binding signatures under applicable electronic signature laws.';
   doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-    .text('IN WITNESS WHEREOF, the parties hereto have executed this Residential Rental Agreement as of the date first written above. By executing this Agreement below, both parties declare that they have read, understood, and agree to be bound by all terms and conditions set forth herein. The parties acknowledge that electronic signatures applied via the RentifyPro platform constitute legally binding signatures under applicable electronic signature laws.', PAGE.margin, y, { width: CONTENT_W, align: 'justify' }).restore();
-  y += doc.heightOfString('IN WITNESS WHEREOF...', { width: CONTENT_W }) + 24;
+    .text(witnessText, PAGE.margin, y, { width: CONTENT_W, align: 'justify' }).restore();
+  y += doc.heightOfString(witnessText, { width: CONTENT_W }) + 24;
 
   const sigGapC = 32;
   const sigWC = (CONTENT_W - sigGapC) / 2;
