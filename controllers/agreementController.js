@@ -13,7 +13,7 @@ const { uploadAgreementPDF, isS3Configured } = require('../utils/s3Service');
 // @access  Private (Landlord)
 const createAgreement = async (req, res) => {
   try {
-    const { tenantId, propertyId, startDate, endDate, rentAmount, depositAmount, signerOrder } = req.body;
+    const { tenantId, propertyId, startDate, endDate, rentAmount, depositAmount, signerOrder, pdfTheme } = req.body;
 
     // Validate tenant exists and has tenant role
     const tenant = await User.findById(tenantId);
@@ -43,6 +43,7 @@ const createAgreement = async (req, res) => {
       financials: { rentAmount, depositAmount },
       signatures: { landlord: { signed: false }, tenant: { signed: false } },
       auditLog: [{ action: 'CREATED', actor: req.user._id, details: 'Agreement created directly by landlord' }],
+      pdfTheme: pdfTheme || null,
     });
 
     return res.status(201).json(agreement);
@@ -222,7 +223,8 @@ const downloadAgreementPDF = async (req, res) => {
     const agreement = await Agreement.findById(req.params.id)
       .populate('landlord', 'name email')
       .populate('tenant', 'name email')
-      .populate('property');
+      .populate('property')
+      .populate('pdfTheme');
 
     if (!agreement) {
       return res.status(404).json({ message: 'Agreement not found' });
@@ -756,7 +758,8 @@ const getAgreementPreview = async (req, res) => {
     const agreement = await Agreement.findById(req.params.id)
       .populate('property', 'title address')
       .populate('tenant', 'name email')
-      .populate('landlord', 'name email');
+      .populate('landlord', 'name email')
+      .populate('pdfTheme');
 
     if (!agreement) return res.status(404).json({ message: 'Agreement not found' });
 

@@ -68,6 +68,13 @@ const agreementTemplateSchema = new mongoose.Schema(
       // e.g. 'general', 'punjab', 'sindh', 'kpk', 'balochistan', 'islamabad'
     },
 
+    // ─── Default Theme ─────────────────────────────────────────────
+    defaultPdfTheme: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PdfTheme',
+      default: null,
+    },
+
     // ─── Usage analytics ──────────────────────────────────────────
     usageCount: {
       type:    Number,

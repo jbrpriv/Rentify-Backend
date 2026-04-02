@@ -98,6 +98,7 @@ const agreementTemplateRoutes = require('./routes/agreementTemplateRoutes');
 const billingRoutes = require('./routes/billingRoutes');
 const dataDeletionRoutes = require('./routes/dataDeletionRoutes');
 const supportRoutes = require('./routes/supportRoutes');
+const pdfThemeRoutes = require('./routes/pdfThemeRoutes');
 const { handleBillingWebhook } = require('./controllers/billingController');
 const {
   loginLimiter, propertyLimiter, uploadLimiter,
@@ -240,6 +241,7 @@ app.use('/api/agreement-templates', generalLimiter, agreementTemplateRoutes);
 app.use('/api/billing', generalLimiter, billingRoutes);
 app.use('/api/data-deletion', generalLimiter, dataDeletionRoutes);
 app.use('/api/support', generalLimiter, supportRoutes);
+app.use('/api/pdf-themes', generalLimiter, pdfThemeRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', async (_req, res) => {

@@ -1,0 +1,40 @@
+const mongoose = require('mongoose');
+
+const pdfThemeSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    primaryColor: {
+      type: String,
+      default: '#000000',
+    },
+    accentColor: {
+      type: String,
+      default: '#333333',
+    },
+    backgroundColor: {
+      type: String,
+      default: '#FFFFFF',
+    },
+    fontFamily: {
+      type: String,
+      enum: ['Helvetica', 'Times-Roman', 'Courier'],
+      default: 'Helvetica',
+    },
+    layoutStyle: {
+      type: String,
+      enum: ['modern', 'classic', 'minimalist'],
+      default: 'minimalist',
+    },
+    isGlobal: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model('PdfTheme', pdfThemeSchema);

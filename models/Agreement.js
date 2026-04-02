@@ -181,6 +181,13 @@ const agreementSchema = mongoose.Schema(
       },
     ],
 
+    // ─── Theme ─────────────────────────────────────────────────────────
+    pdfTheme: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PdfTheme',
+      default: null,
+    },
+
     // ─── Document Retention ────────────────────────────────────────
     retentionExpiry: {
       type: Date,
