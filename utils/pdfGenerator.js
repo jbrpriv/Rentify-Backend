@@ -549,11 +549,13 @@ function _buildPDF(doc, agreement, landlord, tenant, property, currencyCtx) {
   y += 8;
 
   // ════ ADDITIONAL CLAUSES ══════════════════════════════════════════════════
-  const agreementWithRefs = Object.assign(
-    Object.create(Object.getPrototypeOf(agreement)),
-    agreement,
-    { landlord, tenant, property }
-  );
+  const baseAgreement = typeof agreement.toObject === 'function' ? agreement.toObject() : agreement;
+  const agreementWithRefs = {
+    ...baseAgreement,
+    landlord: landlord || baseAgreement.landlord,
+    tenant: tenant || baseAgreement.tenant,
+    property: property || baseAgreement.property
+  };
   const resolvedClauses = substituteClauses(agreementWithRefs);
 
   if (resolvedClauses.length > 0) {
