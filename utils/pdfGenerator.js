@@ -8,18 +8,23 @@ const AgreementTemplate = require('../models/AgreementTemplate');
 function createPdfBuilder(theme) {
   const isMinimalist = theme?.layoutStyle === 'minimalist';
   const isClassic = theme?.layoutStyle === 'classic';
+  const isNonModern = isMinimalist || isClassic;
+
+  const primaryColor = theme?.primaryColor || '#0F2B5B';
+  const accentColor = theme?.accentColor || '#1A56DB';
+  const pageBackgroundColor = theme?.backgroundColor || '#EBF2FF';
 
   const C = {
-    navy: theme?.primaryColor || '#0F2B5B',
-    blue: theme?.accentColor || '#1A56DB',
-    lightBlue: theme?.backgroundColor || '#EBF2FF',
-    teal: theme?.accentColor || '#0D9488',
-    gray900: isMinimalist ? '#000000' : '#111827',
-    gray700: isMinimalist ? '#000000' : '#374151',
-    gray500: isMinimalist ? '#000000' : '#6B7280',
-    gray300: isMinimalist ? '#000000' : '#D1D5DB',
-    gray100: isMinimalist ? '#FFFFFF' : '#F3F4F6',
-    white: '#FFFFFF',
+    navy: primaryColor,
+    blue: accentColor,
+    lightBlue: pageBackgroundColor,
+    teal: accentColor,
+    gray900: isNonModern ? primaryColor : '#111827',
+    gray700: isNonModern ? primaryColor : '#374151',
+    gray500: isNonModern ? accentColor : '#6B7280',
+    gray300: isNonModern ? accentColor : '#D1D5DB',
+    gray100: isNonModern ? pageBackgroundColor : '#F3F4F6',
+    white: isNonModern ? pageBackgroundColor : '#FFFFFF',
     green: '#059669',
     amber: '#D97706',
     red: '#DC2626',
@@ -1349,10 +1354,19 @@ async function resolveTheme(agreement) {
   if (agreement.agreementTemplate) {
     let templateDoc = null;
 
-    if (typeof agreement.agreementTemplate === 'object' && agreement.agreementTemplate.baseTheme) {
+    if (
+      typeof agreement.agreementTemplate === 'object' &&
+      agreement.agreementTemplate.baseTheme &&
+      typeof agreement.agreementTemplate.baseTheme === 'object' &&
+      agreement.agreementTemplate.baseTheme.layoutStyle
+    ) {
       templateDoc = agreement.agreementTemplate;
     } else {
-      templateDoc = await AgreementTemplate.findById(agreement.agreementTemplate)
+      const templateId = typeof agreement.agreementTemplate === 'object'
+        ? agreement.agreementTemplate._id
+        : agreement.agreementTemplate;
+
+      templateDoc = await AgreementTemplate.findById(templateId)
         .populate('baseTheme')
         .lean();
     }
@@ -1396,12 +1410,17 @@ const generateAgreementPDF = async (agreement, landlord, tenant, property, res, 
   const theme = await resolveTheme(agreement);
   const builder = createPdfBuilder(theme);
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
+  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
   const doc = new PDFDocument({
     margin: 50,
     size: 'A4',
     autoFirstPage: true,
     bufferPages: true,
   });
+
+  const baseFontSize = doc.fontSize.bind(doc);
+  doc.fontSize = (size) => baseFontSize(size * fontScale);
+
   doc.pipe(res);
   builder._buildPDF(doc, agreement, landlord, tenant, property, currencyCtx);
   builder.finalizeAgreementPagination(doc, 'RENTAL AGREEMENT');
@@ -1413,6 +1432,7 @@ const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property,
   const theme = await resolveTheme(agreement);
   const builder = createPdfBuilder(theme);
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
+  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       margin: 50,
@@ -1420,6 +1440,10 @@ const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property,
       autoFirstPage: true,
       bufferPages: true,
     });
+
+    const baseFontSize = doc.fontSize.bind(doc);
+    doc.fontSize = (size) => baseFontSize(size * fontScale);
+
     const chunks = [];
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

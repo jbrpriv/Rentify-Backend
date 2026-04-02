@@ -76,6 +76,13 @@ const previewPdfTheme = async (req, res) => {
     const mergedTheme = {
       ...theme,
       ...buildThemeOverrides(req.query),
+      _standardClauses: {
+        maintenance: req.query.maintenance || '',
+        subletting: req.query.subletting || '',
+        entry: req.query.entry || '',
+        damage: req.query.damage || '',
+        repairs: req.query.repairs || '',
+      },
     };
 
     const now = new Date();
