@@ -35,6 +35,7 @@ const themes = [
     fontFamily: 'Helvetica',
     layoutStyle: 'minimalist',
     isGlobal: true,
+    isDefault: true,
   },
 ];
 

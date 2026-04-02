@@ -33,6 +33,10 @@ const pdfThemeSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    isDefault: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

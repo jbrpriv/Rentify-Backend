@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const { substituteClauses } = require('./clauseSubstitution');
 const { getCurrencyContext } = require('./currencyService');
+const PdfTheme = require('../models/PdfTheme');
 
 // ─── Factory ───────────────────────────────────────────────────────────────
 function createPdfBuilder(theme) {
@@ -870,7 +871,8 @@ function _buildReceiptPDF(doc, payment, tenant, property, currencyCtx) {
   return { _buildPDF, _buildReceiptPDF, finalizeAgreementPagination };
 } // end createPdfBuilder
 
-const defaultTheme = {
+// Hardcoded fallback if no DB default theme is found
+const FALLBACK_THEME = {
   name: 'Minimalist Monochrome',
   primaryColor: '#000000',
   accentColor: '#000000',
@@ -879,10 +881,27 @@ const defaultTheme = {
   layoutStyle: 'minimalist',
 };
 
+async function resolveTheme(agreement) {
+  // 1. Agreement has an explicitly assigned theme (populated object)
+  if (agreement.pdfTheme && typeof agreement.pdfTheme === 'object' && agreement.pdfTheme.layoutStyle) {
+    return agreement.pdfTheme;
+  }
+  // 2. Agreement has a theme ID but not populated — fetch it
+  if (agreement.pdfTheme) {
+    const t = await PdfTheme.findById(agreement.pdfTheme).lean();
+    if (t) return t;
+  }
+  // 3. Fall back to the DB-level global default
+  const dbDefault = await PdfTheme.findOne({ isDefault: true }).lean();
+  if (dbDefault) return dbDefault;
+  // 4. Last resort: hardcoded fallback
+  return FALLBACK_THEME;
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
-  const theme = agreement.pdfTheme || defaultTheme;
+  const theme = await resolveTheme(agreement);
   const builder = createPdfBuilder(theme);
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
   const doc = new PDFDocument({
@@ -899,7 +918,7 @@ const generateAgreementPDF = async (agreement, landlord, tenant, property, res, 
 };
 
 const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property, options = {}) => {
-  const theme = agreement.pdfTheme || defaultTheme;
+  const theme = await resolveTheme(agreement);
   const builder = createPdfBuilder(theme);
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
   return new Promise((resolve, reject) => {
