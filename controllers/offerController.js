@@ -3,6 +3,7 @@ const Offer = require('../models/Offer');
 const Property = require('../models/Property');
 const Agreement = require('../models/Agreement');
 const AgreementTemplate = require('../models/AgreementTemplate');
+const PdfTheme = require('../models/PdfTheme');
 const { sendEmail } = require('../utils/emailService');
 const notificationQueue = require('../queues/notificationQueue');
 
@@ -186,6 +187,7 @@ const acceptOffer = async (req, res) => {
     const {
       startDate: startDateRaw,
       templateId,
+      pdfThemeId,
       petAllowed = false,
       petDeposit = 0,
       utilitiesIncluded = false,
@@ -201,6 +203,7 @@ const acceptOffer = async (req, res) => {
     endDate.setMonth(endDate.getMonth() + durationMonths);
 
     let agreementTemplate = null;
+    let pdfTheme = null;
     if (templateId) {
       const tmpl = await AgreementTemplate.findById(templateId).select('_id landlord status isArchived');
       if (!tmpl) return res.status(404).json({ message: 'Agreement template not found' });
@@ -210,6 +213,12 @@ const acceptOffer = async (req, res) => {
       if (tmpl.isArchived) return res.status(400).json({ message: 'Template is archived and cannot be used' });
 
       agreementTemplate = tmpl._id;
+    } else if (pdfThemeId) {
+      const theme = await PdfTheme.findById(pdfThemeId).select('_id isGlobal');
+      if (!theme || !theme.isGlobal) {
+        return res.status(400).json({ message: 'Selected default PDF theme is invalid' });
+      }
+      pdfTheme = theme._id;
     }
 
     const agreement = await Agreement.create({
@@ -228,6 +237,7 @@ const acceptOffer = async (req, res) => {
       utilitiesDetails: utilitiesIncluded ? (utilitiesDetails || '') : '',
       terminationPolicy: terminationPolicy || '',
       agreementTemplate,
+      pdfTheme,
       auditLog: [{
         action: 'CREATED_FROM_OFFER',
         actor: req.user._id,
