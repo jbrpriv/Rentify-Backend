@@ -68,6 +68,23 @@ const setDefaultTheme = async (req, res) => {
   }
 };
 
+const setReceiptDefaultTheme = async (req, res) => {
+  try {
+    const theme = await PdfTheme.findById(req.params.id);
+    if (!theme) return res.status(404).json({ message: 'Theme not found' });
+
+    await PdfTheme.updateMany({ isReceiptDefault: true }, { isReceiptDefault: false });
+
+    theme.isReceiptDefault = true;
+    await theme.save();
+
+    res.json({ message: `"${theme.name}" is now the default receipt PDF theme.`, theme });
+  } catch (err) {
+    logger.error('setReceiptDefaultTheme error', { message: err.message });
+    res.status(500).json({ message: 'Server error updating receipt default theme' });
+  }
+};
+
 const previewPdfTheme = async (req, res) => {
   try {
     const theme = await PdfTheme.findById(req.params.id).lean();
@@ -163,5 +180,6 @@ module.exports = {
   getPdfThemes,
   updatePdfTheme,
   setDefaultTheme,
+  setReceiptDefaultTheme,
   previewPdfTheme,
 };

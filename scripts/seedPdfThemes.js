@@ -17,6 +17,7 @@ const themes = [
     fontFamily: 'Helvetica',
     layoutStyle: 'modern',
     isGlobal: true,
+    isReceiptDefault: true,
   },
   {
     name: 'Classic Legal',

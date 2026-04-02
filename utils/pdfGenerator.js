@@ -3,6 +3,7 @@ const { substituteClauses } = require('./clauseSubstitution');
 const { getCurrencyContext } = require('./currencyService');
 const PdfTheme = require('../models/PdfTheme');
 const AgreementTemplate = require('../models/AgreementTemplate');
+const Agreement = require('../models/Agreement');
 
 // ─── Factory ───────────────────────────────────────────────────────────────
 function createPdfBuilder(theme) {
@@ -1404,6 +1405,33 @@ async function resolveTheme(agreement) {
   return FALLBACK_THEME;
 }
 
+async function resolveReceiptTheme(payment) {
+  if (payment?.agreement) {
+    try {
+      const agreementLike =
+        typeof payment.agreement === 'object' && payment.agreement !== null
+          ? payment.agreement
+          : await Agreement.findById(payment.agreement)
+              .select('pdfTheme agreementTemplate')
+              .lean();
+
+      if (agreementLike?.agreementTemplate || agreementLike?.pdfTheme) {
+        return await resolveTheme(agreementLike);
+      }
+    } catch (_err) {
+      // Fall through to receipt defaults below.
+    }
+  }
+
+  const receiptDefault = await PdfTheme.findOne({ isGlobal: true, isReceiptDefault: true }).lean();
+  if (receiptDefault) return receiptDefault;
+
+  const agreementDefault = await PdfTheme.findOne({ isGlobal: true, isDefault: true }).lean();
+  if (agreementDefault) return agreementDefault;
+
+  return FALLBACK_THEME;
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
@@ -1456,19 +1484,31 @@ const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property,
 };
 
 const generateReceiptPDF = async (payment, tenant, property, res, options = {}) => {
-  const builder = createPdfBuilder(defaultTheme); // Receipts don't need custom themes
+  const theme = await resolveReceiptTheme(payment);
+  const builder = createPdfBuilder(theme);
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
+  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
   const doc = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
+
+  const baseFontSize = doc.fontSize.bind(doc);
+  doc.fontSize = (size) => baseFontSize(size * fontScale);
+
   doc.pipe(res);
   builder._buildReceiptPDF(doc, payment, tenant, property, currencyCtx);
   doc.end();
 };
 
 const generateReceiptPDFBuffer = async (payment, tenant, property, options = {}) => {
-  const builder = createPdfBuilder(defaultTheme);
+  const theme = await resolveReceiptTheme(payment);
+  const builder = createPdfBuilder(theme);
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
+  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
+
+    const baseFontSize = doc.fontSize.bind(doc);
+    doc.fontSize = (size) => baseFontSize(size * fontScale);
+
     const chunks = [];
     doc.on('data', c => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));

@@ -48,6 +48,10 @@ const pdfThemeSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isReceiptDefault: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
