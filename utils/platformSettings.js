@@ -3,9 +3,12 @@ const PlatformSetting = require('../models/PlatformSetting');
 const DEFAULTS = {
   brandName: process.env.BRAND_NAME || 'RentifyPro',
   supportEmail: (process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'support@rentifypro.com').toLowerCase(),
+  logoUrl: process.env.BRAND_LOGO_URL || '',
+  faviconUrl: process.env.BRAND_FAVICON_URL || '/favicon.ico',
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const URL_OR_PATH_REGEX = /^(https?:\/\/|\/)[^\s]+$/i;
 const CACHE_TTL_MS = 60 * 1000;
 
 let cached = null;
@@ -21,9 +24,21 @@ const normalizeSupportEmail = (value) => {
   return next || DEFAULTS.supportEmail;
 };
 
-const validateBrandingInput = ({ brandName, supportEmail }) => {
+const normalizeLogoUrl = (value) => {
+  const next = String(value || '').trim();
+  return next || DEFAULTS.logoUrl;
+};
+
+const normalizeFaviconUrl = (value) => {
+  const next = String(value || '').trim();
+  return next || DEFAULTS.faviconUrl;
+};
+
+const validateBrandingInput = ({ brandName, supportEmail, logoUrl, faviconUrl }) => {
   const name = normalizeBrandName(brandName);
   const email = normalizeSupportEmail(supportEmail);
+  const normalizedLogoUrl = normalizeLogoUrl(logoUrl);
+  const normalizedFaviconUrl = normalizeFaviconUrl(faviconUrl);
 
   if (name.length < 2 || name.length > 60) {
     return { ok: false, message: 'Brand name must be between 2 and 60 characters.' };
@@ -33,7 +48,23 @@ const validateBrandingInput = ({ brandName, supportEmail }) => {
     return { ok: false, message: 'Support email must be a valid email address.' };
   }
 
-  return { ok: true, value: { brandName: name, supportEmail: email } };
+  if (normalizedLogoUrl && !URL_OR_PATH_REGEX.test(normalizedLogoUrl)) {
+    return { ok: false, message: 'Logo URL must start with http://, https://, or /' };
+  }
+
+  if (normalizedFaviconUrl && !URL_OR_PATH_REGEX.test(normalizedFaviconUrl)) {
+    return { ok: false, message: 'Favicon URL must start with http://, https://, or /' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      brandName: name,
+      supportEmail: email,
+      logoUrl: normalizedLogoUrl,
+      faviconUrl: normalizedFaviconUrl,
+    },
+  };
 };
 
 const readFromDb = async () => {
@@ -43,6 +74,8 @@ const readFromDb = async () => {
   return {
     brandName: normalizeBrandName(doc.brandName),
     supportEmail: normalizeSupportEmail(doc.supportEmail),
+    logoUrl: normalizeLogoUrl(doc.logoUrl),
+    faviconUrl: normalizeFaviconUrl(doc.faviconUrl),
   };
 };
 
@@ -59,8 +92,8 @@ const getPlatformBranding = async ({ force = false } = {}) => {
   }
 };
 
-const upsertPlatformBranding = async ({ brandName, supportEmail, updatedBy }) => {
-  const validation = validateBrandingInput({ brandName, supportEmail });
+const upsertPlatformBranding = async ({ brandName, supportEmail, logoUrl, faviconUrl, updatedBy }) => {
+  const validation = validateBrandingInput({ brandName, supportEmail, logoUrl, faviconUrl });
   if (!validation.ok) {
     const err = new Error(validation.message);
     err.statusCode = 400;

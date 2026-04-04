@@ -676,10 +676,12 @@ const getBrandingSettings = async (req, res) => {
 // @access  Private (Admin)
 const updateBrandingSettings = async (req, res) => {
   try {
-    const { brandName, supportEmail } = req.body || {};
+    const { brandName, supportEmail, logoUrl, faviconUrl } = req.body || {};
     const updated = await upsertPlatformBranding({
       brandName,
       supportEmail,
+      logoUrl,
+      faviconUrl,
       updatedBy: req.user?._id || null,
     });
     res.json({ message: 'Branding settings updated', ...updated });
