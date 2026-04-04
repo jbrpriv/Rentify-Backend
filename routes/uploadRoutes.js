@@ -6,6 +6,53 @@ const multer = require('multer');
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const { uploadTenantDocument, getTenantDocumentUrl, isS3Configured } = require('../utils/s3Service');
 
+const brandingUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const FAVICON_MAX_SIZE = 2 * 1024 * 1024;
+
+const ensureAdmin = (req, res) => {
+  if (req.user?.role !== 'admin') {
+    res.status(403).json({ message: 'Admin access required' });
+    return false;
+  }
+  return true;
+};
+
+const uploadBrandingAssetToCloudinary = async (file, kind) => {
+  const mimeType = String(file?.mimetype || '').toLowerCase();
+  if (!mimeType.startsWith('image/')) {
+    const err = new Error('Only image files are allowed');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (!file?.buffer) {
+    const err = new Error('Invalid upload payload');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (kind === 'favicon' && file.size > FAVICON_MAX_SIZE) {
+    const err = new Error('Favicon image must be under 2MB');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const dataUri = `data:${mimeType};base64,${file.buffer.toString('base64')}`;
+  const uploadOptions = {
+    folder: 'rentifypro/branding',
+    resource_type: 'image',
+  };
+
+  if (kind === 'logo') {
+    uploadOptions.transformation = [{ width: 512, height: 512, crop: 'limit', quality: 'auto' }];
+  } else {
+    uploadOptions.transformation = [{ width: 256, height: 256, crop: 'limit', quality: 'auto' }];
+  }
+
+  const result = await cloudinary.uploader.upload(dataUri, uploadOptions);
+  return result?.secure_url || result?.url || '';
+};
+
 // @desc    Upload up to 5 property images
 // @route   POST /api/upload/property-images
 // @access  Private
@@ -156,6 +203,50 @@ router.post('/profile-photo', protect, upload.single('photo'), async (req, res) 
     res.json({ url: req.file.path, message: 'Profile photo updated' });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+});
+
+// @desc    Upload global branding logo image
+// @route   POST /api/upload/branding/logo
+// @access  Private (Admin)
+router.post('/branding/logo', protect, brandingUpload.single('image'), async (req, res) => {
+  try {
+    if (!ensureAdmin(req, res)) return;
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image file uploaded' });
+    }
+
+    const url = await uploadBrandingAssetToCloudinary(req.file, 'logo');
+    if (!url) {
+      return res.status(500).json({ message: 'Failed to upload branding logo' });
+    }
+
+    return res.json({ url, message: 'Branding logo uploaded' });
+  } catch (error) {
+    const code = error.statusCode || 500;
+    return res.status(code).json({ message: error.message || 'Failed to upload branding logo' });
+  }
+});
+
+// @desc    Upload global branding favicon image
+// @route   POST /api/upload/branding/favicon
+// @access  Private (Admin)
+router.post('/branding/favicon', protect, brandingUpload.single('image'), async (req, res) => {
+  try {
+    if (!ensureAdmin(req, res)) return;
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image file uploaded' });
+    }
+
+    const url = await uploadBrandingAssetToCloudinary(req.file, 'favicon');
+    if (!url) {
+      return res.status(500).json({ message: 'Failed to upload favicon image' });
+    }
+
+    return res.json({ url, message: 'Favicon image uploaded' });
+  } catch (error) {
+    const code = error.statusCode || 500;
+    return res.status(code).json({ message: error.message || 'Failed to upload favicon image' });
   }
 });
 
