@@ -2,6 +2,12 @@ const AgreementTemplate = require('../models/AgreementTemplate');
 const PdfTheme = require('../models/PdfTheme');
 const { generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
 
+const normalizeTier = (tier) => (
+  ['free', 'pro', 'enterprise'].includes(String(tier || '').toLowerCase())
+    ? String(tier).toLowerCase()
+    : 'free'
+);
+
 const ALLOWED_FONTS = ['Helvetica', 'Times-Roman', 'Courier'];
 
 const populateTemplate = (q) =>
@@ -69,17 +75,22 @@ const getTemplateById = async (req, res) => {
 
 const getAvailableTemplates = async (req, res) => {
   try {
-    const templates = await populateTemplate(
-      AgreementTemplate.find({
-        landlord: req.user._id,
-        status: 'approved',
-        isArchived: false,
-      }).sort('-updatedAt')
-    );
+    const subscriptionTier = normalizeTier(req.user?.subscriptionTier);
+    const canUseAgreementTemplates = subscriptionTier === 'enterprise';
+
+    const templates = canUseAgreementTemplates
+      ? await populateTemplate(
+        AgreementTemplate.find({
+          landlord: req.user._id,
+          status: 'approved',
+          isArchived: false,
+        }).sort('-updatedAt')
+      )
+      : [];
 
     const themes = await PdfTheme.find({ isGlobal: true }).sort({ name: 1 });
 
-    res.json({ templates, themes });
+    res.json({ templates, themes, capabilities: { canUseAgreementTemplates } });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -7,6 +7,12 @@ const PdfTheme = require('../models/PdfTheme');
 const { sendEmail } = require('../utils/emailService');
 const notificationQueue = require('../queues/notificationQueue');
 
+const normalizeTier = (tier) => (
+  ['free', 'pro', 'enterprise'].includes(String(tier || '').toLowerCase())
+    ? String(tier).toLowerCase()
+    : 'free'
+);
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const isParty = (offer, userId) =>
   offer.tenant._id?.toString() === userId ||
@@ -181,6 +187,8 @@ const acceptOffer = async (req, res) => {
     if (!['pending', 'countered'].includes(offer.status))
       return res.status(400).json({ message: `Offer is already ${offer.status}` });
 
+    const subscriptionTier = normalizeTier(req.user?.subscriptionTier);
+
     const agreed = latestRound(offer);
     if (!agreed) return res.status(400).json({ message: 'No offer terms found' });
 
@@ -205,6 +213,10 @@ const acceptOffer = async (req, res) => {
     let agreementTemplate = null;
     let pdfTheme = null;
     if (templateId) {
+      if (subscriptionTier !== 'enterprise') {
+        return res.status(403).json({ message: 'Agreement templates in drafting are available on the Enterprise plan only' });
+      }
+
       const tmpl = await AgreementTemplate.findById(templateId).select('_id landlord status isArchived');
       if (!tmpl) return res.status(404).json({ message: 'Agreement template not found' });
       if (tmpl.landlord.toString() !== req.user._id.toString())
@@ -214,6 +226,10 @@ const acceptOffer = async (req, res) => {
 
       agreementTemplate = tmpl._id;
     } else if (pdfThemeId) {
+      if (subscriptionTier === 'free') {
+        return res.status(403).json({ message: 'Free tier uses the admin global default PDF theme' });
+      }
+
       const theme = await PdfTheme.findById(pdfThemeId).select('_id isGlobal');
       if (!theme || !theme.isGlobal) {
         return res.status(400).json({ message: 'Selected default PDF theme is invalid' });

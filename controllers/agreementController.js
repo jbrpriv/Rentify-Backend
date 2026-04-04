@@ -9,6 +9,12 @@ const { sendEmail } = require('../utils/emailService');
 const { uploadAgreementPDF, isS3Configured, getAgreementPDFStream } = require('../utils/s3Service');
 const AgreementTemplate = require('../models/AgreementTemplate');
 
+const normalizeTier = (tier) => (
+  ['free', 'pro', 'enterprise'].includes(String(tier || '').toLowerCase())
+    ? String(tier).toLowerCase()
+    : 'free'
+);
+
 // @desc    Create a draft agreement directly (landlord only)
 // @route   POST /api/agreements
 // @access  Private (Landlord)
@@ -25,6 +31,8 @@ const createAgreement = async (req, res) => {
       pdfTheme,
       agreementTemplate,
     } = req.body;
+
+    const subscriptionTier = normalizeTier(req.user?.subscriptionTier);
 
     // Validate tenant exists and has tenant role
     const tenant = await User.findById(tenantId);
@@ -45,6 +53,10 @@ const createAgreement = async (req, res) => {
     }
 
     if (agreementTemplate) {
+      if (subscriptionTier !== 'enterprise') {
+        return res.status(403).json({ message: 'Agreement templates in drafting are available on the Enterprise plan only' });
+      }
+
       const template = await AgreementTemplate.findOne({
         _id: agreementTemplate,
         landlord: req.user._id,
@@ -55,6 +67,10 @@ const createAgreement = async (req, res) => {
       if (!template) {
         return res.status(400).json({ message: 'agreementTemplate must be an approved template you own' });
       }
+    }
+
+    if (pdfTheme && subscriptionTier === 'free') {
+      return res.status(403).json({ message: 'Free tier uses the admin global default PDF theme' });
     }
 
     const agreement = await Agreement.create({
@@ -523,6 +539,12 @@ const updateAgreementClauses = async (req, res) => {
 
     if (!Array.isArray(clauseIds)) {
       return res.status(400).json({ message: 'clauseIds must be an array' });
+    }
+
+    const subscriptionTier = normalizeTier(req.user?.subscriptionTier);
+    const clauseLimit = subscriptionTier === 'free' ? 2 : Number.POSITIVE_INFINITY;
+    if (Number.isFinite(clauseLimit) && clauseIds.length > clauseLimit) {
+      return res.status(403).json({ message: `Free plan can include up to ${clauseLimit} clauses per agreement` });
     }
 
     const agreement = await Agreement.findById(req.params.id);
