@@ -21,9 +21,11 @@ const getStats = async (req, res) => {
   try {
     // Revenue approximations for stats calculation (not Stripe price IDs)
     const PLAN_REVENUE = MRR_CENTS; // Pro=$15/mo, Enterprise=$30/mo
+    const landlordFilter = { role: 'landlord' };
 
     const [
       totalUsers,
+      totalFreeLandlords,
       totalPro,
       totalEnterprise,
       totalProperties,
@@ -34,8 +36,12 @@ const getStats = async (req, res) => {
       openMaintenanceRequests,
     ] = await Promise.all([
       User.countDocuments(),
-      User.countDocuments({ subscriptionTier: 'pro' }),
-      User.countDocuments({ subscriptionTier: 'enterprise' }),
+      User.countDocuments({
+        ...landlordFilter,
+        $or: [{ subscriptionTier: 'free' }, { subscriptionTier: null }, { subscriptionTier: { $exists: false } }],
+      }),
+      User.countDocuments({ ...landlordFilter, subscriptionTier: 'pro' }),
+      User.countDocuments({ ...landlordFilter, subscriptionTier: 'enterprise' }),
       Property.countDocuments(),
       Agreement.countDocuments(),
       Agreement.countDocuments({ status: 'active' }),
@@ -49,7 +55,26 @@ const getStats = async (req, res) => {
       Math.round(((totalPro * PLAN_REVENUE.pro) + (totalEnterprise * PLAN_REVENUE.enterprise)) / 100);
 
     const usersBySubscription = await User.aggregate([
-      { $group: { _id: { $ifNull: ['$subscriptionTier', 'free'] }, count: { $sum: 1 } } },
+      { $match: landlordFilter },
+      {
+        $project: {
+          normalizedTier: {
+            $toLower: { $ifNull: ['$subscriptionTier', 'free'] },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $in: ['$normalizedTier', ['free', 'pro', 'enterprise']] },
+              '$normalizedTier',
+              'free',
+            ],
+          },
+          count: { $sum: 1 },
+        },
+      },
       { $sort: { count: -1 } },
     ]);
 
@@ -72,7 +97,7 @@ const getStats = async (req, res) => {
         users: totalUsers,
         pro: totalPro,
         enterprise: totalEnterprise,
-        free: Math.max(0, totalUsers - totalPro - totalEnterprise),
+        free: totalFreeLandlords,
         properties: totalProperties,
         agreements: totalAgreements,
         activeAgreements,
@@ -589,11 +614,47 @@ const getBillingUsers = async (req, res) => {
       User.countDocuments(filter),
     ]);
 
-    const landlordBase = { role: 'landlord' };
-    const [freeCt, proCt, enterpriseCt] = await Promise.all([
-      User.countDocuments({ ...landlordBase, $or: [{ subscriptionTier: 'free' }, { subscriptionTier: null }, { subscriptionTier: { $exists: false } }] }),
-      User.countDocuments({ ...landlordBase, subscriptionTier: 'pro' }),
-      User.countDocuments({ ...landlordBase, subscriptionTier: 'enterprise' }),
+    const summarizeTiers = async (matchFilter) => {
+      const grouped = await User.aggregate([
+        { $match: matchFilter },
+        {
+          $project: {
+            normalizedTier: {
+              $toLower: { $ifNull: ['$subscriptionTier', 'free'] },
+            },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $cond: [
+                { $in: ['$normalizedTier', ['free', 'pro', 'enterprise']] },
+                '$normalizedTier',
+                'free',
+              ],
+            },
+            count: { $sum: 1 },
+          },
+        },
+      ]);
+
+      const summary = { free: 0, pro: 0, enterprise: 0 };
+      grouped.forEach((row) => {
+        if (row._id && summary[row._id] !== undefined) {
+          summary[row._id] = row.count;
+        }
+      });
+
+      return {
+        ...summary,
+        subscribed: summary.pro + summary.enterprise,
+        totalMRR: Math.round(((summary.pro * MRR_CENTS.pro) + (summary.enterprise * MRR_CENTS.enterprise)) / 100),
+      };
+    };
+
+    const [summaryAll, summaryFiltered] = await Promise.all([
+      summarizeTiers({ role: 'landlord' }),
+      summarizeTiers(filter),
     ]);
 
     res.json({
@@ -604,12 +665,8 @@ const getBillingUsers = async (req, res) => {
         limit,
         pages: Math.ceil(total / limit),
       },
-      summary: {
-        free: freeCt,
-        pro: proCt,
-        enterprise: enterpriseCt,
-        totalMRR: Math.round(((proCt * MRR_CENTS.pro) + (enterpriseCt * MRR_CENTS.enterprise)) / 100),
-      },
+      summary: summaryFiltered,
+      summaryAll,
     });
   } catch (error) {
     logger.error('getBillingUsers error', { err: error.message });
