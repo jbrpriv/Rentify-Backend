@@ -1,5 +1,5 @@
 const PdfTheme = require('../models/PdfTheme');
-const { generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
+const { generateAgreementPDFBuffer, generateReceiptPDFBuffer } = require('../utils/pdfGenerator');
 const logger = require('../utils/logger');
 
 const ALLOWED_FONTS = ['Helvetica', 'Times-Roman', 'Courier'];
@@ -90,6 +90,10 @@ const previewPdfTheme = async (req, res) => {
     const theme = await PdfTheme.findById(req.params.id).lean();
     if (!theme) return res.status(404).json({ message: 'Theme not found' });
 
+    const previewType = String(req.query.previewType || 'agreement').toLowerCase() === 'receipt'
+      ? 'receipt'
+      : 'agreement';
+
     const mergedTheme = {
       ...theme,
       ...buildThemeOverrides(req.query),
@@ -159,16 +163,40 @@ const previewPdfTheme = async (req, res) => {
       },
     };
 
-    const pdfBuffer = await generateAgreementPDFBuffer(
-      sampleAgreement,
-      sampleLandlord,
-      sampleTenant,
-      sampleProperty,
-      { currency: 'USD' }
-    );
+    let pdfBuffer;
+    if (previewType === 'receipt') {
+      const samplePayment = {
+        _id: theme._id,
+        receiptNumber: `RCP-${String(theme._id).slice(-6).toUpperCase()}`,
+        amount: 1450,
+        type: 'rent',
+        paidAt: now,
+        createdAt: now,
+        dueDate: now,
+        stripePaymentIntent: 'pi_demo_receipt_preview',
+        lateFeeIncluded: false,
+        lateFeeAmount: 0,
+        pdfTheme: mergedTheme,
+      };
+
+      pdfBuffer = await generateReceiptPDFBuffer(
+        samplePayment,
+        sampleTenant,
+        sampleProperty,
+        { currency: 'USD' }
+      );
+    } else {
+      pdfBuffer = await generateAgreementPDFBuffer(
+        sampleAgreement,
+        sampleLandlord,
+        sampleTenant,
+        sampleProperty,
+        { currency: 'USD' }
+      );
+    }
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename=pdf-theme-preview-${theme._id}.pdf`);
+    res.setHeader('Content-Disposition', `inline; filename=pdf-theme-preview-${previewType}-${theme._id}.pdf`);
     res.send(pdfBuffer);
   } catch (err) {
     logger.error('previewPdfTheme error', { message: err.message });
