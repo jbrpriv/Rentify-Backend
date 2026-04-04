@@ -8,8 +8,8 @@ const { sendEmail } = require('../utils/emailService');
 const notificationQueue = require('../queues/notificationQueue');
 
 const normalizeTier = (tier) => (
-  ['free', 'pro', 'enterprise'].includes(String(tier || '').toLowerCase())
-    ? String(tier).toLowerCase()
+  ['free', 'pro', 'enterprise'].includes(String(tier || '').trim().toLowerCase())
+    ? String(tier).trim().toLowerCase()
     : 'free'
 );
 

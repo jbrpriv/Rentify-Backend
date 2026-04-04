@@ -3,10 +3,27 @@ const PdfTheme = require('../models/PdfTheme');
 const { generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
 
 const normalizeTier = (tier) => (
-  ['free', 'pro', 'enterprise'].includes(String(tier || '').toLowerCase())
-    ? String(tier).toLowerCase()
+  ['free', 'pro', 'enterprise'].includes(String(tier || '').trim().toLowerCase())
+    ? String(tier).trim().toLowerCase()
     : 'free'
 );
+
+const ensureTemplateStudioAccess = (req, res) => {
+  if (req.user?.role === 'admin') return true;
+
+  if (req.user?.role !== 'landlord') {
+    res.status(403).json({ message: 'Only landlords on the Enterprise plan can manage agreement templates' });
+    return false;
+  }
+
+  const subscriptionTier = normalizeTier(req.user?.subscriptionTier);
+  if (subscriptionTier !== 'enterprise') {
+    res.status(403).json({ message: 'Agreement template studio is available on the Enterprise plan only' });
+    return false;
+  }
+
+  return true;
+};
 
 const ALLOWED_FONTS = ['Helvetica', 'Times-Roman', 'Courier'];
 
@@ -41,6 +58,8 @@ function normalizeStandardClauses(input = {}) {
 
 const getTemplates = async (req, res) => {
   try {
+    if (!ensureTemplateStudioAccess(req, res)) return;
+
     const filter = { isArchived: false };
 
     if (req.user.role === 'admin') {
@@ -59,6 +78,8 @@ const getTemplates = async (req, res) => {
 
 const getTemplateById = async (req, res) => {
   try {
+    if (!ensureTemplateStudioAccess(req, res)) return;
+
     const template = await populateTemplate(AgreementTemplate.findById(req.params.id));
     if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
 
@@ -98,7 +119,9 @@ const getAvailableTemplates = async (req, res) => {
 
 const createTemplate = async (req, res) => {
   try {
-    if (!['landlord', 'property_manager', 'admin'].includes(req.user.role)) {
+    if (!ensureTemplateStudioAccess(req, res)) return;
+
+    if (!['landlord', 'admin'].includes(req.user.role)) {
       return res.status(403).json({ message: 'Only landlords or admins can create agreement templates' });
     }
 
@@ -134,6 +157,8 @@ const createTemplate = async (req, res) => {
 
 const updateTemplate = async (req, res) => {
   try {
+    if (!ensureTemplateStudioAccess(req, res)) return;
+
     const template = await AgreementTemplate.findById(req.params.id);
     if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
 
@@ -182,6 +207,8 @@ const updateTemplate = async (req, res) => {
 
 const deleteTemplate = async (req, res) => {
   try {
+    if (!ensureTemplateStudioAccess(req, res)) return;
+
     const template = await AgreementTemplate.findById(req.params.id);
     if (!template) return res.status(404).json({ message: 'Template not found' });
 
@@ -347,6 +374,8 @@ const reviewTemplate = async (req, res) => {
 
 const useTemplate = async (req, res) => {
   try {
+    if (!ensureTemplateStudioAccess(req, res)) return;
+
     const template = await AgreementTemplate.findById(req.params.id);
     if (!template || template.isArchived) return res.status(404).json({ message: 'Template not found' });
 

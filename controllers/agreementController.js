@@ -10,8 +10,8 @@ const { uploadAgreementPDF, isS3Configured, getAgreementPDFStream } = require('.
 const AgreementTemplate = require('../models/AgreementTemplate');
 
 const normalizeTier = (tier) => (
-  ['free', 'pro', 'enterprise'].includes(String(tier || '').toLowerCase())
-    ? String(tier).toLowerCase()
+  ['free', 'pro', 'enterprise'].includes(String(tier || '').trim().toLowerCase())
+    ? String(tier).trim().toLowerCase()
     : 'free'
 );
 
