@@ -897,6 +897,8 @@ function _buildClassicReceiptPDF(doc, payment, tenant, property, currencyCtx) {
   const W = 595.28, H = 841.89, M = 50, CW = W - M * 2;
   rect(doc, 0, 0, W, H, C.white);
 
+  doc.save().font(FONT.bold).fontSize(12).fillColor(C.gray900)
+    .text(brandName, 0, 24, { align: 'center', width: W, lineBreak: false }).restore();
   doc.save().moveTo(M, 42).lineTo(W - M, 42).lineWidth(1.5).strokeColor(C.gray900).stroke().restore();
   doc.save().moveTo(M, 44).lineTo(W - M, 44).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
   doc.save().font(FONT.bold).fontSize(18).fillColor(C.gray900)
@@ -972,6 +974,8 @@ function _buildMinimalistReceiptPDF(doc, payment, tenant, property, currencyCtx)
   const W = 595.28, H = 841.89, M = 50, CW = W - M * 2;
   rect(doc, 0, 0, W, H, C.white);
 
+  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray500)
+    .text(brandNameUpper, M, 40, { lineBreak: false }).restore();
   doc.save().font(FONT.bold).fontSize(28).fillColor(C.gray900)
     .text('RECEIPT', M, 62, { lineBreak: false }).restore();
   doc.save().moveTo(M, 102).lineTo(M + 140, 102).lineWidth(2).strokeColor(C.gray900).stroke().restore();
@@ -1096,6 +1100,8 @@ function _buildClassicPDF(doc, agreement, landlord, tenant, property, currencyCt
   rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
 
   // ── Double-rule title block ──
+  doc.save().font(FONT.bold).fontSize(10).fillColor(C.gray700)
+    .text(brandNameUpper, 0, 36, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
   doc.save().moveTo(PAGE.margin, 50).lineTo(PAGE.width - PAGE.margin, 50).lineWidth(2).strokeColor(C.gray900).stroke().restore();
   doc.save().moveTo(PAGE.margin, 52).lineTo(PAGE.width - PAGE.margin, 52).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
   doc.save().font(FONT.bold).fontSize(20).fillColor(C.gray900)
