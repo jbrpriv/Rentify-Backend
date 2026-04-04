@@ -5,6 +5,7 @@ const Payment = require('../models/Payment');
 const Clause = require('../models/Clause');
 const MaintenanceRequest = require('../models/MaintenanceRequest');
 const logger = require('../utils/logger');
+const { getPlatformBranding, upsertPlatformBranding } = require('../utils/platformSettings');
 
 // Revenue amounts for MRR calculation (cents). Sourced from env vars so they
 // stay in sync with the billing plans without any hardcoded numbers here.
@@ -658,6 +659,48 @@ const getClauseVariables = (req, res) => {
   res.json(CLAUSE_VARIABLES);
 };
 
+// @desc    Get platform branding settings
+// @route   GET /api/admin/settings/branding
+// @access  Private (Admin)
+const getBrandingSettings = async (req, res) => {
+  try {
+    const branding = await getPlatformBranding({ force: true });
+    res.json(branding);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Update platform branding settings
+// @route   PUT /api/admin/settings/branding
+// @access  Private (Admin)
+const updateBrandingSettings = async (req, res) => {
+  try {
+    const { brandName, supportEmail } = req.body || {};
+    const updated = await upsertPlatformBranding({
+      brandName,
+      supportEmail,
+      updatedBy: req.user?._id || null,
+    });
+    res.json({ message: 'Branding settings updated', ...updated });
+  } catch (error) {
+    const code = error.statusCode || 500;
+    res.status(code).json({ message: error.message || 'Failed to update branding settings' });
+  }
+};
+
+// @desc    Public branding settings for frontend display
+// @route   GET /api/settings/branding
+// @access  Public
+const getPublicBrandingSettings = async (_req, res) => {
+  try {
+    const branding = await getPlatformBranding();
+    res.json(branding);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // ─── Document Verification Admin Functions ─────────────────────────────────
 const { getTenantDocumentUrl, isS3Configured } = require('../utils/s3Service');
 
@@ -743,4 +786,7 @@ module.exports = {
   approveVerification,
   rejectVerification,
   getClauseVariables,
+  getBrandingSettings,
+  updateBrandingSettings,
+  getPublicBrandingSettings,
 };

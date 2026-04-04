@@ -1,5 +1,6 @@
 const { sendEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
+const { getPlatformBranding } = require('../utils/platformSettings');
 
 // Simple in-memory rate limiter: max 3 submissions per IP per hour
 const ipTracker = new Map();
@@ -45,7 +46,8 @@ const submitSupportRequest = async (req, res) => {
     }
 
     // Notify support team
-    const supportEmail = process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'support@rentifypro.com';
+    const branding = await getPlatformBranding();
+    const supportEmail = branding.supportEmail || process.env.SUPPORT_EMAIL || process.env.EMAIL_FROM || 'support@rentifypro.com';
     await sendEmail(
       supportEmail,
       'supportRequest',

@@ -1,4 +1,5 @@
 const twilio = require('twilio');
+const { getPlatformBranding } = require('./platformSettings');
 
 // Lazy-initialize client so the app doesn't crash if Twilio env vars are missing
 // in development environments where SMS isn't configured yet
@@ -88,6 +89,9 @@ const sendSMS = async (to, templateName, ...args) => {
     }
 
     const body = template(...args);
+    const { brandName } = await getPlatformBranding();
+    const safeBrandName = brandName || 'RentifyPro';
+    const brandedBody = String(body || '').replace(/RentifyPro/g, safeBrandName);
 
     // Validate E.164 format: + followed by 7-15 digits (covers every country worldwide)
     const E164_REGEX = /^\+[1-9]\d{6,14}$/;
@@ -98,7 +102,7 @@ const sendSMS = async (to, templateName, ...args) => {
     const normalizedTo = to;
 
     await twilioClient.messages.create({
-      body,
+      body: brandedBody,
       from: process.env.TWILIO_PHONE_NUMBER,
       to: normalizedTo,
     });

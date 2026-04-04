@@ -18,6 +18,8 @@ const {
   getAdminAnalytics,
   getBillingUsers,
   getClauseVariables,
+  getBrandingSettings,
+  updateBrandingSettings,
 } = require('../controllers/adminController');
 
 // ─── Platform Stats ───────────────────────────────────────────────────────────
@@ -60,5 +62,9 @@ router.put('/verifications/:userId/reject', protect, isAdmin, rejectVerification
 
 // ─── Billing Overview ─────────────────────────────────────────────────────────
 router.get('/billing/users', protect, isAdmin, getBillingUsers);
+
+// ─── Admin Settings ───────────────────────────────────────────────────────────
+router.get('/settings/branding', protect, isAdmin, getBrandingSettings);
+router.put('/settings/branding', protect, isAdmin, updateBrandingSettings);
 
 module.exports = router;

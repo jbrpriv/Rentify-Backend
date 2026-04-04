@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { getPlatformBranding } = require('../utils/platformSettings');
 
 /**
  * POST /api/data-deletion
@@ -12,6 +13,10 @@ const requestDataDeletion = async (req, res) => {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ message: 'A valid email address is required.' });
     }
+
+    const branding = await getPlatformBranding();
+    const brandName = branding.brandName || 'RentifyPro';
+    const supportEmailFromSettings = branding.supportEmail || 'support@rentifypro.com';
 
     const submittedAt = new Date().toISOString();
     const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
@@ -29,11 +34,11 @@ const requestDataDeletion = async (req, res) => {
         auth: { user: SMTP_USER, pass: SMTP_PASS },
       });
 
-      const adminEmail = SUPPORT_EMAIL || SMTP_USER;
+      const adminEmail = SUPPORT_EMAIL || supportEmailFromSettings || SMTP_USER;
 
       // Notify admin
       await transporter.sendMail({
-        from: `"RentifyPro System" <${SMTP_USER}>`,
+        from: `"${brandName} System" <${SMTP_USER}>`,
         to: adminEmail,
         subject: `[Action Required] Data Deletion Request — ${email}`,
         html: `
@@ -51,22 +56,22 @@ const requestDataDeletion = async (req, res) => {
               your privacy policy. Delete or anonymise the user's account, profile, listings,
               messages, and maintenance records. Retain financial/legal records as required by law.
             </p>
-            <p style="font-size:12px;color:#9ca3af;">This is an automated message from the RentifyPro platform.</p>
+            <p style="font-size:12px;color:#9ca3af;">This is an automated message from the ${brandName} platform.</p>
           </div>
         `,
       });
 
       // Acknowledge to the requester
       await transporter.sendMail({
-        from: `"RentifyPro Privacy" <${SMTP_USER}>`,
+        from: `"${brandName} Privacy" <${SMTP_USER}>`,
         to: email,
-        subject: 'We received your data deletion request — RentifyPro',
+        subject: `We received your data deletion request — ${brandName}`,
         html: `
           <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;">
             <h2 style="color:#0B2D72;margin-top:0;">Data Deletion Request Received</h2>
             <p style="color:#374151;font-size:14px;">
               Hi, we have received your request to delete all personal data associated with
-              <strong>${email}</strong> from RentifyPro.
+              <strong>${email}</strong> from ${brandName}.
             </p>
             <p style="color:#374151;font-size:14px;">
               We will process your request and confirm deletion within <strong>30 days</strong>.
@@ -74,9 +79,9 @@ const requestDataDeletion = async (req, res) => {
             </p>
             <p style="color:#6b7280;font-size:13px;">
               If you did not submit this request, please ignore this email or contact us at
-              privacy@rentifypro.com.
+              ${supportEmailFromSettings}.
             </p>
-            <p style="font-size:12px;color:#9ca3af;margin-top:24px;">RentifyPro · privacy@rentifypro.com</p>
+            <p style="font-size:12px;color:#9ca3af;margin-top:24px;">${brandName} · ${supportEmailFromSettings}</p>
           </div>
         `,
       });
@@ -87,7 +92,9 @@ const requestDataDeletion = async (req, res) => {
     });
   } catch (err) {
     console.error('[DATA DELETION ERROR]', err.message);
-    return res.status(500).json({ message: 'Failed to submit request. Please email privacy@rentifypro.com directly.' });
+    const branding = await getPlatformBranding();
+    const supportEmail = branding.supportEmail || 'support@rentifypro.com';
+    return res.status(500).json({ message: `Failed to submit request. Please email ${supportEmail} directly.` });
   }
 };
 

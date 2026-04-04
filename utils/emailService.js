@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { getPlatformBranding } = require('./platformSettings');
 
 // Lazy transporter — created on first use so a missing/wrong config
 // does NOT crash the server on startup (just logs a warning when sending fails)
@@ -468,12 +469,21 @@ const sendEmail = async (to, templateName, ...args) => {
     }
 
     const { subject, html } = template(...args);
+    const { brandName, supportEmail } = await getPlatformBranding();
+    const safeBrandName = brandName || 'RentifyPro';
+    const safeSupportEmail = supportEmail || 'support@rentifypro.com';
+
+    const brandedSubject = String(subject || '').replace(/RentifyPro/g, safeBrandName);
+    const brandedHtml = String(html || '')
+      .replace(/RentifyPro/g, safeBrandName)
+      .replace(/support@rentifypro\.com/gi, safeSupportEmail)
+      .replace(/privacy@rentifypro\.com/gi, safeSupportEmail);
 
     await transport.sendMail({
       from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
       to,
-      subject,
-      html,
+      subject: brandedSubject,
+      html: brandedHtml,
     });
 
     console.log(`Email sent [${templateName}] → ${to}`);
