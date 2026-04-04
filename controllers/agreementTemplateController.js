@@ -98,6 +98,7 @@ const getAvailableTemplates = async (req, res) => {
   try {
     const subscriptionTier = normalizeTier(req.user?.subscriptionTier);
     const canUseAgreementTemplates = subscriptionTier === 'enterprise';
+    const canSelectPdfThemes = subscriptionTier === 'enterprise';
 
     const templates = canUseAgreementTemplates
       ? await populateTemplate(
@@ -109,9 +110,11 @@ const getAvailableTemplates = async (req, res) => {
       )
       : [];
 
-    const themes = await PdfTheme.find({ isGlobal: true }).sort({ name: 1 });
+    const themes = canSelectPdfThemes
+      ? await PdfTheme.find({ isGlobal: true }).sort({ name: 1 })
+      : [];
 
-    res.json({ templates, themes, capabilities: { canUseAgreementTemplates } });
+    res.json({ templates, themes, capabilities: { canUseAgreementTemplates, canSelectPdfThemes } });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

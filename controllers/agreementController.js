@@ -69,8 +69,8 @@ const createAgreement = async (req, res) => {
       }
     }
 
-    if (pdfTheme && subscriptionTier === 'free') {
-      return res.status(403).json({ message: 'Free tier uses the admin global default PDF theme' });
+    if (pdfTheme && subscriptionTier !== 'enterprise') {
+      return res.status(403).json({ message: 'Pro and Free tiers use the admin global default PDF theme' });
     }
 
     const agreement = await Agreement.create({

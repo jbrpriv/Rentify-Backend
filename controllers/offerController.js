@@ -226,8 +226,8 @@ const acceptOffer = async (req, res) => {
 
       agreementTemplate = tmpl._id;
     } else if (pdfThemeId) {
-      if (subscriptionTier === 'free') {
-        return res.status(403).json({ message: 'Free tier uses the admin global default PDF theme' });
+      if (subscriptionTier !== 'enterprise') {
+        return res.status(403).json({ message: 'Pro and Free tiers use the admin global default PDF theme' });
       }
 
       const theme = await PdfTheme.findById(pdfThemeId).select('_id isGlobal');
