@@ -1568,6 +1568,16 @@ async function resolveTheme(agreement) {
 }
 
 async function resolveReceiptTheme(payment) {
+  // Allow receipt generation to explicitly choose a theme (used by live preview and future overrides).
+  if (payment?.pdfTheme && typeof payment.pdfTheme === 'object' && payment.pdfTheme.layoutStyle) {
+    return payment.pdfTheme;
+  }
+
+  if (payment?.pdfTheme) {
+    const explicitTheme = await PdfTheme.findById(payment.pdfTheme).lean();
+    if (explicitTheme) return explicitTheme;
+  }
+
   if (payment?.agreement) {
     try {
       const agreementLike =
