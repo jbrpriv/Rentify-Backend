@@ -1,7 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const { protect, requireRole } = require('../middlewares/authMiddleware');
-const { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics, submitVerificationDocuments, getDashboardSummary } = require('../controllers/userController');
+const {
+	getUserByEmail,
+	getProfile,
+	getMe,
+	updateProfile,
+	updatePreferences,
+	getContacts,
+	getLandlordAnalytics,
+	submitVerificationDocuments,
+	getDashboardSummary,
+	createStripeConnectOnboarding,
+	getStripeConnectStatus,
+} = require('../controllers/userController');
 
 // Look up any user by email (used by landlord when creating agreements)
 router.post('/lookup', protect, getUserByEmail);
@@ -14,6 +26,10 @@ router.patch('/me/preferences', protect, updatePreferences);
 
 // Dashboard summary (lightweight overview — avoids fetching full data sets)
 router.get('/dashboard-summary', protect, getDashboardSummary);
+
+// Stripe Connect (landlord payouts)
+router.get('/stripe-connect/status', protect, requireRole('landlord'), getStripeConnectStatus);
+router.post('/stripe-connect/onboard', protect, requireRole('landlord'), createStripeConnectOnboarding);
 
 // Messaging contacts based on role
 router.get('/contacts', protect, getContacts);

@@ -111,6 +111,12 @@ const userSchema = mongoose.Schema(
       select: false,
     },
 
+    // Stripe Connect account ID for landlord payouts
+    stripeId: {
+      type: String,
+      default: null,
+    },
+
     // Date the current paid subscription started (set by billing webhook)
     subscriptionStartDate: {
       type: Date,

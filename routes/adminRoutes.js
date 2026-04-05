@@ -17,6 +17,8 @@ const {
   kickTenantFromProperty,
   getAdminAnalytics,
   getBillingUsers,
+  getPaymentsForApproval,
+  approvePaymentForLandlord,
   getClauseVariables,
   getBrandingSettings,
   updateBrandingSettings,
@@ -62,6 +64,10 @@ router.put('/verifications/:userId/reject', protect, isAdmin, rejectVerification
 
 // ─── Billing Overview ─────────────────────────────────────────────────────────
 router.get('/billing/users', protect, isAdmin, getBillingUsers);
+
+// ─── Payment Approval Queue ───────────────────────────────────────────────────
+router.get('/payments', protect, isAdmin, getPaymentsForApproval);
+router.put('/payments/:paymentId/approve', protect, isAdmin, approvePaymentForLandlord);
 
 // ─── Admin Settings ───────────────────────────────────────────────────────────
 router.get('/settings/branding', protect, isAdmin, getBrandingSettings);

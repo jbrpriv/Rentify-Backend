@@ -7,6 +7,10 @@ const MaintenanceRequest = require('../models/MaintenanceRequest');
 const logger = require('../utils/logger');
 const { getPlatformBranding, upsertPlatformBranding } = require('../utils/platformSettings');
 
+function getStripeClient() {
+  return require('stripe')(process.env.STRIPE_SECRET_KEY);
+}
+
 // Revenue amounts for MRR calculation (cents). Sourced from env vars so they
 // stay in sync with the billing plans without any hardcoded numbers here.
 const MRR_CENTS = {
@@ -675,6 +679,179 @@ const getBillingUsers = async (req, res) => {
 };
 
 
+// @desc    List payments for admin approval queue
+// @route   GET /api/admin/payments
+// @access  Private (Admin)
+const getPaymentsForApproval = async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+    const skip = (page - 1) * limit;
+    const status = String(req.query.status || 'pending_approval').trim();
+
+    const filter = {
+      type: { $in: ['initial', 'rent'] },
+    };
+
+    if (status !== 'all') {
+      filter.status = status;
+    }
+
+    if (req.query.landlordId) {
+      filter.landlord = req.query.landlordId;
+    }
+
+    const [payments, total, pendingTotals] = await Promise.all([
+      Payment.find(filter)
+        .populate('tenant', 'name email')
+        .populate('landlord', 'name email stripeId')
+        .populate('property', 'title address')
+        .populate('agreement', 'financials term')
+        .sort({ paidAt: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Payment.countDocuments(filter),
+      Payment.aggregate([
+        { $match: { status: 'pending_approval', type: { $in: ['initial', 'rent'] } } },
+        {
+          $group: {
+            _id: null,
+            count: { $sum: 1 },
+            tenantPaidTotal: { $sum: '$amount' },
+            landlordPayoutTotal: { $sum: { $ifNull: ['$landlordPayoutAmount', '$amount'] } },
+          },
+        },
+      ]),
+    ]);
+
+    const pendingSummary = pendingTotals[0] || {
+      count: 0,
+      tenantPaidTotal: 0,
+      landlordPayoutTotal: 0,
+    };
+
+    res.json({
+      payments,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+      summary: {
+        pendingCount: pendingSummary.count,
+        pendingTenantPaidTotal: pendingSummary.tenantPaidTotal,
+        pendingLandlordPayoutTotal: pendingSummary.landlordPayoutTotal,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+// @desc    Approve a pending tenant payment and transfer landlord payout
+// @route   PUT /api/admin/payments/:paymentId/approve
+// @access  Private (Admin)
+const approvePaymentForLandlord = async (req, res) => {
+  try {
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(503).json({ message: 'Stripe is not configured on the server' });
+    }
+
+    const payment = await Payment.findById(req.params.paymentId)
+      .populate('landlord', 'name email stripeId')
+      .populate('agreement', 'financials');
+
+    if (!payment) {
+      return res.status(404).json({ message: 'Payment not found' });
+    }
+
+    if (payment.status !== 'pending_approval') {
+      return res.status(400).json({ message: 'Payment is not pending admin approval' });
+    }
+
+    if (!payment.landlord?.stripeId) {
+      return res.status(400).json({ message: 'Landlord has not connected a Stripe payout account' });
+    }
+
+    let payoutAmount = Number(payment.landlordPayoutAmount);
+    if (!Number.isFinite(payoutAmount) || payoutAmount <= 0) {
+      if (payment.type === 'initial') {
+        payoutAmount = Number(payment.agreement?.financials?.rentAmount || 0);
+      } else {
+        payoutAmount = Number(payment.amount || 0);
+      }
+    }
+
+    if (!Number.isFinite(payoutAmount) || payoutAmount <= 0) {
+      return res.status(400).json({ message: 'Invalid payout amount for this payment' });
+    }
+
+    const payoutCents = Math.round(payoutAmount * 100);
+    const currency = (process.env.STRIPE_CURRENCY || 'usd').toLowerCase();
+    const stripe = getStripeClient();
+
+    const transferParams = {
+      amount: payoutCents,
+      currency,
+      destination: payment.landlord.stripeId,
+      metadata: {
+        paymentId: payment._id.toString(),
+        agreementId: payment.agreement?._id?.toString() || '',
+        landlordId: payment.landlord._id.toString(),
+        approvedBy: req.user._id.toString(),
+      },
+    };
+
+    if (payment.stripePaymentIntent) {
+      try {
+        const paymentIntent = await stripe.paymentIntents.retrieve(payment.stripePaymentIntent);
+        if (paymentIntent?.latest_charge) {
+          transferParams.source_transaction = paymentIntent.latest_charge;
+        }
+      } catch (intentErr) {
+        logger.warn('Failed to retrieve payment intent for transfer source', {
+          paymentId: payment._id.toString(),
+          paymentIntent: payment.stripePaymentIntent,
+          err: intentErr.message,
+        });
+      }
+    }
+
+    const transfer = await stripe.transfers.create(transferParams);
+
+    payment.status = 'paid';
+    payment.landlordPayoutAmount = payoutAmount;
+    payment.adminApprovedBy = req.user._id;
+    payment.adminApprovedAt = new Date();
+    payment.stripeTransferId = transfer.id;
+
+    const approvalNote = String(req.body?.notes || '').trim();
+    if (approvalNote) {
+      payment.notes = payment.notes
+        ? `${payment.notes}\n[ADMIN_APPROVAL] ${approvalNote}`
+        : `[ADMIN_APPROVAL] ${approvalNote}`;
+    }
+
+    await payment.save();
+
+    res.json({
+      message: 'Payment approved and landlord payout transferred',
+      payment,
+      transfer: {
+        id: transfer.id,
+        amount: transfer.amount / 100,
+        currency: transfer.currency,
+        destination: transfer.destination,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
 
 // ─── Clause Variable Definitions ──────────────────────────────────────────────
 // @desc    Return the full list of available template variables for clause building
@@ -840,6 +1017,8 @@ module.exports = {
   kickTenantFromProperty,
   getAdminAnalytics,
   getBillingUsers,
+  getPaymentsForApproval,
+  approvePaymentForLandlord,
   getPendingVerifications,
   getApprovedVerifications,
   approveVerification,

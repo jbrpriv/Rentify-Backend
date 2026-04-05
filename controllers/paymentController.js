@@ -237,6 +237,7 @@ const handleStripeWebhook = async (req, res) => {
     }
 
     const schedule = buildRentSchedule(agreement, session.payment_intent);
+    const payoutRentAmount = agreement.financials?.rentAmount || 0;
 
     const initialPayment = await Payment.create({
       agreement: agreementId,
@@ -245,9 +246,10 @@ const handleStripeWebhook = async (req, res) => {
       property: agreement.property._id,
       amount: session.amount_total / 100,
       type: 'initial',
-      status: 'paid',
+      status: 'pending_approval',
       paidAt: new Date(),
       dueDate: new Date(agreement.term.startDate),
+      landlordPayoutAmount: payoutRentAmount,
       stripePaymentIntent: session.payment_intent,
       stripeSessionId: session.id,
     });
@@ -355,9 +357,10 @@ const handleStripeWebhook = async (req, res) => {
         property: agreement.property._id,
         amount: session.amount_total / 100,
         type: 'rent',
-        status: 'paid',
+        status: 'pending_approval',
         paidAt: new Date(),
         dueDate: entry.dueDate,
+        landlordPayoutAmount: session.amount_total / 100,
         lateFeeIncluded: (entry.lateFeeAmount || 0) > 0,
         lateFeeAmount: entry.lateFeeAmount || 0,
         stripePaymentIntent: session.payment_intent,
@@ -577,7 +580,17 @@ const getPaymentHistory = async (req, res) => {
     // Optional narrow-down filters
     if (agreementId) filter.agreement = agreementId;
     if (type) filter.type = type;
-    if (status) filter.status = status;
+    if (status) {
+      const statuses = String(status)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length === 1) {
+        filter.status = statuses[0];
+      } else if (statuses.length > 1) {
+        filter.status = { $in: statuses };
+      }
+    }
 
     const skip = (Number(page) - 1) * Number(limit);
 

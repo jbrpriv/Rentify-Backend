@@ -35,7 +35,7 @@ const paymentSchema = mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'paid', 'failed', 'refunded', 'retry_scheduled'],
+      enum: ['pending', 'pending_approval', 'paid', 'failed', 'refunded', 'retry_scheduled'],
       default: 'pending',
     },
 
@@ -47,6 +47,23 @@ const paymentSchema = mongoose.Schema(
     },
     paidAt: {
       type: Date,
+      default: null,
+    },
+    landlordPayoutAmount: {
+      type: Number,
+      default: null,
+    },
+    adminApprovedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    adminApprovedAt: {
+      type: Date,
+      default: null,
+    },
+    stripeTransferId: {
+      type: String,
       default: null,
     },
 

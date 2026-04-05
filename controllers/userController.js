@@ -4,6 +4,10 @@ const Property = require('../models/Property');
 const Payment = require('../models/Payment');
 const MaintenanceRequest = require('../models/MaintenanceRequest');
 
+function getStripeClient() {
+  return require('stripe')(process.env.STRIPE_SECRET_KEY);
+}
+
 // @desc    Find user by email (used when landlord types tenant email to create agreement)
 // @route   POST /api/users/lookup
 const getUserByEmail = async (req, res) => {
@@ -292,6 +296,105 @@ const getLandlordAnalytics = async (req, res) => {
   }
 };
 
+// @desc    Create or reuse Stripe Connect onboarding link for landlord payouts
+// @route   POST /api/users/stripe-connect/onboard
+// @access  Private (Landlord)
+const createStripeConnectOnboarding = async (req, res) => {
+  try {
+    if (req.user.role !== 'landlord') {
+      return res.status(403).json({ message: 'Only landlords can connect Stripe payouts' });
+    }
+
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(503).json({ message: 'Stripe is not configured on the server' });
+    }
+
+    const user = await User.findById(req.user._id).select('name email role stripeId');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const stripe = getStripeClient();
+    let stripeId = user.stripeId;
+
+    if (!stripeId) {
+      const account = await stripe.accounts.create({
+        type: 'express',
+        email: user.email,
+        business_type: 'individual',
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        metadata: {
+          userId: user._id.toString(),
+          role: user.role,
+        },
+      });
+
+      stripeId = account.id;
+      user.stripeId = stripeId;
+      await user.save();
+    }
+
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const accountLink = await stripe.accountLinks.create({
+      account: stripeId,
+      refresh_url: `${clientUrl}/dashboard/profile?stripe=refresh`,
+      return_url: `${clientUrl}/dashboard/profile?stripe=return`,
+      type: 'account_onboarding',
+    });
+
+    res.json({ url: accountLink.url, stripeId });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get Stripe Connect status for landlord payout account
+// @route   GET /api/users/stripe-connect/status
+// @access  Private (Landlord)
+const getStripeConnectStatus = async (req, res) => {
+  try {
+    if (req.user.role !== 'landlord') {
+      return res.status(403).json({ message: 'Only landlords can view Stripe payout status' });
+    }
+
+    const user = await User.findById(req.user._id).select('stripeId');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (!user.stripeId) {
+      return res.json({
+        connected: false,
+        stripeId: null,
+        onboardingComplete: false,
+        detailsSubmitted: false,
+        payoutsEnabled: false,
+        chargesEnabled: false,
+        requirementsDue: [],
+      });
+    }
+
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(503).json({ message: 'Stripe is not configured on the server' });
+    }
+
+    const stripe = getStripeClient();
+    const account = await stripe.accounts.retrieve(user.stripeId);
+    const onboardingComplete = !!(account.details_submitted && account.payouts_enabled);
+
+    res.json({
+      connected: onboardingComplete,
+      stripeId: user.stripeId,
+      onboardingComplete,
+      detailsSubmitted: !!account.details_submitted,
+      payoutsEnabled: !!account.payouts_enabled,
+      chargesEnabled: !!account.charges_enabled,
+      requirementsDue: account.requirements?.currently_due || [],
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 
 // ─── Document Verification Submission ────────────────────────────────────────
 async function submitVerificationDocuments(req, res) {
@@ -408,4 +511,16 @@ const getDashboardSummary = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 }
-module.exports = { getUserByEmail, getProfile, getMe, updateProfile, updatePreferences, getContacts, getLandlordAnalytics, submitVerificationDocuments, getDashboardSummary };
+module.exports = {
+  getUserByEmail,
+  getProfile,
+  getMe,
+  updateProfile,
+  updatePreferences,
+  getContacts,
+  getLandlordAnalytics,
+  submitVerificationDocuments,
+  getDashboardSummary,
+  createStripeConnectOnboarding,
+  getStripeConnectStatus,
+};
