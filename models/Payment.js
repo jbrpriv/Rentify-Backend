@@ -86,6 +86,10 @@ const paymentSchema = mongoose.Schema(
       type: String,
       default: null,
     },
+    idempotencyKey: {
+      type: String,
+      default: null,
+    },
 
     // ─── Multi-Gateway Support ─────────────────────────────────────
     gateway: {
@@ -134,6 +138,15 @@ paymentSchema.pre('save', function () {
 paymentSchema.index(
   { agreement: 1, dueDate: 1 },
   { unique: true, partialFilterExpression: { status: 'paid', type: 'rent' } }
+);
+
+// Prevent duplicate logical records created by webhook retries/race conditions.
+paymentSchema.index(
+  { idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: 'string' } },
+  }
 );
 
 module.exports = mongoose.model('Payment', paymentSchema);

@@ -8,7 +8,9 @@
     "dev": "nodemon server.js",
     "test": "jest --runInBand --forceExit",
     "test:watch": "jest --runInBand --watch",
-    "test:coverage": "jest --runInBand --forceExit --coverage"
+    "test:coverage": "jest --runInBand --forceExit --coverage",
+    "payments:dedupe": "node scripts/dedupePayments.js",
+    "payments:dedupe:apply": "node scripts/dedupePayments.js --apply"
   },
   "jest": {
     "testEnvironment": "node",

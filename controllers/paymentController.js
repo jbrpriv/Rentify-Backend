@@ -172,6 +172,15 @@ const createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: 'Agreement must be fully signed before payment' });
     }
 
+    const existingInitial = await Payment.findOne({
+      agreement: agreementId,
+      type: 'initial',
+      status: { $in: ['pending_approval', 'paid'] },
+    });
+    if (existingInitial) {
+      return res.status(400).json({ message: 'Initial payment has already been recorded' });
+    }
+
     const rentAmount = agreement.financials.rentAmount || 0;
     const depositAmount = agreement.financials.depositAmount || 0;
     const petDeposit = agreement.petPolicy?.allowed ? (agreement.petPolicy?.deposit || 0) : 0;
@@ -226,6 +235,26 @@ const handleStripeWebhook = async (req, res) => {
     const session = event.data.object;
     const { agreementId } = session.metadata;
 
+    const existingBySession = await Payment.findOne({ stripeSessionId: session.id });
+    if (existingBySession) {
+      logger.info('Duplicate Stripe webhook ignored (initial by session)', {
+        sessionId: session.id,
+        paymentId: existingBySession._id?.toString(),
+      });
+      return res.json({ received: true });
+    }
+
+    if (session.payment_intent) {
+      const existingByIntent = await Payment.findOne({ stripePaymentIntent: session.payment_intent });
+      if (existingByIntent) {
+        logger.info('Duplicate Stripe webhook ignored (initial by intent)', {
+          paymentIntent: session.payment_intent,
+          paymentId: existingByIntent._id?.toString(),
+        });
+        return res.json({ received: true });
+      }
+    }
+
     const agreement = await Agreement.findById(agreementId)
       .populate('tenant', 'name email phoneNumber smsOptIn')
       .populate('landlord', 'name email')
@@ -236,25 +265,65 @@ const handleStripeWebhook = async (req, res) => {
       return res.json({ received: true });
     }
 
+    const existingInitialForAgreement = await Payment.findOne({
+      agreement: agreementId,
+      type: 'initial',
+      status: { $in: ['pending_approval', 'paid'] },
+    });
+    if (existingInitialForAgreement) {
+      logger.info('Duplicate Stripe webhook ignored (initial already exists for agreement)', {
+        agreementId,
+        paymentId: existingInitialForAgreement._id?.toString(),
+      });
+      return res.json({ received: true });
+    }
+
     const schedule = buildRentSchedule(agreement, session.payment_intent);
     const payoutRentAmount = agreement.financials?.rentAmount || 0;
 
-    const initialPayment = await Payment.create({
-      agreement: agreementId,
-      tenant: agreement.tenant._id,
-      landlord: agreement.landlord._id,
-      property: agreement.property._id,
-      amount: session.amount_total / 100,
-      type: 'initial',
-      status: 'pending_approval',
-      paidAt: new Date(),
-      dueDate: new Date(agreement.term.startDate),
-      landlordPayoutAmount: payoutRentAmount,
-      stripePaymentIntent: session.payment_intent,
-      stripeSessionId: session.id,
-    });
+    const initialIdempotencyKey = `initial:${agreementId}`;
+    let initialPayment;
+    let initialWasInserted = false;
 
-    if (isS3Configured()) {
+    try {
+      initialPayment = await Payment.create({
+        agreement: agreementId,
+        tenant: agreement.tenant._id,
+        landlord: agreement.landlord._id,
+        property: agreement.property._id,
+        amount: session.amount_total / 100,
+        type: 'initial',
+        status: 'pending_approval',
+        paidAt: new Date(),
+        dueDate: new Date(agreement.term.startDate),
+        landlordPayoutAmount: payoutRentAmount,
+        stripePaymentIntent: session.payment_intent,
+        stripeSessionId: session.id,
+        idempotencyKey: initialIdempotencyKey,
+      });
+      initialWasInserted = true;
+    } catch (insertErr) {
+      if (insertErr?.code === 11000) {
+        initialPayment = await Payment.findOne({ idempotencyKey: initialIdempotencyKey });
+        logger.info('Duplicate Stripe webhook ignored (initial by idempotencyKey)', {
+          agreementId,
+          idempotencyKey: initialIdempotencyKey,
+          paymentId: initialPayment?._id?.toString(),
+        });
+      } else {
+        throw insertErr;
+      }
+    }
+
+    if (!initialPayment) {
+      logger.warn('Initial payment dedupe lookup failed after duplicate key', {
+        agreementId,
+        idempotencyKey: initialIdempotencyKey,
+      });
+      return res.json({ received: true });
+    }
+
+    if (initialWasInserted && isS3Configured()) {
       generateReceiptPDFBuffer(
         initialPayment,
         { name: agreement.tenant.name, email: agreement.tenant.email },
@@ -330,6 +399,26 @@ const handleStripeWebhook = async (req, res) => {
     const session = event.data.object;
     const { agreementId, scheduleIndex, month } = session.metadata;
 
+    const existingBySession = await Payment.findOne({ stripeSessionId: session.id });
+    if (existingBySession) {
+      logger.info('Duplicate Stripe webhook ignored (monthly by session)', {
+        sessionId: session.id,
+        paymentId: existingBySession._id?.toString(),
+      });
+      return res.json({ received: true });
+    }
+
+    if (session.payment_intent) {
+      const existingByIntent = await Payment.findOne({ stripePaymentIntent: session.payment_intent });
+      if (existingByIntent) {
+        logger.info('Duplicate Stripe webhook ignored (monthly by intent)', {
+          paymentIntent: session.payment_intent,
+          paymentId: existingByIntent._id?.toString(),
+        });
+        return res.json({ received: true });
+      }
+    }
+
     const agreement = await Agreement.findById(agreementId)
       .populate('tenant', 'name email phoneNumber smsOptIn')
       .populate('landlord', 'name email')
@@ -343,6 +432,36 @@ const handleStripeWebhook = async (req, res) => {
     const idx = parseInt(scheduleIndex, 10);
     const entry = agreement.rentSchedule?.[idx];
 
+    if (!entry) {
+      logger.warn('Webhook: Rent schedule entry not found for monthly rent', { agreementId, scheduleIndex });
+      return res.json({ received: true });
+    }
+
+    const existingMonthlyForPeriod = await Payment.findOne({
+      agreement: agreementId,
+      type: 'rent',
+      dueDate: entry.dueDate,
+      status: { $in: ['pending_approval', 'paid'] },
+    });
+    if (existingMonthlyForPeriod) {
+      logger.info('Duplicate Stripe webhook ignored (monthly rent already exists for due date)', {
+        agreementId,
+        scheduleIndex,
+        paymentId: existingMonthlyForPeriod._id?.toString(),
+      });
+
+      if (entry.status !== 'paid') {
+        entry.status = 'paid';
+        entry.paidDate = existingMonthlyForPeriod.paidAt || new Date();
+        entry.paidAmount = existingMonthlyForPeriod.amount || entry.amount;
+        entry.stripePaymentIntent = existingMonthlyForPeriod.stripePaymentIntent || entry.stripePaymentIntent;
+        entry.checkoutUrl = null;
+        await agreement.save();
+      }
+
+      return res.json({ received: true });
+    }
+
     if (entry && entry.status !== 'paid') {
       entry.status = 'paid';
       entry.paidDate = new Date();
@@ -350,24 +469,54 @@ const handleStripeWebhook = async (req, res) => {
       entry.stripePaymentIntent = session.payment_intent;
       entry.checkoutUrl = null;
 
-      const monthlyPayment = await Payment.create({
-        agreement: agreementId,
-        tenant: agreement.tenant._id,
-        landlord: agreement.landlord._id,
-        property: agreement.property._id,
-        amount: session.amount_total / 100,
-        type: 'rent',
-        status: 'pending_approval',
-        paidAt: new Date(),
-        dueDate: entry.dueDate,
-        landlordPayoutAmount: session.amount_total / 100,
-        lateFeeIncluded: (entry.lateFeeAmount || 0) > 0,
-        lateFeeAmount: entry.lateFeeAmount || 0,
-        stripePaymentIntent: session.payment_intent,
-        stripeSessionId: session.id,
-      });
+      const dueDateKey = new Date(entry.dueDate).toISOString().slice(0, 10);
+      const monthlyIdempotencyKey = `rent:${agreementId}:${dueDateKey}`;
+      let monthlyPayment;
+      let monthlyWasInserted = false;
 
-      if (isS3Configured()) {
+      try {
+        monthlyPayment = await Payment.create({
+          agreement: agreementId,
+          tenant: agreement.tenant._id,
+          landlord: agreement.landlord._id,
+          property: agreement.property._id,
+          amount: session.amount_total / 100,
+          type: 'rent',
+          status: 'pending_approval',
+          paidAt: new Date(),
+          dueDate: entry.dueDate,
+          landlordPayoutAmount: session.amount_total / 100,
+          lateFeeIncluded: (entry.lateFeeAmount || 0) > 0,
+          lateFeeAmount: entry.lateFeeAmount || 0,
+          stripePaymentIntent: session.payment_intent,
+          stripeSessionId: session.id,
+          idempotencyKey: monthlyIdempotencyKey,
+        });
+        monthlyWasInserted = true;
+      } catch (insertErr) {
+        if (insertErr?.code === 11000) {
+          monthlyPayment = await Payment.findOne({ idempotencyKey: monthlyIdempotencyKey });
+          logger.info('Duplicate Stripe webhook ignored (monthly by idempotencyKey)', {
+            agreementId,
+            scheduleIndex,
+            idempotencyKey: monthlyIdempotencyKey,
+            paymentId: monthlyPayment?._id?.toString(),
+          });
+        } else {
+          throw insertErr;
+        }
+      }
+
+      if (!monthlyPayment) {
+        logger.warn('Monthly payment dedupe lookup failed after duplicate key', {
+          agreementId,
+          scheduleIndex,
+          idempotencyKey: monthlyIdempotencyKey,
+        });
+        return res.json({ received: true });
+      }
+
+      if (monthlyWasInserted && isS3Configured()) {
         generateReceiptPDFBuffer(
           monthlyPayment,
           { name: agreement.tenant.name, email: agreement.tenant.email },
@@ -652,7 +801,7 @@ const createRentCheckoutSession = async (req, res) => {
     const existingPaid = await Payment.findOne({
       agreement: agreementId,
       dueDate: entry.dueDate,
-      status: 'paid',
+      status: { $in: ['pending_approval', 'paid'] },
       type: 'rent',
     });
     if (existingPaid) {
