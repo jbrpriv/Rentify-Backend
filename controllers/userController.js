@@ -472,6 +472,8 @@ const getDashboardSummary = async (req, res) => {
       pendingDisputes,
       pendingMaintenance,
       overduePayments,
+      pendingApprovalPayments,
+      pendingApprovalAmountAgg,
     ] = await Promise.all([
       Agreement.countDocuments({ ...agreementQuery, status: 'active' }),
       Offer.countDocuments({ ...(role === 'landlord' ? { landlord: userId } : role === 'tenant' ? { tenant: userId } : {}), status: { $in: ['pending', 'countered'] } }),
@@ -484,6 +486,16 @@ const getDashboardSummary = async (req, res) => {
       Dispute.countDocuments({ ...(role === 'tenant' ? { raisedBy: userId } : role === 'landlord' ? { property: { $in: (await Property.find({ landlord: userId }).select('_id')).map(p => p._id) } } : {}), status: { $in: ['open', 'under_review'] } }),
       MaintenanceRequest.countDocuments({ ...(role === 'tenant' ? { tenant: userId } : role === 'landlord' ? { property: { $in: (await Property.find({ landlord: userId }).select('_id')).map(p => p._id) } } : {}), status: { $in: ['pending', 'in_progress'] } }),
       Payment.countDocuments({ ...paymentQuery, status: { $in: ['failed', 'overdue'] } }),
+      Payment.countDocuments({ ...paymentQuery, status: 'pending_approval' }),
+      Payment.aggregate([
+        { $match: { ...paymentQuery, status: 'pending_approval' } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ['$landlordPayoutAmount', '$amount'] } },
+          },
+        },
+      ]),
     ]);
 
     // Recent agreements (just a few for the overview)
@@ -503,6 +515,8 @@ const getDashboardSummary = async (req, res) => {
         pendingDisputes,
         pendingMaintenance,
         overduePayments,
+        pendingApprovalPayments,
+        pendingApprovalAmount: pendingApprovalAmountAgg[0]?.total || 0,
       },
       recentPayments,
       recentAgreements,
