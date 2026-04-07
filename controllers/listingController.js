@@ -16,6 +16,11 @@ try { Application = require('../models/Application'); } catch { Application = nu
 const getPublicListings = async (req, res) => {
   try {
     const { city, type, minRent, maxRent } = req.query;
+    const hasPaginationParams = req.query.page !== undefined || req.query.limit !== undefined;
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 15));
+    const skip = (page - 1) * limit;
+
     const filter = { isListed: true, status: 'vacant' };
     if (city) filter['address.city'] = { $regex: new RegExp(escapeRegex(city), 'i') };
     if (type) filter.type = type;
@@ -24,11 +29,36 @@ const getPublicListings = async (req, res) => {
       if (minRent) filter['financials.monthlyRent'].$gte = Number(minRent);
       if (maxRent) filter['financials.monthlyRent'].$lte = Number(maxRent);
     }
-    const listings = await Property.find(filter)
-      .populate('landlord', 'name email profilePhoto documentsVerified')
-      .select('-applications')
-      .sort('-createdAt');
-    res.json(listings);
+
+    if (!hasPaginationParams) {
+      const legacyListings = await Property.find(filter)
+        .populate('landlord', 'name email profilePhoto documentsVerified')
+        .select('-applications')
+        .sort('-createdAt');
+
+      return res.json(legacyListings);
+    }
+
+    const [listings, total] = await Promise.all([
+      Property.find(filter)
+        .populate('landlord', 'name email profilePhoto documentsVerified')
+        .select('-applications')
+        .sort('-createdAt')
+        .skip(skip)
+        .limit(limit),
+      Property.countDocuments(filter),
+    ]);
+
+    res.json({
+      listings,
+      pagination: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+        hasMore: page * limit < total,
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
