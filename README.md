@@ -165,7 +165,7 @@ Production deploy flow includes:
 ## Project Tree
 
 ```text
-├─ Rentify-Backend
+Rentify-Backend
 │  ├─ .dockerignore
 │  ├─ artillery
 │  │  └─ load-test.yml
