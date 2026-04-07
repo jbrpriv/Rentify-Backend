@@ -9,6 +9,7 @@
     "test": "jest --runInBand --forceExit",
     "test:watch": "jest --runInBand --watch",
     "test:coverage": "jest --runInBand --forceExit --coverage",
+    "seed:sara-properties": "node scripts/seedSaraProperties.js",
     "payments:dedupe": "node scripts/dedupePayments.js",
     "payments:dedupe:apply": "node scripts/dedupePayments.js --apply"
   },
