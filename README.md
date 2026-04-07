@@ -161,6 +161,10 @@ Production deploy flow includes:
 - Rate limiting is applied per route group.
 - Stripe webhooks are mounted before JSON parser (raw body required).
 - Sentry is initialized outside test mode only.
+ 
+## Project Tree
+
+```text
 ├─ Rentify-Backend
 │  ├─ .dockerignore
 │  ├─ artillery
@@ -272,3 +276,4 @@ Production deploy flow includes:
 │     └─ utils
 │        ├─ clauseSubstitution.test.js
 │        └─ generateToken.test.js
+```
