@@ -13,6 +13,7 @@ const {
   createClause,
   reviewClause,
   archiveClause,
+  restoreClause,
   getAllProperties,
   kickTenantFromProperty,
   getAdminAnalytics,
@@ -54,6 +55,7 @@ router.get('/clauses', protect, isLawReviewer, getClauses);
 router.post('/clauses', protect, isLawReviewer, createClause);
 router.put('/clauses/:id/approve', protect, isLawReviewer, reviewClause);
 router.put('/clauses/:id/archive', protect, isAdmin, archiveClause);
+router.put('/clauses/:id/restore', protect, isAdmin, restoreClause);
 
 // ─── Document Verification ────────────────────────────────────────────────────
 const { getPendingVerifications, getApprovedVerifications, approveVerification, rejectVerification } = require('../controllers/adminController');

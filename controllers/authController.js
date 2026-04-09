@@ -61,12 +61,18 @@ const registerUser = async (req, res) => {
   if (!errors.isEmpty()) return res.status(400).json({ message: errors.array()[0].msg });
 
   const { name, email, password, role, phoneNumber } = req.body;
+  const requestedRole = String(role || 'tenant').trim().toLowerCase();
+  const selfRegisterRoles = ['tenant', 'landlord', 'property_manager'];
+  if (!selfRegisterRoles.includes(requestedRole)) {
+    return res.status(403).json({ message: 'Account creation is not allowed for this role' });
+  }
+
   const userExists = await User.findOne({ email });
   if (userExists) return res.status(400).json({ message: 'User already exists' });
 
   const emailOtp = Math.floor(100000 + Math.random() * 900000).toString();
   const user = await User.create({
-    name, email, password, role, phoneNumber,
+    name, email, password, role: requestedRole, phoneNumber,
     otpCode: emailOtp,
     otpExpiry: new Date(Date.now() + 24 * 60 * 60 * 1000),
     isVerified: false,

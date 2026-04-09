@@ -410,6 +410,23 @@ const archiveClause = async (req, res) => {
   }
 };
 
+// @desc    Restore an archived clause
+// @route   PUT /api/admin/clauses/:id/restore
+// @access  Private (Admin)
+const restoreClause = async (req, res) => {
+  try {
+    const clause = await Clause.findByIdAndUpdate(
+      req.params.id,
+      { isArchived: false, isLatestVersion: true },
+      { returnDocument: 'after' }
+    );
+    if (!clause) return res.status(404).json({ message: 'Clause not found' });
+    res.json({ message: 'Clause restored', clause });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 
 // @desc    Get all properties with tenant info
 // @route   GET /api/admin/properties
@@ -1013,6 +1030,7 @@ module.exports = {
   createClause,
   reviewClause,
   archiveClause,
+  restoreClause,
   getAllProperties,
   kickTenantFromProperty,
   getAdminAnalytics,

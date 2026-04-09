@@ -15,7 +15,7 @@ try { Application = require('../models/Application'); } catch { Application = nu
 // @route GET /api/listings
 const getPublicListings = async (req, res) => {
   try {
-    const { city, type, minRent, maxRent } = req.query;
+    const { city, type, minRent, maxRent, minBeds, sort } = req.query;
     const hasPaginationParams = req.query.page !== undefined || req.query.limit !== undefined;
     const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
     const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 15));
@@ -29,12 +29,25 @@ const getPublicListings = async (req, res) => {
       if (minRent) filter['financials.monthlyRent'].$gte = Number(minRent);
       if (maxRent) filter['financials.monthlyRent'].$lte = Number(maxRent);
     }
+    if (minBeds) {
+      filter['specs.bedrooms'] = { $gte: Number(minBeds) };
+    }
+
+    const normalizedSort = String(sort || '').toLowerCase();
+    let sortSpec = { createdAt: -1 };
+    if (normalizedSort === 'price_asc') {
+      sortSpec = { 'financials.monthlyRent': 1, createdAt: -1 };
+    } else if (normalizedSort === 'price_desc') {
+      sortSpec = { 'financials.monthlyRent': -1, createdAt: -1 };
+    } else if (normalizedSort === 'newest') {
+      sortSpec = { createdAt: -1 };
+    }
 
     if (!hasPaginationParams) {
       const legacyListings = await Property.find(filter)
         .populate('landlord', 'name email profilePhoto documentsVerified')
         .select('-applications')
-        .sort('-createdAt');
+        .sort(sortSpec);
 
       return res.json(legacyListings);
     }
@@ -43,7 +56,7 @@ const getPublicListings = async (req, res) => {
       Property.find(filter)
         .populate('landlord', 'name email profilePhoto documentsVerified')
         .select('-applications')
-        .sort('-createdAt')
+        .sort(sortSpec)
         .skip(skip)
         .limit(limit),
       Property.countDocuments(filter),
