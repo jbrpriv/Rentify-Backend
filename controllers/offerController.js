@@ -272,7 +272,6 @@ const acceptOffer = async (req, res) => {
 
     // ── Notifications ─────────────────────────────────────────────────────────
     try {
-      await sendEmail(offer.tenant.email, 'applicationAccepted', offer.tenant.name, offer.property.title);
       await notificationQueue.add('notification', {
         type: 'APPLICATION_ACCEPTED',
         data: {

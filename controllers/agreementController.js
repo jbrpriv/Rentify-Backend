@@ -1013,8 +1013,6 @@ module.exports = {
   getAvailableClauses,
   updateAgreementClauses,
   getDocumentUrl,
-  sendSigningInvites,
-  signViaToken,
   getVersionHistory,
   snapshotAgreement,
   getAgreementPreview,

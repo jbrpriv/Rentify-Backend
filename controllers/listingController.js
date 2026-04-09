@@ -1,6 +1,7 @@
 const Property = require('../models/Property');
 const Agreement = require('../models/Agreement');
 const { sendEmail } = require('../utils/emailService');
+const logger = require('../utils/logger');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -233,10 +234,11 @@ const updateOfferStatus = async (req, res) => {
     const { status } = req.body;
     if (!['accepted', 'rejected'].includes(status)) return res.status(400).json({ message: 'Status must be accepted or rejected' });
     const offer = await Offer.findById(req.params.id)
-      .populate('tenant', 'name email').populate('property', 'title financials leaseTerms').populate('landlord', 'name email profilePhoto documentsVerified');
+      .populate('tenant', 'name email phoneNumber').populate('property', 'title financials leaseTerms').populate('landlord', 'name email profilePhoto documentsVerified');
     if (!offer) return res.status(404).json({ message: 'Offer not found' });
     if (req.user.role !== 'admin' && offer.landlord._id.toString() !== req.user._id.toString()) return res.status(403).json({ message: 'Not authorized' });
 
+    const notificationQueue = require('../queues/notificationQueue');
     offer.status = status;
     if (status === 'accepted') {
       const dur = offer.property.leaseTerms?.defaultDurationMonths || 12;
@@ -257,7 +259,21 @@ const updateOfferStatus = async (req, res) => {
       offer.agreement = agreement._id;
       const prop = await Property.findById(offer.property._id);
       if (prop) { const e = prop.applications.find(a => a.tenant.toString() === offer.tenant._id.toString()); if (e) { e.status = 'accepted'; await prop.save(); } }
-      sendEmail(offer.tenant.email, 'applicationAccepted', offer.tenant.name, offer.property.title);
+      try {
+        await notificationQueue.add('notification', {
+          type: 'APPLICATION_ACCEPTED',
+          data: {
+            tenantId: offer.tenant._id,
+            tenantEmail: offer.tenant.email,
+            tenantPhone: offer.tenant.phoneNumber,
+            tenantName: offer.tenant.name,
+            propertyTitle: offer.property.title,
+            tenantSmsOptIn: true
+          }
+        });
+      } catch (notifyErr) {
+        logger.error('updateOfferStatus notification error', { err: notifyErr.message });
+      }
     }
     if (status === 'rejected') {
       const prop = await Property.findById(offer.property._id);

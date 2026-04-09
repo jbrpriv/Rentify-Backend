@@ -6,7 +6,6 @@ const {
   downloadAgreementPDF, getAgreements, getAgreementById, signAgreement,
   proposeRenewal, respondToRenewal,
   getAvailableClauses, updateAgreementClauses, getDocumentUrl,
-  sendSigningInvites, signViaToken,
   getVersionHistory, snapshotAgreement, getAgreementPreview, getAgreementPreviewPublic,
   updateEscalation,
 } = require('../controllers/agreementController');
@@ -35,8 +34,6 @@ router.get('/:id/document-url', protect, getDocumentUrl);
 
 // Signing
 router.put('/:id/sign', protect, signAgreement);
-router.post('/:id/send-invites', protect, sendSigningInvites);
-router.post('/:id/sign-via-token', signViaToken);   // public — token-authenticated
 
 // Version history & snapshots
 router.get('/:id/version-history', protect, getVersionHistory);
