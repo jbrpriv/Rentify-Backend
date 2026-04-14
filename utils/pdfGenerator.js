@@ -1,1697 +1,252 @@
-const PDFDocument = require('pdfkit');
-const { substituteClauses } = require('./clauseSubstitution');
+let puppeteer;
+try {
+  puppeteer = require('puppeteer');
+} catch (e) {
+  // Silent fail - user will install manually on server
+}
+
+const { substituteVariables, buildVariableMap } = require('./clauseSubstitution');
 const { getCurrencyContext } = require('./currencyService');
-const PdfTheme = require('../models/PdfTheme');
 const AgreementTemplate = require('../models/AgreementTemplate');
 const Agreement = require('../models/Agreement');
 const { getPlatformBranding } = require('./platformSettings');
 
-// ─── Factory ───────────────────────────────────────────────────────────────
-function createPdfBuilder(theme) {
-  const isMinimalist = theme?.layoutStyle === 'minimalist';
-  const isClassic = theme?.layoutStyle === 'classic';
-  const isNonModern = isMinimalist || isClassic;
+/**
+ * Wraps the agreement body in a professional HTML document with Times New Roman styling.
+ */
+function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
+  const landlordSig = agreement.signatures?.landlord;
+  const tenantSig = agreement.signatures?.tenant;
 
-  const primaryColor = theme?.primaryColor || '#0F2B5B';
-  const accentColor = theme?.accentColor || '#1A56DB';
-  const pageBackgroundColor = theme?.backgroundColor || '#EBF2FF';
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body {
+          font-family: "Times New Roman", Times, serif;
+          line-height: 1.5;
+          margin: 0;
+          padding: 0;
+          color: #1a1a1a;
+          font-size: 12pt;
+        }
+        .container {
+          padding: 0;
+        }
+        h1, h2, h3 { color: #000; }
+        p { margin-bottom: 1em; }
+        .sig-section {
+          margin-top: 50px;
+          page-break-inside: avoid;
+        }
+        .sig-grid {
+          display: flex;
+          justify-content: space-between;
+          gap: 40px;
+          margin-top: 30px;
+        }
+        .sig-box {
+          flex: 1;
+          border-top: 1px solid #000;
+          padding-top: 10px;
+        }
+        .sig-label {
+          font-weight: bold;
+          font-size: 10pt;
+          text-transform: uppercase;
+          margin-bottom: 5px;
+        }
+        .sig-image {
+          max-height: 60px;
+          display: block;
+          margin-bottom: 5px;
+        }
+        .sig-name {
+          font-size: 11pt;
+          font-weight: bold;
+        }
+        .sig-meta {
+          font-size: 8pt;
+          color: #666;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        ${bodyHtml}
 
-  const C = {
-    navy: primaryColor,
-    blue: accentColor,
-    lightBlue: pageBackgroundColor,
-    teal: accentColor,
-    gray900: isNonModern ? primaryColor : '#111827',
-    gray700: isNonModern ? primaryColor : '#374151',
-    gray500: isNonModern ? accentColor : '#6B7280',
-    gray300: isNonModern ? accentColor : '#D1D5DB',
-    gray100: isNonModern ? pageBackgroundColor : '#F3F4F6',
-    white: isNonModern ? pageBackgroundColor : '#FFFFFF',
-    green: '#059669',
-    amber: '#D97706',
-    red: '#DC2626',
-  };
+        <div class="sig-section">
+          <h2>Signatures</h2>
+          <div class="sig-grid">
+            <!-- Landlord -->
+            <div class="sig-box">
+              <div class="sig-label">Landlord Signature</div>
+              ${landlordSig?.signed ? `<img class="sig-image" src="${landlordSig.drawData}" />` : '<div style="height: 50px;"></div>'}
+              <div class="sig-name">${landlord?.name || '____________________'}</div>
+              ${landlordSig?.signed ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>` : ''}
+            </div>
 
-  const FONT = {
-    regular: theme?.fontFamily || 'Helvetica',
-    bold: theme?.fontFamily === 'Times-Roman' ? 'Times-Bold' : (theme?.fontFamily === 'Courier' ? 'Courier-Bold' : 'Helvetica-Bold'),
-    oblique: theme?.fontFamily === 'Times-Roman' ? 'Times-Italic' : (theme?.fontFamily === 'Courier' ? 'Courier-Oblique' : 'Helvetica-Oblique'),
-  };
-
-  const brandName = String(theme?.brandName || 'RentifyPro');
-  const brandNameUpper = brandName.toUpperCase();
-
-const PAGE = { width: 595.28, height: 841.89, margin: 50 };
-const CONTENT_W = PAGE.width - PAGE.margin * 2;
-
-function getStandardClauseLines(theme, fmt) {
-  const overrides = theme?._standardClauses || {};
-  return [
-    overrides.maintenance || 'The Tenant shall keep the property in clean and habitable condition throughout the tenancy.',
-    overrides.subletting || 'The Tenant shall not sublet or assign the property without prior written consent from the Landlord.',
-    overrides.entry || 'The Landlord shall provide 24 hours notice before entering the property except in emergencies.',
-    overrides.damage || 'Any damage beyond normal wear and tear shall be deducted from the security deposit.',
-    overrides.repairs || `The Tenant is responsible for minor maintenance and repairs up to ${fmt.money(5000)}.`,
-  ];
+            <!-- Tenant -->
+            <div class="sig-box">
+              <div class="sig-label">Tenant Signature</div>
+              ${tenantSig?.signed ? `<img class="sig-image" src="${tenantSig.drawData}" />` : '<div style="height: 50px;"></div>'}
+              <div class="sig-name">${tenant?.name || '____________________'}</div>
+              ${tenantSig?.signed ? `<div class="sig-meta">Signed on ${new Date(tenantSig.signedAt).toLocaleString()}</div>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
 }
 
-// ─── Low-level drawing helpers ────────────────────────────────────────────────
+/**
+ * Professional Default Fallback HTML (used if no custom template is assigned)
+ */
+function getDefaultAgreementHtml() {
+  return `
+    <div style="text-align: center; margin-bottom: 40px;">
+      <h1 style="margin-bottom: 5px;">RESIDENTIAL RENTAL AGREEMENT</h1>
+      <p style="font-size: 10pt; color: #666;">Agreement ID: {{agreement_id}}</p>
+    </div>
 
-/** Filled rectangle */
-function rect(doc, x, y, w, h, color) {
-  doc.save().rect(x, y, w, h).fill(color).restore();
+    <h3>1. THE PARTIES</h3>
+    <p>This Agreement is entered into on <strong>{{current_date}}</strong> by and between <strong>{{landlord_name}}</strong> ("Landlord") and <strong>{{tenant_name}}</strong> ("Tenant").</p>
+
+    <h3>2. THE PROPERTY</h3>
+    <p>The Landlord agrees to lease the property located at: <br/>
+    <strong>{{property_address}}</strong></p>
+
+    <h3>3. LEASE TERM</h3>
+    <p>The lease term shall begin on <strong>{{start_date}}</strong> and end on <strong>{{end_date}}</strong>, with a total duration of <strong>{{duration_months}} months</strong>.</p>
+
+    <h3>4. FINANCIAL TERMS</h3>
+    <ul>
+      <li><strong>Monthly Rent:</strong> {{monthly_rent}}</li>
+      <li><strong>Security Deposit:</strong> {{security_deposit}}</li>
+      <li><strong>Total Move-In Cost:</strong> {{total_move_in}}</li>
+    </ul>
+
+    <h3>5. POLICIES</h3>
+    <p><strong>Utilities:</strong> {{utilities_included}}</p>
+    <p><strong>Pets:</strong> {{pet_allowed}}</p>
+
+    <div style="margin-top: 40px;">
+      <h3>6. STANDARD CONDITIONS</h3>
+      <p>The Tenant shall keep the property in clean and habitable condition. Subletting is not permitted without prior written consent from the Landlord. The Landlord shall provide 24 hours notice before entering the property except in emergencies.</p>
+    </div>
+  `;
 }
 
-/** Horizontal rule */
-function hr(doc, y, color = C.gray300, x = PAGE.margin, w = CONTENT_W) {
-  doc.save().moveTo(x, y).lineTo(x + w, y).lineWidth(0.5).strokeColor(color).stroke().restore();
-}
-
-/** Text clipped to a width (no built-in truncation in PDFKit) */
-function safeText(doc, text, x, y, opts = {}) {
-  doc.text(String(text ?? ''), x, y, { lineBreak: false, ...opts });
-}
-
-/** Rounded-corner badge */
-function badge(doc, label, x, y, bgColor, textColor = C.white) {
-  const pad = 6;
-  const w = doc.widthOfString(label) + pad * 2;
-  doc.save().roundedRect(x, y - 1, w, 14, 3).fill(bgColor).restore();
-  doc.save().font(FONT.bold).fontSize(7).fillColor(textColor).text(label, x + pad, y + 1, { lineBreak: false }).restore();
-  return w;
-}
-
-// ─── Page furniture (header bar + footer) ────────────────────────────────────
-
-function addPageFurniture(doc, pageNum, totalPages, title = 'RENTAL AGREEMENT') {
-  const savedY = doc.y;
-
-  // ── White page background — prevents dark-mode PDF viewers inverting the page ──
-  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
-
-  // ── Top bar ──
-  rect(doc, 0, 0, PAGE.width, 36, C.navy);
-  doc.save()
-    .font(FONT.bold).fontSize(11).fillColor(C.white)
-    .text(brandName, PAGE.margin, 12, { lineBreak: false })
-    .restore();
-  doc.save()
-    .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
-    .text(title, 0, 14, { align: 'center', lineBreak: false, width: PAGE.width })
-    .restore();
-  doc.save()
-    .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
-    .text(`Page ${pageNum} of ${totalPages}`, PAGE.margin, 14, {
-      align: 'right', lineBreak: false, width: CONTENT_W,
-    })
-    .restore();
-
-  // ── Bottom bar ──
-  rect(doc, 0, PAGE.height - 28, PAGE.width, 28, C.navy);
-  const footer = `Generated by ${brandName}. Digital signatures are legally binding.`;
-  const footerW = doc.widthOfString(footer, { font: FONT.regular, size: 7 });
-  const footerX = Math.max(PAGE.margin, (PAGE.width - footerW) / 2);
-  doc.save()
-    .font(FONT.regular).fontSize(7).fillColor('#93C5FD')
-    .text(footer, footerX, PAGE.height - 17, { lineBreak: false })
-    .restore();
-
-  doc.y = savedY;
-}
-
-function finalizeAgreementPagination(doc, title = 'RENTAL AGREEMENT') {
-  const range = doc.bufferedPageRange();
-  const totalPages = range.count;
-
-  for (let i = range.start + 1; i < range.start + range.count; i++) {
-    const pageNum = i + 1;
-    doc.switchToPage(i);
-
-    // Repaint only the top bar so the final page counter can include total pages.
-    rect(doc, 0, 0, PAGE.width, 36, C.navy);
-
-    doc.save()
-      .font(FONT.bold).fontSize(11).fillColor(C.white)
-      .text(brandName, PAGE.margin, 12, { lineBreak: false })
-      .restore();
-    doc.save()
-      .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
-      .text(title, 0, 14, { align: 'center', lineBreak: false, width: PAGE.width })
-      .restore();
-    doc.save()
-      .font(FONT.regular).fontSize(8).fillColor('#93C5FD')
-      .text(`Page ${pageNum} of ${totalPages}`, PAGE.margin, 14, {
-        align: 'right', lineBreak: false, width: CONTENT_W,
-      })
-      .restore();
-  }
-}
-
-// ─── Section heading ──────────────────────────────────────────────────────────
-
-function sectionHeading(doc, label, y) {
-  rect(doc, PAGE.margin, y, CONTENT_W, 24, C.lightBlue);
-  doc.save()
-    .rect(PAGE.margin, y, 4, 24).fill(C.blue).restore();
-  doc.save()
-    .font(FONT.bold).fontSize(8.25).fillColor(C.navy)
-    .text(label.toUpperCase(), PAGE.margin + 12, y + 7, { lineBreak: false })
-    .restore();
-  return y + 32;
-}
-
-function majorSectionHeading(doc, code, title, subtitle, y) {
-  doc.save()
-    .font(FONT.bold).fontSize(14).fillColor(C.navy)
-    .text(`${code}  ${title}`, PAGE.margin, y, { lineBreak: false })
-    .restore();
-
-  y += 19;
-
-  if (subtitle) {
-    doc.save()
-      .font(FONT.regular).fontSize(8).fillColor(C.gray500)
-      .text(subtitle, PAGE.margin, y, { width: CONTENT_W, lineBreak: false })
-      .restore();
-    y += 12;
+/**
+ * Common Puppeteer PDF generation logic
+ */
+async function generatePuppeteerPDFBuffer(html) {
+  if (!puppeteer) {
+    throw new Error('Puppeteer is not installed on this server. Please run "npm install puppeteer" to enable high-fidelity PDF generation.');
   }
 
-  hr(doc, y, C.gray300);
-  return y + 12;
-}
-
-// ─── Two-column info row ──────────────────────────────────────────────────────
-
-function infoRow(doc, label, value, x, y, colW = CONTENT_W / 2 - 6) {
-  doc.save().font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
-    .text(label.toUpperCase(), x, y, { lineBreak: false, width: colW })
-    .restore();
-  doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-    .text(String(value ?? '—'), x, y + 10, { lineBreak: false, width: colW })
-    .restore();
-  return y + 28;
-}
-
-// ─── Financial summary table ──────────────────────────────────────────────────
-
-function financialTable(doc, rows, y) {
-  const col0 = PAGE.margin;
-  const col1 = PAGE.margin + CONTENT_W * 0.65;
-  const rowH = 24;
-
-  rows.forEach((row, i) => {
-    const bg = row.highlight ? C.lightBlue : (i % 2 === 0 ? C.white : C.gray100);
-    rect(doc, col0, y, CONTENT_W, rowH, bg);
-
-    doc.save()
-      .font(row.highlight ? FONT.bold : FONT.regular)
-      .fontSize(9.5).fillColor(C.gray700)
-      .text(row.label, col0 + 10, y + 7, { lineBreak: false })
-      .restore();
-
-    doc.save()
-      .font(row.highlight ? FONT.bold : FONT.regular)
-      .fontSize(9.5).fillColor(row.highlight ? C.navy : C.gray900)
-      .text(row.value, col1, y + 7, { lineBreak: false, align: 'right', width: CONTENT_W * 0.35 - 10 })
-      .restore();
-
-    y += rowH;
-  });
-
-  // bottom border
-  hr(doc, y, C.gray300);
-  return y + 8;
-}
-
-// ─── Signature block ──────────────────────────────────────────────────────────
-
-function signatureBlock(doc, label, person, sigData, signedAt, x, y, blockW, opts = {}) {
-  const blockH = opts.blockH || 110;
-  const headerH = 24;
-
-  // Box
-  doc.save().roundedRect(x, y, blockW, blockH, 7).stroke(C.gray300).restore();
-
-  // Label
-  rect(doc, x, y, blockW, headerH, C.navy);
-  doc.save().font(FONT.bold).fontSize(8).fillColor(C.white)
-    .text(label, x + 10, y + 8, { lineBreak: false })
-    .restore();
-
-  let cy = y + headerH + 8;
-
-  if (sigData) {
-    try {
-      const base64 = sigData.replace(/^data:image\/\w+;base64,/, '');
-      const imgBuf = Buffer.from(base64, 'base64');
-      const sigW = Math.max(80, blockW - 72);
-      const sigH = 24;
-      const sigX = x + (blockW - sigW) / 2;
-      doc.image(imgBuf, sigX, cy, {
-        fit: [sigW, sigH],
-        align: 'center',
-        valign: 'center',
-      });
-    } catch (_) {
-      doc.save().font(FONT.oblique).fontSize(8).fillColor(C.gray500)
-        .text('[Signature image unavailable]', x + 12, cy + 8, { lineBreak: false, width: blockW - 24, align: 'center' })
-        .restore();
-    }
-    cy += 30;
-  } else {
-    // blank line
-    hr(doc, cy + 12, C.gray500, x + 36, blockW - 72);
-    cy += 18;
-  }
-
-  const metaY = Math.max(cy + 2, y + blockH - 30);
-
-  doc.save().font(FONT.bold).fontSize(8.5).fillColor(C.gray900)
-    .text(person?.name || '________________', x + 12, metaY, { lineBreak: false, width: blockW - 24, align: 'center' })
-    .restore();
-
-  if (signedAt) {
-    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray700)
-      .text(`Signed on ${new Date(signedAt).toLocaleString('en-US')}`, x + 12, metaY + 12, {
-        lineBreak: false,
-        width: blockW - 24,
-        align: 'center',
-      })
-      .restore();
-  } else {
-    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray700)
-      .text('Pending Signature', x + 12, metaY + 12, { lineBreak: false, width: blockW - 24, align: 'center' })
-      .restore();
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// AGREEMENT PDF
-// ═════════════════════════════════════════════════════════════════════════════
-
-function _buildPDF(doc, agreement, landlord, tenant, property, currencyCtx) {
-  const fmt = {
-    money: n => currencyCtx.money(n),
-    date: d => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
-  };
-
-  const address = property?.address
-    ? [property.address.street, property.address.city, property.address.state].filter(Boolean).join(', ')
-    : '—';
-
-  // ── We'll do a 2-pass approach: build content first, then we know page count.
-  // PDFKit doesn't support total page count natively, so we track manually.
-  // We add furniture after each page via the 'pageAdded' event.
-  let pageNum = 1;
-
-  // Track page numbers via events
-  doc.on('pageAdded', () => { pageNum++; });
-
-  // We'll use a post-process trick: render furniture on every page.
-  // Because PDFKit doesn't expose totalPages, we write "Page N" and patch later.
-  // For simplicity, we render furniture inline at the start of each page.
-
-  // ════ PAGE 1 — COVER ═══════════════════════════════════════════════════════
-
-  // ── White page background — prevents dark-mode PDF viewers inverting the page ──
-  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
-
-  // Full navy header banner
-  rect(doc, 0, 0, PAGE.width, 180, C.navy);
-
-  // Decorative circle accents
-  if (!isMinimalist && !isClassic) {
-    doc.save().circle(PAGE.width - 60, 40, 70).fillOpacity(0.07).fill(C.white).restore();
-    doc.save().circle(PAGE.width - 20, 160, 50).fillOpacity(0.05).fill(C.white).restore();
-  }
-
-  // Logo / brand
-  doc.save().font(FONT.bold).fontSize(22).fillColor(C.white).fillOpacity(1)
-    .text(brandName, PAGE.margin, 36, { lineBreak: false })
-    .restore();
-  doc.save().font(FONT.regular).fontSize(9).fillColor('#93C5FD')
-    .text('Property Management Platform', PAGE.margin, 62, { lineBreak: false })
-    .restore();
-
-  // Document title
-  doc.save().font(FONT.bold).fontSize(26).fillColor(C.white)
-    .text('RESIDENTIAL RENTAL', PAGE.margin, 98, { lineBreak: false })
-    .restore();
-  doc.save().font(FONT.bold).fontSize(26).fillColor('#60A5FA')
-    .text('AGREEMENT', PAGE.margin, 126, { lineBreak: false })
-    .restore();
-
-  // Date badge
-  const dateStr = `Generated: ${fmt.date(new Date())}`;
-  doc.save().font(FONT.regular).fontSize(8).fillColor('#93C5FD')
-    .text(dateStr, PAGE.margin, 158, { lineBreak: false })
-    .restore();
-
-  // Agreement ID
-  doc.save().font(FONT.regular).fontSize(8).fillColor('#93C5FD')
-    .text(`Agreement ID: ${agreement._id}`, 0, 158, { align: 'right', lineBreak: false, width: PAGE.width - PAGE.margin })
-    .restore();
-
-  let y = 200;
-
-  // ── Parties & Property cards ──
-  // Two side-by-side cards
-  const cardW = (CONTENT_W - 12) / 2;
-
-  // Landlord card
-  rect(doc, PAGE.margin, y, cardW, 80, C.gray100);
-  doc.save().rect(PAGE.margin, y, cardW, 80).stroke(C.gray300).restore();
-  doc.save().font(FONT.bold).fontSize(7).fillColor(C.blue)
-    .text('LANDLORD', PAGE.margin + 10, y + 10, { lineBreak: false })
-    .restore();
-  doc.save().font(FONT.bold).fontSize(11).fillColor(C.gray900)
-    .text(landlord?.name || '—', PAGE.margin + 10, y + 22, { lineBreak: false, width: cardW - 20 })
-    .restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-    .text(landlord?.email || '—', PAGE.margin + 10, y + 38, { lineBreak: false, width: cardW - 20 })
-    .restore();
-  if (landlord?.phoneNumber) {
-    doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-      .text(landlord.phoneNumber, PAGE.margin + 10, y + 52, { lineBreak: false, width: cardW - 20 })
-      .restore();
-  }
-
-  // Tenant card
-  const cx2 = PAGE.margin + cardW + 12;
-  rect(doc, cx2, y, cardW, 80, C.gray100);
-  doc.save().rect(cx2, y, cardW, 80).stroke(C.gray300).restore();
-  doc.save().font(FONT.bold).fontSize(7).fillColor(C.teal)
-    .text('TENANT', cx2 + 10, y + 10, { lineBreak: false })
-    .restore();
-  doc.save().font(FONT.bold).fontSize(11).fillColor(C.gray900)
-    .text(tenant?.name || '—', cx2 + 10, y + 22, { lineBreak: false, width: cardW - 20 })
-    .restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-    .text(tenant?.email || '—', cx2 + 10, y + 38, { lineBreak: false, width: cardW - 20 })
-    .restore();
-  if (tenant?.phoneNumber) {
-    doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-      .text(tenant.phoneNumber, cx2 + 10, y + 52, { lineBreak: false, width: cardW - 20 })
-      .restore();
-  }
-
-  y += 92;
-
-  // Property card (full width)
-  rect(doc, PAGE.margin, y, CONTENT_W, 56, C.lightBlue);
-  doc.save().rect(PAGE.margin, y, CONTENT_W, 56).stroke(C.blue).restore();
-  doc.save().rect(PAGE.margin, y, 4, 56).fill(C.blue).restore();
-  doc.save().font(FONT.bold).fontSize(7).fillColor(C.blue)
-    .text('PROPERTY', PAGE.margin + 12, y + 10, { lineBreak: false })
-    .restore();
-  doc.save().font(FONT.bold).fontSize(11.5).fillColor(C.navy)
-    .text(property?.title || '—', PAGE.margin + 12, y + 22, { lineBreak: false, width: CONTENT_W - 24 })
-    .restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray700)
-    .text(address, PAGE.margin + 12, y + 38, { lineBreak: false, width: CONTENT_W - 24 })
-    .restore();
-
-  y += 68;
-
-  // ── Term summary strip ──
-  rect(doc, PAGE.margin, y, CONTENT_W, 48, C.navy);
-  const termCols = [
-    { label: 'START DATE', value: fmt.date(agreement.term?.startDate) },
-    { label: 'END DATE', value: fmt.date(agreement.term?.endDate) },
-    { label: 'DURATION', value: `${agreement.term?.durationMonths || '—'} months` },
-    { label: 'MONTHLY RENT', value: fmt.money(agreement.financials?.rentAmount) },
-  ];
-  const colW4 = CONTENT_W / 4;
-  termCols.forEach((col, i) => {
-    const cx = PAGE.margin + i * colW4 + 12;
-    doc.save().font(FONT.bold).fontSize(6.5).fillColor('#93C5FD')
-      .text(col.label, cx, y + 10, { lineBreak: false, width: colW4 - 16 })
-      .restore();
-    doc.save().font(FONT.bold).fontSize(10).fillColor(C.white)
-      .text(col.value, cx, y + 22, { lineBreak: false, width: colW4 - 16 })
-      .restore();
-    if (i < 3) {
-      doc.save().moveTo(PAGE.margin + (i + 1) * colW4, y + 8)
-        .lineTo(PAGE.margin + (i + 1) * colW4, y + 40)
-        .lineWidth(0.5).strokeColor('#1E40AF').stroke().restore();
-    }
-  });
-
-  y += 60;
-
-  // ════ PAGE 2 — FINANCIAL & TERMS ══════════════════════════════════════════
-  doc.addPage();
-  addPageFurniture(doc, 2, '—');
-  y = 56;
-
-  // ── Financials section ──
-  y = majorSectionHeading(
-    doc,
-    '01',
-    'FINANCIAL TERMS',
-    'Core rent, deposit, and move-in financial obligations.',
-    y
-  );
-
-  const petDeposit = agreement.petPolicy?.allowed ? (agreement.petPolicy?.deposit || 0) : 0;
-  const maintenanceFee = property?.financials?.maintenanceFee || 0;
-  const finRows = [
-    { label: 'Monthly Rent', value: fmt.money(agreement.financials?.rentAmount) },
-    { label: 'Security Deposit', value: fmt.money(agreement.financials?.depositAmount) },
-    { label: 'Maintenance Fee', value: fmt.money(maintenanceFee) },
-    { label: 'Late Fee', value: fmt.money(agreement.financials?.lateFeeAmount || 0) },
-    { label: 'Late Fee Grace Period', value: `${agreement.financials?.lateFeeGracePeriodDays || 5} days` },
-    ...(petDeposit > 0 ? [{ label: 'Pet Deposit (non-refundable)', value: fmt.money(petDeposit) }] : []),
-    {
-      label: 'Total Move-In Cost',
-      value: fmt.money((agreement.financials?.rentAmount || 0) + (agreement.financials?.depositAmount || 0) + maintenanceFee + petDeposit),
-      highlight: true,
-    },
-  ];
-  y = financialTable(doc, finRows, y);
-  y += 6;
-  
-  // ── USD notation ──
-  doc.save()
-    .font(FONT.regular).fontSize(7).fillColor(C.gray500)
-    .text('* All monetary amounts above are in US Dollars (USD)', PAGE.margin, y, { lineBreak: false, width: CONTENT_W })
-    .restore();
-  y += 12;
-
-  // ── Utilities & Policies section ──
-  y = majorSectionHeading(
-    doc,
-    '02',
-    'UTILITIES & POLICIES',
-    'Utility coverage, pet policy, and lease policy conditions.',
-    y
-  );
-
-  const col1x = PAGE.margin;
-  const col2x = PAGE.margin + CONTENT_W / 2 + 6;
-  const halfW = CONTENT_W / 2 - 6;
-
-  infoRow(doc, 'Utilities', agreement.utilitiesIncluded ? 'Included in rent' : 'Not included', col1x, y, halfW);
-  infoRow(doc, 'Pet Policy', agreement.petPolicy?.allowed ? `Allowed (deposit: ${fmt.money(agreement.petPolicy?.deposit)})` : 'No pets permitted', col2x, y, halfW);
-  y += 32;
-
-  if (agreement.utilitiesDetails) {
-    infoRow(doc, 'Utilities Details', agreement.utilitiesDetails, col1x, y, CONTENT_W);
-    y += 32;
-  }
-  if (agreement.terminationPolicy) {
-    infoRow(doc, 'Termination Policy', agreement.terminationPolicy, col1x, y, CONTENT_W);
-    y += 32;
-  }
-  y += 8;
-
-  // ── Rent escalation section ──
-  if (y > PAGE.height - 150) {
-    doc.addPage();
-    addPageFurniture(doc, pageNum, '—');
-    y = 56;
-  }
-
-  y = majorSectionHeading(
-    doc,
-    '03',
-    'RENT ESCALATION',
-    'Future rent adjustment schedule and projected amounts.',
-    y
-  );
-
-  if (agreement.rentEscalation?.enabled) {
-    const escalationPct = Number(agreement.rentEscalation?.percentage || 0);
-    const currentRent = Number(agreement.financials?.rentAmount || 0);
-    const yearOneIncrease = (currentRent * escalationPct) / 100;
-    const nextEscalatedRent = currentRent + yearOneIncrease;
-
-    infoRow(doc, 'Escalation Status', 'Enabled', col1x, y, halfW);
-    infoRow(doc, 'Annual Increase', `${escalationPct}%`, col2x, y, halfW);
-    y += 32;
-
-    infoRow(doc, 'Current Rent', fmt.money(currentRent), col1x, y, halfW);
-    infoRow(doc, 'Projected Rent After Escalation', fmt.money(nextEscalatedRent), col2x, y, halfW);
-    y += 32;
-
-    infoRow(doc, 'Next Scheduled Escalation', fmt.date(agreement.rentEscalation?.nextScheduledAt), col1x, y, CONTENT_W);
-    y += 32;
-  } else {
-    infoRow(doc, 'Escalation Status', 'Disabled', col1x, y, CONTENT_W);
-    y += 32;
-  }
-
-  y += 8;
-
-  // ── Standard clauses section ──
-  y = majorSectionHeading(
-    doc,
-    '04',
-    'STANDARD CONDITIONS',
-    'Base legal conditions that apply throughout the tenancy.',
-    y
-  );
-
-  const standardClauses = getStandardClauseLines(theme, fmt);
-
-  standardClauses.forEach((text, i) => {
-    if (y > PAGE.height - 120) {
-      doc.addPage();
-      addPageFurniture(doc, pageNum, '—');
-      y = 56;
-    }
-    doc.save().font(FONT.bold).fontSize(9).fillColor(C.navy)
-      .text(`${i + 1}.`, PAGE.margin, y, { lineBreak: false, width: 16 })
-      .restore();
-    doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-      .text(text, PAGE.margin + 18, y, { width: CONTENT_W - 18 })
-      .restore();
-    y += doc.heightOfString(text, { width: CONTENT_W - 18 }) + 10;
-  });
-
-  y += 8;
-
-  // ════ ADDITIONAL CLAUSES ══════════════════════════════════════════════════
-  const baseAgreement = typeof agreement.toObject === 'function' ? agreement.toObject() : agreement;
-  const agreementWithRefs = {
-    ...baseAgreement,
-    landlord: landlord || baseAgreement.landlord,
-    tenant: tenant || baseAgreement.tenant,
-    property: property || baseAgreement.property
-  };
-  const resolvedClauses = substituteClauses(agreementWithRefs);
-
-  if (resolvedClauses.length > 0) {
-    if (y > PAGE.height - 160) {
-      doc.addPage();
-      addPageFurniture(doc, pageNum, '—');
-      y = 56;
-    }
-
-    y = majorSectionHeading(
-      doc,
-      '05',
-      'ADDITIONAL CLAUSES',
-      'Custom clauses selected by the parties are included below and form part of this agreement.',
-      y
-    );
-
-    resolvedClauses.forEach((clause, i) => {
-      const clauseTitle = String(clause.title || `Clause ${i + 1}`);
-      const bodyText = String(clause.body || '');
-      const innerW = CONTENT_W - 28;
-      const clauseLabel = `${i + 1}. ${clauseTitle}`;
-
-      // Measure using the same typography we render with, to avoid overestimation
-      // that can create unnecessary near-empty pages.
-      doc.save().font(FONT.bold).fontSize(10);
-      const titleH = doc.heightOfString(clauseLabel, { width: innerW });
-      doc.restore();
-
-      doc.save().font(FONT.regular).fontSize(9);
-      const bodyH = doc.heightOfString(bodyText, { width: innerW });
-      doc.restore();
-
-      const cardH = Math.max(74, 20 + titleH + bodyH + 24);
-
-      if (y + cardH > PAGE.height - 86) {
-        doc.addPage();
-        addPageFurniture(doc, pageNum, '—');
-        y = 56;
-      }
-
-      doc.save().roundedRect(PAGE.margin, y, CONTENT_W, cardH, 7).stroke(C.gray300).restore();
-      rect(doc, PAGE.margin, y, CONTENT_W, 22, C.lightBlue);
-      doc.save().font(FONT.bold).fontSize(9).fillColor(C.navy)
-        .text('ADDITIONAL TERM', PAGE.margin + 10, y + 7, { lineBreak: false })
-        .restore();
-      y += 30;
-
-      doc.save().font(FONT.bold).fontSize(10).fillColor(C.gray900)
-        .text(clauseLabel, PAGE.margin + 14, y, { width: innerW })
-        .restore();
-      y += titleH + 8;
-
-      doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-        .text(bodyText, PAGE.margin + 14, y, { width: innerW })
-        .restore();
-      y += bodyH + 14;
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
-  }
-
-  // ════ SIGNATURES PAGE ════════════════════════════════════════════════════
-  doc.addPage();
-  addPageFurniture(doc, pageNum, '—');
-  y = 56;
-
-  y = majorSectionHeading(
-    doc,
-    '06',
-    'DIGITAL SIGNATURES',
-    'Each signature below confirms acceptance of all clauses, including additional dynamic clauses.',
-    y
-  );
-
-  // Status banner
-  const bothSigned = agreement.signatures?.landlord?.signed && agreement.signatures?.tenant?.signed;
-  const bannerText = bothSigned
-    ? 'This agreement is fully executed by all parties.'
-    : 'This agreement is pending one or more signatures.';
-  rect(doc, PAGE.margin, y, CONTENT_W, 30, C.gray100);
-  doc.save().roundedRect(PAGE.margin, y, CONTENT_W, 30, 4).stroke(C.gray300).restore();
-  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray700)
-    .text(bannerText, PAGE.margin + 12, y + 10, { lineBreak: false })
-    .restore();
-  y += 44;
-
-  const sigGap = 16;
-  const sigW = (CONTENT_W - sigGap) / 2;
-  const sigH = 110;
-  signatureBlock(
-    doc, 'LANDLORD SIGNATURE',
-    landlord,
-    agreement.signatures?.landlord?.drawData,
-    agreement.signatures?.landlord?.signedAt,
-    PAGE.margin, y, sigW, { blockH: sigH }
-  );
-
-  signatureBlock(
-    doc, 'TENANT SIGNATURE',
-    tenant,
-    agreement.signatures?.tenant?.drawData,
-    agreement.signatures?.tenant?.signedAt,
-    PAGE.margin + sigW + sigGap, y, sigW, { blockH: sigH }
-  );
-
-  y += sigH + 20;
-  hr(doc, y, C.gray300);
-  y += 16;
-
-  doc.save().font(FONT.bold).fontSize(10).fillColor(C.gray900)
-    .text('E-SIGNATURE ACKNOWLEDGEMENT', PAGE.margin, y, { width: CONTENT_W, align: 'center' })
-    .restore();
-  y += 14;
-
-  doc.save().font(FONT.regular).fontSize(8).fillColor(C.gray500)
-    .text(
-      'By signing above, both parties acknowledge that they have read, understood, and agree to all terms and conditions set forth in this Residential Rental Agreement. This document is legally binding upon execution.',
-      PAGE.margin, y, { width: CONTENT_W, align: 'center' }
-    )
-    .restore();
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// RECEIPT PDF
-// ═════════════════════════════════════════════════════════════════════════════
-
-function _buildModernReceiptPDF(doc, payment, tenant, property, currencyCtx) {
-  const fmt = {
-    money: n => currencyCtx.money(Number(n ?? 0)),
-    date: d => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
-    month: d => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '—',
-  };
-
-  // A4 portrait for better professional look
-  const W = 595.28, H = 841.89, M = 50, CW = W - M * 2;
-
-  // ── White background ──
-  rect(doc, 0, 0, W, H, C.white);
-
-  // ── Header stripe ──
-  rect(doc, 0, 0, W, 110, C.navy);
-
-  // Decorative accent circles (purely visual, full opacity)
-  doc.save().circle(W + 10, -10, 100).fillOpacity(0.07).fillColor(C.white).fill().restore();
-  doc.save().circle(W - 60, 80, 60).fillOpacity(0.05).fillColor(C.white).fill().restore();
-
-  // Brand name
-  doc.save()
-    .fillOpacity(1).font(FONT.bold).fontSize(22).fillColor(C.white)
-    .text(brandName, M, 24, { lineBreak: false })
-    .restore();
-
-  // Tagline
-  doc.save()
-    .fillOpacity(1).font(FONT.regular).fontSize(9).fillColor('#93C5FD')
-    .text('Official Rent Payment Receipt', M, 52, { lineBreak: false })
-    .restore();
-
-  // Receipt number badge (right side)
-  const receiptLabel = `RECEIPT  #${payment.receiptNumber || String(payment._id).slice(-8).toUpperCase()}`;
-  const rLabelW = doc.widthOfString(receiptLabel, { font: FONT.bold, fontSize: 9 }) + 24;
-  rect(doc, W - M - rLabelW, 30, rLabelW, 22, '#1D4ED8');
-  doc.save()
-    .fillOpacity(1).font(FONT.bold).fontSize(9).fillColor(C.white)
-    .text(receiptLabel, W - M - rLabelW + 12, 36, { lineBreak: false })
-    .restore();
-
-  // Payment type badge below receipt number
-  const typeLabel = (payment.type || 'rent').replace(/_/g, ' ').toUpperCase();
-  badge(doc, typeLabel, W - M - 80, 58, C.teal);
-
-  // ── Amount Hero block ──
-  let y = 128;
-  rect(doc, M, y, CW, 80, '#F0F7FF');
-  rect(doc, M, y, 5, 80, C.blue);
-  doc.save()
-    .fillOpacity(1).font(FONT.bold).fontSize(9).fillColor(C.blue)
-    .text('TOTAL AMOUNT PAID', M + 18, y + 14, { lineBreak: false })
-    .restore();
-  doc.save()
-    .fillOpacity(1).font(FONT.bold).fontSize(30).fillColor(C.navy)
-    .text(fmt.money(payment.amount), M + 18, y + 30, { lineBreak: false })
-    .restore();
-
-  // PAID stamp (right side of amount box)
-  rect(doc, W - M - 88, y + 22, 76, 32, '#DCFCE7');
-  rect(doc, W - M - 88, y + 22, 4, 32, C.green);
-  doc.save()
-    .fillOpacity(1).font(FONT.bold).fontSize(13).fillColor(C.green)
-    .text('PAID', W - M - 67, y + 33, { lineBreak: false })
-    .restore();
-
-  y += 98;
-
-  // ── Two-column detail section ──
-  const colW = (CW - 16) / 2;
-
-  // Left column — Payment Details
-  sectionHeading(doc, 'PAYMENT DETAILS', y);
-  y += 32;
-
-  const leftRows = [
-    { label: 'Payment Date', value: fmt.date(payment.paidAt || payment.createdAt) },
-    { label: 'Period Covered', value: fmt.month(payment.dueDate) },
-    { label: 'Payment Method', value: 'Stripe (Card)' },
-    ...(payment.stripePaymentIntent ? [{ label: 'Transaction ID', value: payment.stripePaymentIntent.slice(0, 22) + '…' }] : []),
-    ...(payment.lateFeeIncluded && payment.lateFeeAmount > 0 ? [{ label: 'Late Fee', value: fmt.money(payment.lateFeeAmount) }] : []),
-  ];
-
-  const startY = y;
-  leftRows.forEach((row, i) => {
-    const bg = i % 2 === 0 ? C.white : C.gray100;
-    rect(doc, M, y, colW, 26, bg);
-    doc.save()
-      .fillOpacity(1).font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
-      .text(row.label, M + 10, y + 9, { lineBreak: false, width: colW * 0.44 })
-      .restore();
-    doc.save()
-      .fillOpacity(1).font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
-      .text(String(row.value), M + colW * 0.46, y + 8, { lineBreak: false, width: colW * 0.52 })
-      .restore();
-    y += 26;
-  });
-
-  // Right column — Property & Tenant
-  const rightX = M + colW + 16;
-  let ry = startY;
-
-  // Property & tenant header
-  rect(doc, rightX, ry - 32, colW, 24, C.lightBlue);
-  rect(doc, rightX, ry - 32, 4, 24, C.blue);
-  doc.save()
-    .fillOpacity(1).font(FONT.bold).fontSize(9).fillColor(C.navy)
-    .text('PROPERTY & TENANT', rightX + 12, ry - 24, { lineBreak: false })
-    .restore();
-
-  const fullAddress = property?.address
-    ? [
-        property.address.street,
-        property.address.unitNumber ? `Unit ${property.address.unitNumber}` : '',
-        property.address.city,
-        property.address.state,
-        property.address.country,
-      ].filter(Boolean).join(', ')
-    : '—';
-
-  const rightRows = [
-    { label: 'Tenant', value: tenant?.name || '—' },
-    { label: 'Email', value: tenant?.email || '—' },
-    { label: 'Property', value: property?.title || '—' },
-    { label: 'Address', value: fullAddress },
-    { label: 'Receipt No.', value: `#${payment.receiptNumber || '—'}` },
-  ];
-
-  rightRows.forEach((row, i) => {
-    const bg = i % 2 === 0 ? C.white : C.gray100;
-    rect(doc, rightX, ry, colW, 26, bg);
-    doc.save()
-      .fillOpacity(1).font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
-      .text(row.label, rightX + 10, ry + 9, { lineBreak: false, width: colW * 0.4 })
-      .restore();
-    doc.save()
-      .fillOpacity(1).font(FONT.regular).fontSize(8).fillColor(C.gray900)
-      .text(String(row.value), rightX + colW * 0.44, ry + 8, { lineBreak: false, width: colW * 0.54 })
-      .restore();
-    ry += 26;
-  });
-
-  // Advance y past both columns
-  y = Math.max(y, ry) + 20;
-
-  const footerTop = H - 34;
-  const contentBottom = footerTop - 12;
-
-  hr(doc, y, C.gray300, M, CW);
-  y += 18;
-
-  // ── Notes / legal disclaimer box ──
-  const notesH = 48;
-  if (y + notesH > contentBottom) {
-    y = Math.max(220, contentBottom - notesH);
-  }
-
-  rect(doc, M, y, CW, notesH, C.gray100);
-  rect(doc, M, y, 4, notesH, C.gray500);
-  doc.save()
-    .fillOpacity(1).font(FONT.bold).fontSize(8).fillColor(C.gray700)
-    .text('IMPORTANT:', M + 14, y + 8, { lineBreak: false })
-    .restore();
-  doc.save()
-    .fillOpacity(1).font(FONT.regular).fontSize(7.5).fillColor(C.gray500)
-    .text(
-      `This receipt confirms that the payment shown above has been received and processed in USD. All amounts are in US Dollars. Please retain this document for your personal records and tax purposes. This receipt does not waive any other obligations under the lease agreement.`,
-      M + 14, y + 22, { width: CW - 28, lineBreak: true }
-    )
-    .restore();
-
-  // ── Footer ──
-  const savedBottomMargin = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  rect(doc, 0, footerTop, W, H - footerTop, C.navy);
-  const receiptFooter = `Generated by ${brandName} on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}. System-generated receipt.`;
-  doc.save()
-    .fillOpacity(1).font(FONT.regular).fontSize(7).fillColor(C.white)
-    .text(receiptFooter, M, footerTop + 12, { align: 'center', lineBreak: false, width: CW })
-    .restore();
-  doc.page.margins.bottom = savedBottomMargin;
-}
-
-function _buildClassicReceiptPDF(doc, payment, tenant, property, currencyCtx) {
-  const fmt = {
-    money: n => currencyCtx.money(Number(n ?? 0)),
-    date: d => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '-',
-    month: d => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '-',
-  };
-
-  const W = 595.28, H = 841.89, M = 50, CW = W - M * 2;
-  rect(doc, 0, 0, W, H, C.white);
-
-  doc.save().font(FONT.bold).fontSize(12).fillColor(C.gray900)
-    .text(brandName, 0, 24, { align: 'center', width: W, lineBreak: false }).restore();
-  doc.save().moveTo(M, 42).lineTo(W - M, 42).lineWidth(1.5).strokeColor(C.gray900).stroke().restore();
-  doc.save().moveTo(M, 44).lineTo(W - M, 44).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
-  doc.save().font(FONT.bold).fontSize(18).fillColor(C.gray900)
-    .text('OFFICIAL RENT RECEIPT', 0, 56, { align: 'center', width: W, lineBreak: false }).restore();
-
-  const receiptNo = payment.receiptNumber || String(payment._id).slice(-8).toUpperCase();
-  doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-    .text(`Receipt No: ${receiptNo}`, M, 88, { lineBreak: false })
-    .text(`Date Issued: ${fmt.date(payment.paidAt || payment.createdAt)}`, M, 102, { lineBreak: false })
-    .text(`Payment Type: ${(payment.type || 'rent').replace(/_/g, ' ').toUpperCase()}`, M, 116, { lineBreak: false })
-    .restore();
-
-  doc.save().font(FONT.bold).fontSize(11).fillColor(C.gray900)
-    .text(`Amount Received: ${fmt.money(payment.amount)}`, W - M - 220, 96, { width: 220, align: 'right', lineBreak: false })
-    .restore();
-
-  let y = 156;
-  const row = (label, value) => {
-    doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900)
-      .text(`${label}:`, M, y, { continued: true, lineBreak: false })
-      .font(FONT.regular).fillColor(C.gray700)
-      .text(`  ${String(value || '-')}`, { lineBreak: false }).restore();
-    y += 20;
-  };
-
-  const fullAddress = property?.address
-    ? [
-      property.address.street,
-      property.address.unitNumber ? `Unit ${property.address.unitNumber}` : '',
-      property.address.city,
-      property.address.state,
-      property.address.country,
-    ].filter(Boolean).join(', ')
-    : '-';
-
-  row('Tenant', tenant?.name);
-  row('Tenant Email', tenant?.email);
-  row('Property', property?.title);
-  row('Address', fullAddress);
-  row('Period Covered', fmt.month(payment.dueDate));
-  row('Payment Method', payment.stripePaymentIntent ? 'Stripe (Card)' : 'Online');
-  if (payment.stripePaymentIntent) row('Transaction ID', payment.stripePaymentIntent);
-  if (payment.lateFeeIncluded && payment.lateFeeAmount > 0) row('Late Fee Included', fmt.money(payment.lateFeeAmount));
-
-  y += 14;
-  doc.save().moveTo(M, y).lineTo(W - M, y).lineWidth(0.7).strokeColor(C.gray700).stroke().restore();
-  y += 14;
-
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray700)
-    .text(
-      'This receipt confirms that payment has been received by the landlord/property manager. Please retain this document for your records.',
-      M,
-      y,
-      { width: CW, align: 'justify' }
-    )
-    .restore();
-
-  const savedBottomMargin = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  doc.save().moveTo(M, H - 64).lineTo(W - M, H - 64).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
-  doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray500)
-    .text(`Generated by ${brandName} on ${fmt.date(new Date())}`, M, H - 50, { width: CW, align: 'center', lineBreak: false }).restore();
-  doc.page.margins.bottom = savedBottomMargin;
-}
-
-function _buildMinimalistReceiptPDF(doc, payment, tenant, property, currencyCtx) {
-  const fmt = {
-    money: n => currencyCtx.money(Number(n ?? 0)),
-    date: d => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' }) : '-',
-    month: d => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '-',
-  };
-
-  const W = 595.28, H = 841.89, M = 50, CW = W - M * 2;
-  rect(doc, 0, 0, W, H, C.white);
-
-  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray500)
-    .text(brandNameUpper, M, 40, { lineBreak: false }).restore();
-  doc.save().font(FONT.bold).fontSize(28).fillColor(C.gray900)
-    .text('RECEIPT', M, 62, { lineBreak: false }).restore();
-  doc.save().moveTo(M, 102).lineTo(M + 140, 102).lineWidth(2).strokeColor(C.gray900).stroke().restore();
-
-  const receiptNo = payment.receiptNumber || String(payment._id).slice(-8).toUpperCase();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-    .text(`Ref ${receiptNo}`, W - M - 180, 74, { width: 180, align: 'right', lineBreak: false })
-    .text(fmt.date(payment.paidAt || payment.createdAt), W - M - 180, 88, { width: 180, align: 'right', lineBreak: false })
-    .restore();
-
-  doc.save().font(FONT.bold).fontSize(34).fillColor(C.gray900)
-    .text(fmt.money(payment.amount), M, 130, { lineBreak: false }).restore();
-  doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray500)
-    .text('Amount Received', M, 168, { lineBreak: false }).restore();
-
-  let y = 220;
-  doc.save().moveTo(M, y).lineTo(W - M, y).lineWidth(0.4).strokeColor(C.gray300).stroke().restore();
-  y += 16;
-
-  const field = (label, value) => {
-    doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray500)
-      .text(label, M, y, { width: CW * 0.28, lineBreak: false }).restore();
-    doc.save().font(FONT.regular).fontSize(10).fillColor(C.gray900)
-      .text(String(value || '-'), M + CW * 0.3, y - 1, { width: CW * 0.7, lineBreak: false }).restore();
-    y += 24;
-  };
-
-  const fullAddress = property?.address
-    ? [
-      property.address.street,
-      property.address.unitNumber ? `Unit ${property.address.unitNumber}` : '',
-      property.address.city,
-      property.address.state,
-      property.address.country,
-    ].filter(Boolean).join(', ')
-    : '-';
-
-  field('TENANT', tenant?.name);
-  field('EMAIL', tenant?.email);
-  field('PROPERTY', property?.title);
-  field('ADDRESS', fullAddress);
-  field('PERIOD', fmt.month(payment.dueDate));
-  field('TYPE', (payment.type || 'rent').replace(/_/g, ' ').toUpperCase());
-  field('METHOD', payment.stripePaymentIntent ? 'Stripe (Card)' : 'Online');
-
-  if (payment.stripePaymentIntent) {
-    field('TRANSACTION', payment.stripePaymentIntent);
-  }
-
-  const savedBottomMargin = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  doc.save().moveTo(M, H - 64).lineTo(W - M, H - 64).lineWidth(0.4).strokeColor(C.gray300).stroke().restore();
-  doc.save().font(FONT.regular).fontSize(7).fillColor(C.gray500)
-    .text(`Generated by ${brandName} · ${fmt.date(new Date())}`, M, H - 50, { width: CW, align: 'center', lineBreak: false }).restore();
-  doc.page.margins.bottom = savedBottomMargin;
-}
-
-function _buildReceiptPDF(doc, payment, tenant, property, currencyCtx) {
-  const layout = theme?.layoutStyle || 'modern';
-  if (layout === 'classic') return _buildClassicReceiptPDF(doc, payment, tenant, property, currencyCtx);
-  if (layout === 'minimalist') return _buildMinimalistReceiptPDF(doc, payment, tenant, property, currencyCtx);
-  return _buildModernReceiptPDF(doc, payment, tenant, property, currencyCtx);
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CLASSIC LEGAL LAYOUT
-// ═══════════════════════════════════════════════════════════════════════════
-
-function addClassicPageFurniture(doc, pageNum, totalPages, title = 'RENTAL AGREEMENT') {
-  const savedY = doc.y;
-  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
-  doc.save().moveTo(PAGE.margin, 36).lineTo(PAGE.width - PAGE.margin, 36).lineWidth(1).strokeColor(C.gray900).stroke().restore();
-  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900)
-    .text(brandName, PAGE.margin, 22, { lineBreak: false }).restore();
-  doc.save().font(FONT.regular).fontSize(8).fillColor(C.gray700)
-    .text(title, 0, 22, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-  doc.save().font(FONT.regular).fontSize(8).fillColor(C.gray700)
-    .text(`Page ${pageNum} of ${totalPages}`, PAGE.margin, 22, { align: 'right', lineBreak: false, width: CONTENT_W }).restore();
-  doc.save().moveTo(PAGE.margin, PAGE.height - 36).lineTo(PAGE.width - PAGE.margin, PAGE.height - 36).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
-  // Temporarily remove bottom margin so the footer text placed near PAGE.height
-  // doesn't trigger PDFKit's auto-page-break logic.
-  const savedBottomMargin = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  doc.save().font(FONT.regular).fontSize(7).fillColor(C.gray500)
-    .text(`Generated by ${brandName}. Digital signatures are legally binding.`, 0, PAGE.height - 24, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-  doc.page.margins.bottom = savedBottomMargin;
-  doc.y = savedY;
-}
-
-function finalizeClassicPagination(doc, title = 'RENTAL AGREEMENT') {
-  const range = doc.bufferedPageRange();
-  const totalPages = range.count;
-  for (let i = range.start + 1; i < range.start + range.count; i++) {
-    doc.switchToPage(i);
-    const savedY = doc.y;
-    // Wipe just the header strip so redrawn text isn't doubled
-    rect(doc, 0, 0, PAGE.width, 40, C.white);
-    doc.save().moveTo(PAGE.margin, 36).lineTo(PAGE.width - PAGE.margin, 36).lineWidth(1).strokeColor(C.gray900).stroke().restore();
-    doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900)
-      .text(brandName, PAGE.margin, 22, { lineBreak: false }).restore();
-    doc.save().font(FONT.regular).fontSize(8).fillColor(C.gray700)
-      .text(title, 0, 22, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-    doc.save().font(FONT.regular).fontSize(8).fillColor(C.gray700)
-      .text(`Page ${i + 1} of ${totalPages}`, PAGE.margin, 22, { align: 'right', lineBreak: false, width: CONTENT_W }).restore();
-    doc.y = savedY;
-  }
-  doc.switchToPage(range.start + range.count - 1);
-}
-
-function _buildClassicPDF(doc, agreement, landlord, tenant, property, currencyCtx) {
-  const fmt = {
-    money: n => currencyCtx.money(n),
-    date: d => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
-  };
-  const address = property?.address
-    ? [property.address.street, property.address.city, property.address.state].filter(Boolean).join(', ')
-    : '—';
-
-  let pageNum = 1;
-  doc.on('pageAdded', () => { pageNum++; });
-
-  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
-
-  // ── Double-rule title block ──
-  doc.save().font(FONT.bold).fontSize(10).fillColor(C.gray700)
-    .text(brandNameUpper, 0, 36, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-  doc.save().moveTo(PAGE.margin, 50).lineTo(PAGE.width - PAGE.margin, 50).lineWidth(2).strokeColor(C.gray900).stroke().restore();
-  doc.save().moveTo(PAGE.margin, 52).lineTo(PAGE.width - PAGE.margin, 52).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
-  doc.save().font(FONT.bold).fontSize(20).fillColor(C.gray900)
-    .text('RESIDENTIAL RENTAL AGREEMENT', 0, 66, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-  doc.save().moveTo(PAGE.margin, 94).lineTo(PAGE.width - PAGE.margin, 94).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
-  doc.save().moveTo(PAGE.margin, 96).lineTo(PAGE.width - PAGE.margin, 96).lineWidth(2).strokeColor(C.gray900).stroke().restore();
-  doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-    .text(`Agreement ID: ${agreement._id}`, 0, 104, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-  doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-    .text(`Date of Preparation: ${fmt.date(new Date())}`, 0, 118, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-
-  let y = 148;
-
-  // ── Preamble ──
-  const preamble = `THIS RESIDENTIAL RENTAL AGREEMENT ("Agreement") is entered into as of ${fmt.date(agreement.term?.startDate)}, by and between ${landlord?.name || '________________'} ("Landlord") and ${tenant?.name || '________________'} ("Tenant"), collectively referred to as the "Parties." The Landlord agrees to lease the property described herein to the Tenant, and the Tenant agrees to lease said property from the Landlord, subject to the terms and conditions set forth in this Agreement.`;
-  rect(doc, PAGE.margin, y, CONTENT_W, 2, C.gray900);
-  y += 10;
-  doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-    .text(preamble, PAGE.margin, y, { width: CONTENT_W, align: 'justify' }).restore();
-  y += doc.heightOfString(preamble, { width: CONTENT_W }) + 16;
-  rect(doc, PAGE.margin, y, CONTENT_W, 1, C.gray500);
-  y += 20;
-
-  const classicSection = (num, title, yy) => {
-    doc.save().font(FONT.bold).fontSize(11).fillColor(C.gray900)
-      .text(`${num}. ${title.toUpperCase()}`, PAGE.margin, yy, { lineBreak: false }).restore();
-    yy += 18;
-    doc.save().moveTo(PAGE.margin, yy).lineTo(PAGE.width - PAGE.margin, yy).lineWidth(0.5).strokeColor(C.gray700).stroke().restore();
-    return yy + 10;
-  };
-
-  const classicRow = (label, value, yy, indent = 12) => {
-    doc.save().font(FONT.bold).fontSize(9.5).fillColor(C.gray900)
-      .text(`${label}:`, PAGE.margin + indent, yy, { lineBreak: false, continued: true })
-      .font(FONT.regular).fillColor(C.gray700).text(`  ${String(value ?? '—')}`, { lineBreak: false }).restore();
-    return yy + 16;
-  };
-
-  y = classicSection('I', 'PARTIES TO THIS AGREEMENT', y);
-  y = classicRow('Landlord', `${landlord?.name || '—'} (${landlord?.email || '—'})`, y);
-  y = classicRow('Tenant', `${tenant?.name || '—'} (${tenant?.email || '—'})`, y);
-  y = classicRow('Property', `${property?.title || '—'}, ${address}`, y);
-  y += 16;
-
-  y = classicSection('II', 'LEASE TERM', y);
-  y = classicRow('Commencement Date', fmt.date(agreement.term?.startDate), y);
-  y = classicRow('Expiration Date', fmt.date(agreement.term?.endDate), y);
-  y = classicRow('Duration', `${agreement.term?.durationMonths || '—'} months`, y);
-  y += 16;
-
-  y = classicSection('III', 'RENT AND FINANCIAL OBLIGATIONS', y);
-  const petDeposit = agreement.petPolicy?.allowed ? (agreement.petPolicy?.deposit || 0) : 0;
-  const maintenanceFee = property?.financials?.maintenanceFee || 0;
-  y = classicRow('Monthly Rent', fmt.money(agreement.financials?.rentAmount), y);
-  y = classicRow('Security Deposit', fmt.money(agreement.financials?.depositAmount), y);
-  if (maintenanceFee > 0) y = classicRow('Maintenance Fee', fmt.money(maintenanceFee), y);
-  y = classicRow('Late Fee', `${fmt.money(agreement.financials?.lateFeeAmount || 0)} (after ${agreement.financials?.lateFeeGracePeriodDays || 5} day grace period)`, y);
-  if (petDeposit > 0) y = classicRow('Pet Deposit (non-refundable)', fmt.money(petDeposit), y);
-  const totalMoveIn = (agreement.financials?.rentAmount || 0) + (agreement.financials?.depositAmount || 0) + maintenanceFee + petDeposit;
-  y += 4;
-  doc.save().font(FONT.bold).fontSize(9.5).fillColor(C.gray900)
-    .text(`Total Move-In Cost: ${fmt.money(totalMoveIn)}`, PAGE.margin + 12, y, { lineBreak: false }).restore();
-  y += 20;
-
-  if (y > PAGE.height - 200) { doc.addPage(); addClassicPageFurniture(doc, pageNum, '—'); y = 56; }
-
-  y = classicSection('IV', 'POLICIES', y);
-  y = classicRow('Utilities', agreement.utilitiesIncluded ? 'Included in rent' : 'Not included in rent', y);
-  if (agreement.utilitiesDetails) y = classicRow('Utility Details', agreement.utilitiesDetails, y);
-  y = classicRow('Pet Policy', agreement.petPolicy?.allowed ? `Permitted (Deposit: ${fmt.money(agreement.petPolicy?.deposit)})` : 'No pets permitted', y);
-  if (agreement.terminationPolicy) y = classicRow('Termination Policy', agreement.terminationPolicy, y);
-  y += 16;
-
-  if (y > PAGE.height - 160) { doc.addPage(); addClassicPageFurniture(doc, pageNum, '—'); y = 56; }
-  y = classicSection('V', 'STANDARD CONDITIONS', y);
-  const standardClauses = getStandardClauseLines(theme, fmt);
-  standardClauses.forEach((text, i) => {
-    if (y > PAGE.height - 120) { doc.addPage(); addClassicPageFurniture(doc, pageNum, '—'); y = 56; }
-    const clause = `${String.fromCharCode(65 + i)}. ${text}`;
-    doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-      .text(clause, PAGE.margin + 12, y, { width: CONTENT_W - 24, align: 'justify' }).restore();
-    y += doc.heightOfString(clause, { width: CONTENT_W - 24 }) + 8;
-  });
-  y += 10;
-
-  const baseAgreement = typeof agreement.toObject === 'function' ? agreement.toObject() : agreement;
-  const agr = { ...baseAgreement, landlord: landlord || baseAgreement.landlord, tenant: tenant || baseAgreement.tenant, property: property || baseAgreement.property };
-  const resolvedClauses = substituteClauses(agr);
-  if (resolvedClauses.length > 0) {
-    if (y > PAGE.height - 160) { doc.addPage(); addClassicPageFurniture(doc, pageNum, '—'); y = 56; }
-    y = classicSection('VI', 'ADDITIONAL CLAUSES AND SPECIAL TERMS', y);
-    resolvedClauses.forEach((clause, i) => {
-      const fullText = `${i + 1}. ${String(clause.title || '')} — ${String(clause.body || '')}`;
-      const textH = doc.heightOfString(fullText, { width: CONTENT_W - 12 });
-      if (y + textH > PAGE.height - 100) { doc.addPage(); addClassicPageFurniture(doc, pageNum, '—'); y = 56; }
-      doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-        .text(fullText, PAGE.margin + 12, y, { width: CONTENT_W - 24, align: 'justify' }).restore();
-      y += textH + 10;
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    
+    return await page.pdf({
+      format: 'A4',
+      margin: { top: '60px', right: '60px', bottom: '60px', left: '60px' },
+      printBackground: true
     });
-    y += 10;
+  } finally {
+    if (browser) await browser.close();
   }
-
-  // ── Signatures — only start a new page if content won't fit ──
-  const sigBlockHeight = 180; // approx: section heading + intro + sig lines
-  if (y + sigBlockHeight > PAGE.height - 60) {
-    doc.addPage();
-    addClassicPageFurniture(doc, pageNum, '—');
-    y = 56;
-  } else {
-    y += 20; // breathing room
-  }
-
-  y = classicSection('VII', 'SIGNATURES AND ACKNOWLEDGEMENT', y);
-  const witnessText = `IN WITNESS WHEREOF, the parties hereto have executed this Residential Rental Agreement as of the date first written above. By executing this Agreement below, both parties declare that they have read, understood, and agree to be bound by all terms and conditions set forth herein. The parties acknowledge that electronic signatures applied via the ${brandName} platform constitute legally binding signatures under applicable electronic signature laws.`;
-  doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-    .text(witnessText, PAGE.margin, y, { width: CONTENT_W, align: 'justify' }).restore();
-  y += doc.heightOfString(witnessText, { width: CONTENT_W }) + 24;
-
-  const sigGapC = 32;
-  const sigWC = (CONTENT_W - sigGapC) / 2;
-  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900).text('LANDLORD', PAGE.margin, y, { lineBreak: false }).restore();
-  doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900).text('TENANT', PAGE.margin + sigWC + sigGapC, y, { lineBreak: false }).restore();
-  y += 14;
-
-  const renderClassicSig = (sigData, x, w) => {
-    if (sigData) {
-      try {
-        const b64 = sigData.replace(/^data:image\/\w+;base64,/, '');
-        doc.image(Buffer.from(b64, 'base64'), x, y, { fit: [w, 30], align: 'left', valign: 'center' });
-      } catch (_) {}
-    }
-    doc.save().moveTo(x, y + 34).lineTo(x + w, y + 34).lineWidth(0.75).strokeColor(C.gray900).stroke().restore();
-  };
-  renderClassicSig(agreement.signatures?.landlord?.drawData, PAGE.margin, sigWC);
-  renderClassicSig(agreement.signatures?.tenant?.drawData, PAGE.margin + sigWC + sigGapC, sigWC);
-  y += 44;
-
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
-    .text(landlord?.name || 'Printed Name: _______________', PAGE.margin, y, { lineBreak: false, width: sigWC }).restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
-    .text(tenant?.name || 'Printed Name: _______________', PAGE.margin + sigWC + sigGapC, y, { lineBreak: false, width: sigWC }).restore();
-  y += 14;
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray700)
-    .text(agreement.signatures?.landlord?.signedAt ? `Date: ${fmt.date(agreement.signatures.landlord.signedAt)}` : 'Date: _______________', PAGE.margin, y, { lineBreak: false, width: sigWC }).restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray700)
-    .text(agreement.signatures?.tenant?.signedAt ? `Date: ${fmt.date(agreement.signatures.tenant.signedAt)}` : 'Date: _______________', PAGE.margin + sigWC + sigGapC, y, { lineBreak: false, width: sigWC }).restore();
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MINIMALIST LAYOUT
-// ═══════════════════════════════════════════════════════════════════════════
-
-function addMinimalistPageFurniture(doc, pageNum, totalPages, agreementId) {
-  const savedY = doc.y;
-  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
-  doc.save().moveTo(0, 44).lineTo(PAGE.width, 44).lineWidth(0.4).strokeColor(C.gray300).stroke().restore();
-  doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray900)
-    .text(brandNameUpper, PAGE.margin, 28, { lineBreak: false }).restore();
-  doc.save().font(FONT.regular).fontSize(7).fillColor(C.gray500)
-    .text(`Ref: ${agreementId}`, 0, 28, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-  doc.save().font(FONT.regular).fontSize(7).fillColor(C.gray500)
-    .text(`${pageNum} / ${totalPages}`, PAGE.margin, 28, { align: 'right', lineBreak: false, width: CONTENT_W }).restore();
-  doc.save().moveTo(0, PAGE.height - 36).lineTo(PAGE.width, PAGE.height - 36).lineWidth(0.4).strokeColor(C.gray300).stroke().restore();
-  // Temporarily remove bottom margin so the footer text placed near PAGE.height
-  // doesn't trigger PDFKit's auto-page-break logic.
-  const savedBottomMargin = doc.page.margins.bottom;
-  doc.page.margins.bottom = 0;
-  doc.save().font(FONT.regular).fontSize(6.5).fillColor(C.gray500)
-    .text(`${brandName} · Rental Agreement · Digital signatures are legally binding`, 0, PAGE.height - 24, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-  doc.page.margins.bottom = savedBottomMargin;
-  doc.y = savedY;
-}
-
-function finalizeMinimalistPagination(doc, agreementId) {
-  const range = doc.bufferedPageRange();
-  const totalPages = range.count;
-  for (let i = range.start + 1; i < range.start + range.count; i++) {
-    doc.switchToPage(i);
-    const savedY = doc.y;
-    // Wipe just the header strip so redrawn text isn't doubled
-    rect(doc, 0, 0, PAGE.width, 48, C.white);
-    doc.save().moveTo(0, 44).lineTo(PAGE.width, 44).lineWidth(0.4).strokeColor(C.gray300).stroke().restore();
-    doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray900)
-      .text(brandNameUpper, PAGE.margin, 28, { lineBreak: false }).restore();
-    doc.save().font(FONT.regular).fontSize(7).fillColor(C.gray500)
-      .text(`Ref: ${agreementId}`, 0, 28, { align: 'center', lineBreak: false, width: PAGE.width }).restore();
-    doc.save().font(FONT.regular).fontSize(7).fillColor(C.gray500)
-      .text(`${i + 1} / ${totalPages}`, PAGE.margin, 28, { align: 'right', lineBreak: false, width: CONTENT_W }).restore();
-    doc.y = savedY;
-  }
-  doc.switchToPage(range.start + range.count - 1);
-}
-
-function _buildMinimalistPDF(doc, agreement, landlord, tenant, property, currencyCtx) {
-  const fmt = {
-    money: n => currencyCtx.money(n),
-    date: d => d ? new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '—',
-  };
-  const address = property?.address
-    ? [property.address.street, property.address.city, property.address.state].filter(Boolean).join(', ')
-    : '—';
-
-  let pageNum = 1;
-  doc.on('pageAdded', () => { pageNum++; });
-
-  rect(doc, 0, 0, PAGE.width, PAGE.height, C.white);
-
-  let y = 100;
-
-  // ── Large wordmark ──
-  doc.save().font(FONT.bold).fontSize(36).fillColor(C.gray900)
-    .text(brandName, PAGE.margin, y, { lineBreak: false }).restore();
-  y += 46;
-  doc.save().moveTo(PAGE.margin, y).lineTo(PAGE.margin + 200, y).lineWidth(3).strokeColor(C.gray900).stroke().restore();
-  y += 18;
-  doc.save().font(FONT.regular).fontSize(11).fillColor(C.gray500)
-    .text('RESIDENTIAL RENTAL AGREEMENT', PAGE.margin, y, { lineBreak: false }).restore();
-  y += 32;
-
-  // ── Party cards (label + name + email) ──
-  const halfW = (CONTENT_W - 20) / 2;
-  const miniCard = (label, name, email, x, startY) => {
-    doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray500)
-      .text(label, x, startY, { lineBreak: false, width: halfW }).restore();
-    doc.save().font(FONT.bold).fontSize(13).fillColor(C.gray900)
-      .text(name || '—', x, startY + 12, { lineBreak: false, width: halfW }).restore();
-    doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-      .text(email || '—', x, startY + 30, { lineBreak: false, width: halfW }).restore();
-  };
-  miniCard('LANDLORD', landlord?.name, landlord?.email, PAGE.margin, y);
-  miniCard('TENANT', tenant?.name, tenant?.email, PAGE.margin + halfW + 20, y);
-  y += 68;
-
-  doc.save().moveTo(PAGE.margin, y).lineTo(PAGE.width - PAGE.margin, y).lineWidth(0.3).strokeColor(C.gray300).stroke().restore();
-  y += 14;
-  doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray500)
-    .text('PROPERTY', PAGE.margin, y, { lineBreak: false }).restore();
-  y += 12;
-  doc.save().font(FONT.bold).fontSize(14).fillColor(C.gray900)
-    .text(property?.title || '—', PAGE.margin, y, { lineBreak: false, width: CONTENT_W * 0.65 }).restore();
-  doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray500)
-    .text(address, PAGE.margin + CONTENT_W * 0.65 + 10, y + 4, { lineBreak: false, width: CONTENT_W * 0.35 - 10 }).restore();
-  y += 26;
-
-  // ── Key figures strip ──
-  doc.save().moveTo(PAGE.margin, y).lineTo(PAGE.width - PAGE.margin, y).lineWidth(0.3).strokeColor(C.gray300).stroke().restore();
-  y += 18;
-  const strips = [
-    { label: 'START DATE', value: fmt.date(agreement.term?.startDate) },
-    { label: 'END DATE', value: fmt.date(agreement.term?.endDate) },
-    { label: 'DURATION', value: `${agreement.term?.durationMonths || '—'} mo.` },
-    { label: 'MONTHLY RENT', value: fmt.money(agreement.financials?.rentAmount) },
-  ];
-  const stripW = CONTENT_W / 4;
-  strips.forEach((s, i) => {
-    const cx = PAGE.margin + i * stripW;
-    doc.save().font(FONT.bold).fontSize(6.5).fillColor(C.gray500)
-      .text(s.label, cx, y, { lineBreak: false, width: stripW - 8 }).restore();
-    doc.save().font(FONT.bold).fontSize(12).fillColor(C.gray900)
-      .text(s.value, cx, y + 12, { lineBreak: false, width: stripW - 8 }).restore();
-    if (i < 3) doc.save().moveTo(cx + stripW, y - 2).lineTo(cx + stripW, y + 30).lineWidth(0.3).strokeColor(C.gray300).stroke().restore();
-  });
-  y += 46;
-  doc.save().moveTo(PAGE.margin, y).lineTo(PAGE.width - PAGE.margin, y).lineWidth(0.3).strokeColor(C.gray300).stroke().restore();
-  y += 24;
-
-  const miniSection = (label, yy) => {
-    doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray500)
-      .text(label, PAGE.margin, yy, { lineBreak: false }).restore();
-    yy += 14;
-    doc.save().moveTo(PAGE.margin, yy).lineTo(PAGE.width - PAGE.margin, yy).lineWidth(0.3).strokeColor(C.gray300).stroke().restore();
-    return yy + 12;
-  };
-
-  const miniRow = (label, value, yy) => {
-    const cw = CONTENT_W / 2 - 10;
-    doc.save().font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
-      .text(label, PAGE.margin, yy, { lineBreak: false, width: cw }).restore();
-    doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-      .text(String(value ?? '—'), PAGE.margin, yy + 11, { lineBreak: false, width: cw }).restore();
-    return yy + 28;
-  };
-  const miniRowRight = (label, value, yy) => {
-    const cw = CONTENT_W / 2 - 10;
-    const rx = PAGE.margin + CONTENT_W / 2 + 10;
-    doc.save().font(FONT.bold).fontSize(7.5).fillColor(C.gray500)
-      .text(label, rx, yy, { lineBreak: false, width: cw }).restore();
-    doc.save().font(FONT.regular).fontSize(9.5).fillColor(C.gray900)
-      .text(String(value ?? '—'), rx, yy + 11, { lineBreak: false, width: cw }).restore();
-    return yy + 28;
-  };
-
-  // ── Financials ──
-  y = miniSection('FINANCIAL TERMS', y);
-  const petDeposit = agreement.petPolicy?.allowed ? (agreement.petPolicy?.deposit || 0) : 0;
-  const maintenanceFee = property?.financials?.maintenanceFee || 0;
-  const totalMoveIn = (agreement.financials?.rentAmount || 0) + (agreement.financials?.depositAmount || 0) + maintenanceFee + petDeposit;
-  miniRow('MONTHLY RENT', fmt.money(agreement.financials?.rentAmount), y);
-  miniRowRight('SECURITY DEPOSIT', fmt.money(agreement.financials?.depositAmount), y);
-  y += 28;
-  miniRow('LATE FEE', `${fmt.money(agreement.financials?.lateFeeAmount || 0)} after ${agreement.financials?.lateFeeGracePeriodDays || 5}d`, y);
-  miniRowRight('TOTAL MOVE-IN', fmt.money(totalMoveIn), y);
-  y += 36;
-
-  if (y > PAGE.height - 180) { doc.addPage(); addMinimalistPageFurniture(doc, pageNum, '—', agreement._id); y = 64; }
-  y = miniSection('POLICIES & TERMS', y);
-  miniRow('UTILITIES', agreement.utilitiesIncluded ? 'Included' : 'Excluded', y);
-  miniRowRight('PET POLICY', agreement.petPolicy?.allowed ? `Allowed — ${fmt.money(agreement.petPolicy?.deposit)} dep.` : 'Not permitted', y);
-  y += 36;
-
-  if (y > PAGE.height - 200) { doc.addPage(); addMinimalistPageFurniture(doc, pageNum, '—', agreement._id); y = 64; }
-  y = miniSection('STANDARD LEASE CONDITIONS', y);
-  const standardClauses = getStandardClauseLines(theme, fmt);
-  standardClauses.forEach((text, i) => {
-    if (y > PAGE.height - 100) { doc.addPage(); addMinimalistPageFurniture(doc, pageNum, '—', agreement._id); y = 64; }
-    doc.save().font(FONT.bold).fontSize(8).fillColor(C.gray900)
-      .text(`${i + 1}.`, PAGE.margin, y, { lineBreak: false, width: 14 }).restore();
-    doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-      .text(text, PAGE.margin + 18, y, { width: CONTENT_W - 18 }).restore();
-    y += doc.heightOfString(text, { width: CONTENT_W - 18 }) + 8;
-  });
-  y += 10;
-
-  const baseAgreement = typeof agreement.toObject === 'function' ? agreement.toObject() : agreement;
-  const agr = { ...baseAgreement, landlord: landlord || baseAgreement.landlord, tenant: tenant || baseAgreement.tenant, property: property || baseAgreement.property };
-  const resolvedClauses = substituteClauses(agr);
-  if (resolvedClauses.length > 0) {
-    if (y > PAGE.height - 160) { doc.addPage(); addMinimalistPageFurniture(doc, pageNum, '—', agreement._id); y = 64; }
-    y = miniSection('ADDITIONAL CLAUSES', y);
-    resolvedClauses.forEach((clause, i) => {
-      const titleText = String(clause.title || `Clause ${i + 1}`);
-      const bodyText = String(clause.body || '');
-      const titleH = doc.heightOfString(titleText, { width: CONTENT_W });
-      const bodyH = doc.heightOfString(bodyText, { width: CONTENT_W - 18 });
-      if (y + titleH + bodyH > PAGE.height - 80) { doc.addPage(); addMinimalistPageFurniture(doc, pageNum, '—', agreement._id); y = 64; }
-      doc.save().font(FONT.bold).fontSize(9).fillColor(C.gray900)
-        .text(`${i + 1}.  ${titleText}`, PAGE.margin, y, { width: CONTENT_W }).restore();
-      y += titleH + 4;
-      doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-        .text(bodyText, PAGE.margin + 18, y, { width: CONTENT_W - 18 }).restore();
-      y += bodyH + 16;
-    });
-  }
-
-  // ── Signatures — only start a new page if not enough room ──
-  const sigBlockHeightM = 160;
-  if (y + sigBlockHeightM > PAGE.height - 60) {
-    doc.addPage();
-    addMinimalistPageFurniture(doc, pageNum, '—', agreement._id);
-    y = 64;
-  } else {
-    y += 24;
-  }
-
-  y = miniSection('SIGNATURES', y);
-  doc.save().font(FONT.regular).fontSize(9).fillColor(C.gray700)
-    .text(`By signing below, each party confirms they have read and fully accept all terms of this Agreement. Electronic signatures applied through ${brandName} are legally binding under applicable e-signature laws and carry the same legal weight as handwritten signatures.`, PAGE.margin, y, { width: CONTENT_W }).restore();
-  y += doc.heightOfString('By signing below...', { width: CONTENT_W }) + 28;
-
-  const sigGapM = 40;
-  const sigWM = (CONTENT_W - sigGapM) / 2;
-
-  const renderMiniSig = (sigData, x, w, person, signedAt, role) => {
-    doc.save().font(FONT.bold).fontSize(7).fillColor(C.gray500)
-      .text(role, x, y, { lineBreak: false, width: w }).restore();
-    if (sigData) {
-      try {
-        const b64 = sigData.replace(/^data:image\/\w+;base64,/, '');
-        doc.image(Buffer.from(b64, 'base64'), x, y + 14, { fit: [w, 34], align: 'left', valign: 'center' });
-      } catch (_) {}
-    }
-    doc.save().moveTo(x, y + 52).lineTo(x + w, y + 52).lineWidth(0.5).strokeColor(C.gray900).stroke().restore();
-    doc.save().font(FONT.regular).fontSize(8.5).fillColor(C.gray900)
-      .text(person?.name || '—', x, y + 58, { lineBreak: false, width: w }).restore();
-    doc.save().font(FONT.regular).fontSize(7.5).fillColor(C.gray500)
-      .text(signedAt ? fmt.date(signedAt) : 'Pending', x, y + 70, { lineBreak: false, width: w }).restore();
-  };
-  renderMiniSig(agreement.signatures?.landlord?.drawData, PAGE.margin, sigWM, landlord, agreement.signatures?.landlord?.signedAt, 'LANDLORD');
-  renderMiniSig(agreement.signatures?.tenant?.drawData, PAGE.margin + sigWM + sigGapM, sigWM, tenant, agreement.signatures?.tenant?.signedAt, 'TENANT');
-}
-
-// ── Layout dispatcher ────────────────────────────────────────────────────────
-
-function _buildAgreementPDF(doc, agreement, landlord, tenant, property, currencyCtx) {
-  const layout = theme?.layoutStyle || 'modern';
-  if (layout === 'classic') return _buildClassicPDF(doc, agreement, landlord, tenant, property, currencyCtx);
-  if (layout === 'minimalist') return _buildMinimalistPDF(doc, agreement, landlord, tenant, property, currencyCtx);
-  return _buildPDF(doc, agreement, landlord, tenant, property, currencyCtx);
-}
-
-function _finalizeAgreementPagination(doc, title) {
-  const layout = theme?.layoutStyle || 'modern';
-  if (layout === 'classic') return finalizeClassicPagination(doc, title);
-  if (layout === 'minimalist') return finalizeMinimalistPagination(doc, '');
-  return finalizeAgreementPagination(doc, title);
-}
-
-  return { _buildPDF: _buildAgreementPDF, _buildReceiptPDF, finalizeAgreementPagination: _finalizeAgreementPagination };
-} // end createPdfBuilder
-
-// Hardcoded fallback if no DB default theme is found
-const FALLBACK_THEME = {
-  name: 'Minimalist Monochrome',
-  primaryColor: '#000000',
-  accentColor: '#000000',
-  backgroundColor: '#FFFFFF',
-  fontFamily: 'Helvetica',
-  layoutStyle: 'minimalist',
-};
-
-async function resolveTheme(agreement) {
-  // 1. Agreement has an approved template selected.
-  if (agreement.agreementTemplate) {
-    let templateDoc = null;
-
-    if (
-      typeof agreement.agreementTemplate === 'object' &&
-      agreement.agreementTemplate.baseTheme &&
-      typeof agreement.agreementTemplate.baseTheme === 'object' &&
-      agreement.agreementTemplate.baseTheme.layoutStyle
-    ) {
-      templateDoc = agreement.agreementTemplate;
-    } else {
-      const templateId = typeof agreement.agreementTemplate === 'object'
-        ? agreement.agreementTemplate._id
-        : agreement.agreementTemplate;
-
-      templateDoc = await AgreementTemplate.findById(templateId)
-        .populate('baseTheme')
-        .lean();
-    }
-
-    if (templateDoc && templateDoc.baseTheme) {
-      const base = templateDoc.baseTheme.toObject ? templateDoc.baseTheme.toObject() : templateDoc.baseTheme;
-      const merged = {
-        ...base,
-        ...(templateDoc.customizations || {}),
-      };
-
-      return {
-        ...merged,
-        _standardClauses: templateDoc.standardClauses || {},
-      };
-    }
-  }
-
-  // 2. Agreement has an explicitly assigned legacy theme (populated object)
-  if (agreement.pdfTheme && typeof agreement.pdfTheme === 'object' && agreement.pdfTheme.layoutStyle) {
-    return agreement.pdfTheme;
-  }
-
-  // 3. Agreement has a legacy theme ID but not populated — fetch it
-  if (agreement.pdfTheme) {
-    const t = await PdfTheme.findById(agreement.pdfTheme).lean();
-    if (t) return t;
-  }
-
-  // 4. Fall back to the DB-level global default
-  const dbDefault = await PdfTheme.findOne({ isDefault: true }).lean();
-  if (dbDefault) return dbDefault;
-
-  // 5. Last resort: hardcoded fallback
-  return FALLBACK_THEME;
-}
-
-async function resolveReceiptTheme(payment) {
-  // Allow receipt generation to explicitly choose a theme (used by live preview and future overrides).
-  if (payment?.pdfTheme && typeof payment.pdfTheme === 'object' && payment.pdfTheme.layoutStyle) {
-    return payment.pdfTheme;
-  }
-
-  if (payment?.pdfTheme) {
-    const explicitTheme = await PdfTheme.findById(payment.pdfTheme).lean();
-    if (explicitTheme) return explicitTheme;
-  }
-
-  if (payment?.agreement) {
-    try {
-      const agreementLike =
-        typeof payment.agreement === 'object' && payment.agreement !== null
-          ? payment.agreement
-          : await Agreement.findById(payment.agreement)
-              .select('pdfTheme agreementTemplate')
-              .lean();
-
-      if (agreementLike?.agreementTemplate || agreementLike?.pdfTheme) {
-        return await resolveTheme(agreementLike);
-      }
-    } catch (_err) {
-      // Fall through to receipt defaults below.
-    }
-  }
-
-  const receiptDefault = await PdfTheme.findOne({ isGlobal: true, isReceiptDefault: true }).lean();
-  if (receiptDefault) return receiptDefault;
-
-  const agreementDefault = await PdfTheme.findOne({ isGlobal: true, isDefault: true }).lean();
-  if (agreementDefault) return agreementDefault;
-
-  return FALLBACK_THEME;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
-  const theme = await resolveTheme(agreement);
-  const branding = await getPlatformBranding();
-  const builder = createPdfBuilder({ ...theme, ...branding });
-  const currencyCtx = await getCurrencyContext(options.currency || 'USD');
-  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
-  const doc = new PDFDocument({
-    margin: 50,
-    size: 'A4',
-    autoFirstPage: true,
-    bufferPages: true,
-  });
-
-  const baseFontSize = doc.fontSize.bind(doc);
-  doc.fontSize = (size) => baseFontSize(size * fontScale);
-
-  doc.pipe(res);
-  builder._buildPDF(doc, agreement, landlord, tenant, property, currencyCtx);
-  builder.finalizeAgreementPagination(doc, 'RENTAL AGREEMENT');
-  doc.flushPages();
-  doc.end();
+  try {
+    const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
+    const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
+    
+    // Get variables and body HTML
+    const vars = buildVariableMap(agreement);
+    let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
+    
+    // Substitute variables
+    const substitutedHtml = substituteVariables(bodyHtml, vars);
+    const finalHtml = wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
+    
+    const buffer = await generatePuppeteerPDFBuffer(finalHtml);
+    res.setHeader('Content-Type', 'application/pdf');
+    return res.end(buffer);
+  } catch (error) {
+    console.error('PDF Generation Error:', error);
+    res.status(500).json({ error: 'Failed to generate PDF agreement.', details: error.message });
+  }
 };
 
 const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property, options = {}) => {
-  const theme = await resolveTheme(agreement);
-  const branding = await getPlatformBranding();
-  const builder = createPdfBuilder({ ...theme, ...branding });
-  const currencyCtx = await getCurrencyContext(options.currency || 'USD');
-  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      margin: 50,
-      size: 'A4',
-      autoFirstPage: true,
-      bufferPages: true,
-    });
-
-    const baseFontSize = doc.fontSize.bind(doc);
-    doc.fontSize = (size) => baseFontSize(size * fontScale);
-
-    const chunks = [];
-    doc.on('data', c => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-    builder._buildPDF(doc, agreement, landlord, tenant, property, currencyCtx);
-    builder.finalizeAgreementPagination(doc, 'RENTAL AGREEMENT');
-    doc.flushPages();
-    doc.end();
-  });
+  const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
+  const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
+  
+  const vars = buildVariableMap(agreement);
+  let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
+  
+  const substitutedHtml = substituteVariables(bodyHtml, vars);
+  const finalHtml = wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
+  
+  return await generatePuppeteerPDFBuffer(finalHtml);
 };
 
+/**
+ * Placeholder Receipt PDF (Uses Puppeteer for consistency)
+ */
 const generateReceiptPDF = async (payment, tenant, property, res, options = {}) => {
-  const theme = await resolveReceiptTheme(payment);
-  const branding = await getPlatformBranding();
-  const builder = createPdfBuilder({ ...theme, ...branding });
-  const currencyCtx = await getCurrencyContext(options.currency || 'USD');
-  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
-  const doc = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
-
-  const baseFontSize = doc.fontSize.bind(doc);
-  doc.fontSize = (size) => baseFontSize(size * fontScale);
-
-  doc.pipe(res);
-  builder._buildReceiptPDF(doc, payment, tenant, property, currencyCtx);
-  doc.end();
+  try {
+    const currencyCtx = await getCurrencyContext(options.currency || 'USD');
+    const branding = await getPlatformBranding();
+    
+    const html = `
+      <html>
+      <body style="font-family: 'Times New Roman'; padding: 50px;">
+        <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px;">
+          <h1>PAYMENT RECEIPT</h1>
+          <p>${branding.brandName || 'RentifyPro'}</p>
+        </div>
+        <div style="margin-top: 30px;">
+          <p><strong>Receipt Number:</strong> ${payment.receiptNumber || payment._id}</p>
+          <p><strong>Date:</strong> ${new Date(payment.paidAt || payment.createdAt).toLocaleDateString()}</p>
+          <p><strong>Tenant:</strong> ${tenant?.name || '—'}</p>
+          <p><strong>Property:</strong> ${property?.title || '—'}</p>
+          <hr/>
+          <h2 style="text-align: right;">Amount Paid: ${currencyCtx.money(payment.amount)}</h2>
+        </div>
+        <div style="margin-top: 100px; text-align: center; font-size: 10pt; color: #666;">
+          Thank you for your payment. This is a system-generated receipt.
+        </div>
+      </body>
+      </html>
+    `;
+    
+    const buffer = await generatePuppeteerPDFBuffer(html);
+    res.setHeader('Content-Type', 'application/pdf');
+    return res.end(buffer);
+  } catch (error) {
+    console.error('Receipt Generation Error:', error);
+    res.status(500).json({ error: 'Failed to generate PDF receipt.' });
+  }
 };
 
 const generateReceiptPDFBuffer = async (payment, tenant, property, options = {}) => {
-  const theme = await resolveReceiptTheme(payment);
-  const branding = await getPlatformBranding();
-  const builder = createPdfBuilder({ ...theme, ...branding });
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
-  const fontScale = Math.min(1.4, Math.max(0.8, Number(theme?.fontSizeScale || 1)));
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: 'A4', autoFirstPage: true });
-
-    const baseFontSize = doc.fontSize.bind(doc);
-    doc.fontSize = (size) => baseFontSize(size * fontScale);
-
-    const chunks = [];
-    doc.on('data', c => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-    builder._buildReceiptPDF(doc, payment, tenant, property, currencyCtx);
-    doc.end();
-  });
+  const html = `<html><body style="padding:50px;"><h1>RECEIPT</h1><p>Amount: ${currencyCtx.money(payment.amount)}</p></body></html>`;
+  return await generatePuppeteerPDFBuffer(html);
 };
 
 module.exports = {

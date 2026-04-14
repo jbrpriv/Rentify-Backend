@@ -39,17 +39,36 @@ function buildVariableMap(agreement) {
     : '';
 
   return {
+    // CamelCase (Legacy Support)
     tenantName:        tenant?.name       || '____________________',
     landlordName:      landlord?.name     || '____________________',
     propertyTitle:     property?.title    || '____________________',
-    propertyAddress:   property?.address  || '____________________',
     rentAmount:        _fmt.money(financials?.rentAmount),
     depositAmount:     _fmt.money(financials?.depositAmount),
-    lateFeeAmount:     _fmt.money(financials?.lateFeeAmount),
-    lateFeeGraceDays:  String(financials?.lateFeeGracePeriodDays ?? 5),
     startDate:         _fmt.date(term?.startDate),
     endDate:           _fmt.date(term?.endDate),
-    durationMonths:    String(term?.durationMonths ?? ''),
+
+    // snake_case (Modern Builder Support)
+    agreement_id:      String(agreement._id),
+    current_date:      _fmt.date(new Date()),
+    tenant_name:       tenant?.name       || '____________________',
+    landlord_name:     landlord?.name     || '____________________',
+    property_title:    property?.title    || '____________________',
+    property_address:  address           || '____________________',
+    rent_amount:       _fmt.money(financials?.rentAmount),
+    monthly_rent:      _fmt.money(financials?.rentAmount),
+    security_deposit:  _fmt.money(financials?.depositAmount),
+    total_move_in:     _fmt.money((financials?.rentAmount || 0) + (financials?.depositAmount || 0)),
+    start_date:        _fmt.date(term?.startDate),
+    end_date:          _fmt.date(term?.endDate),
+    lease_end_date:    _fmt.date(term?.endDate),
+    duration_months:   term?.durationMonths || '—',
+    pet_allowed:       agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed',
+    pet_deposit:       _fmt.money(agreement.petPolicy?.deposit || 0),
+    utilities_included: agreement.utilitiesIncluded ? 'Included' : 'Not Included',
+    // Other fields
+    lateFeeAmount:     _fmt.money(financials?.lateFeeAmount),
+    lateFeeGraceDays:  String(financials?.lateFeeGracePeriodDays ?? 5),
     currentDate:       _fmt.date(new Date()),
     agreementId:       String(agreement._id),
     petPolicy:         agreement.petPolicy?.allowed ? 'Pets allowed' : 'No pets',
