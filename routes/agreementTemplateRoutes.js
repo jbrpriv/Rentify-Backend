@@ -14,11 +14,13 @@ const {
   reviewTemplate,
   useTemplate,
   getTemplateAnalytics,
+  getApprovedClauses,
 } = require('../controllers/agreementTemplateController');
 
 // Analytics (admin only) — must be before /:id to avoid route collision
 router.get('/analytics', protect, isAdmin, getTemplateAnalytics);
 router.get('/available', protect, getAvailableTemplates);
+router.get('/approved-clauses', protect, getApprovedClauses);
 
 // GET  /api/agreement-templates       → landlord: own | admin: all
 // POST /api/agreement-templates       → landlord creates

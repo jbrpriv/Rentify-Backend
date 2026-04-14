@@ -415,6 +415,24 @@ const getTemplateAnalytics = async (req, res) => {
   }
 };
 
+const Clause = require('../models/Clause');
+
+const getApprovedClauses = async (req, res) => {
+  try {
+    const clauses = await Clause.find({ 
+      isApproved: true, 
+      isArchived: false,
+      isLatestVersion: true 
+    })
+    .select('title body category jurisdiction')
+    .sort({ category: 1, title: 1 });
+    
+    res.json(clauses);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 module.exports = {
   getTemplates,
   getTemplateById,
@@ -428,4 +446,5 @@ module.exports = {
   reviewTemplate,
   useTemplate,
   getTemplateAnalytics,
+  getApprovedClauses,
 };
