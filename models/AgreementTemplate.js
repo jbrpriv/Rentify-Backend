@@ -118,6 +118,16 @@ const agreementTemplateSchema = new mongoose.Schema(
       type:    Date,
       default: null,
     },
+
+    // ─── Document Content ─────────────────────────────────────────
+    bodyHtml: {
+      type:    String,
+      default: '',
+    },
+    bodyJson: {
+      type:    mongoose.Schema.Types.Mixed,
+      default: {},
+    },
   },
   { timestamps: true }
 );

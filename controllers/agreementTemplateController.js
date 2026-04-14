@@ -128,9 +128,9 @@ const createTemplate = async (req, res) => {
       return res.status(403).json({ message: 'Only landlords or admins can create agreement templates' });
     }
 
-    const { name, description, jurisdiction, baseTheme } = req.body;
-    if (!name || !baseTheme) {
-      return res.status(400).json({ message: 'name and baseTheme are required' });
+    const { name, description, jurisdiction, baseTheme, bodyHtml, bodyJson } = req.body;
+    if (!name || (!baseTheme && !bodyHtml)) {
+      return res.status(400).json({ message: 'name and either baseTheme or bodyHtml are required' });
     }
 
     const baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
@@ -149,6 +149,8 @@ const createTemplate = async (req, res) => {
       status: req.user.role === 'admin' ? 'approved' : 'pending',
       reviewedBy: req.user.role === 'admin' ? req.user._id : null,
       reviewedAt: req.user.role === 'admin' ? new Date() : null,
+      bodyHtml: bodyHtml || '',
+      bodyJson: bodyJson || {},
     });
 
     const populated = await populateTemplate(AgreementTemplate.findById(template._id));
@@ -173,7 +175,7 @@ const updateTemplate = async (req, res) => {
       return res.status(400).json({ message: 'Only pending or rejected templates can be edited' });
     }
 
-    const { name, description, jurisdiction, baseTheme } = req.body;
+    const { name, description, jurisdiction, baseTheme, bodyHtml, bodyJson } = req.body;
 
     if (name !== undefined) template.name = name.trim();
     if (description !== undefined) template.description = description.trim();
@@ -199,6 +201,9 @@ const updateTemplate = async (req, res) => {
       template.reviewedAt = null;
       template.rejectionReason = '';
     }
+    
+    if (bodyHtml !== undefined) template.bodyHtml = bodyHtml;
+    if (bodyJson !== undefined) template.bodyJson = bodyJson;
 
     await template.save();
     const populated = await populateTemplate(AgreementTemplate.findById(template._id));
