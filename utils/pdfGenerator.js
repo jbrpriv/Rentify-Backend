@@ -48,10 +48,12 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
 
         /* ── Alignment — TipTap emits style="text-align:..." on block elements ── */
-        [style*="text-align: left"],   [style*="text-align:left"]   { text-align: left   !important; }
-        [style*="text-align: center"], [style*="text-align:center"] { text-align: center !important; }
-        [style*="text-align: right"],  [style*="text-align:right"]  { text-align: right  !important; }
-        [style*="text-align: justify"],[style*="text-align:justify"]{ text-align: justify!important; }
+        h1, h2, h3, p, div { display: block; margin-bottom: 0.5em; }
+        h1[style*="text-align"], h2[style*="text-align"], h3[style*="text-align"], p[style*="text-align"], div[style*="text-align"] { text-align: inherit !important; }
+        [style*="text-align:left"] { text-align: left !important; }
+        [style*="text-align:center"] { text-align: center !important; }
+        [style*="text-align:right"] { text-align: right !important; }
+        [style*="text-align:justify"] { text-align: justify !important; }
 
         /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
         span[style*="font-size"] { font-size: inherit; } /* reset then let inline win */
@@ -304,19 +306,45 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
   // 1. Substitute {{variable}} placeholders (simple token replacement)
   let substitutedHtml = substituteVariables(bodyHtml, vars);
 
-  // 2. Resolve TipTap Variable nodes (<span data-type="variable" data-name="...">)
-  //    Use a robust pass that finds any span with data-type="variable" regardless of
-  //    attribute order and extracts data-name from the tag before replacing.
+  // 2. Resolve TipTap Variable nodes using regex with proper handling of nested spans
+  //    Pattern matches: <span data-type="variable" data-name="varname" ...>label</span>
+  //    Handles variations in attribute order and nested structures
+  const variablePattern = /<span\b[^>]*\bdata-type=["']variable["'][^>]*>[\s\S]*?<\/span>/gi;
+  substitutedHtml = substitutedHtml.replace(variablePattern, (match) => {
+    // Extract data-name attribute - handle both single and double quotes, any position
+    const nameMatch = match.match(/\bdata-name=["']([^"']+)["']/i) || match.match(/\bdata-name=([^\s>]+)/i);
+    const varName = nameMatch ? (nameMatch[1] || nameMatch[0]) : null;
+    
+    // Extract display label from inside the span (anything between > and </span>)
+    const labelMatch = match.match(/>([^<]+)<\/?span[^>]*>/i);
+    const displayLabel = labelMatch ? labelMatch[1].trim() : varName;
+    
+    if (varName && vars[varName]) {
+      return `<strong>${vars[varName]}</strong>`;
+    } else if (varName) {
+      return `<strong>{{${varName}}}</strong>`;
+    }
+    return match; // Keep original if no variable name found
+  });
+
+  // 3. Also handle any remaining {{variable}} placeholders in bodyHtml that weren't caught
+  substitutedHtml = substituteVariables(substitutedHtml, vars);
+
+  // 4. Pre-process alignment styles - extract text-align from style attribute
+  //    and apply it as a style attribute that Puppeteer will honor
   substitutedHtml = substitutedHtml.replace(
-    /<span\b[^>]*\bdata-type=(?:"|')variable(?:"|')[^>]*>[\s\S]*?<\/span>(?:<\/span>)*/gi,
-    (match) => {
-      const nameMatch = match.match(/data-name=(?:"|')([^"']+)(?:"|')/i);
-      const name = nameMatch ? nameMatch[1] : '';
-      return `<strong>${vars[name] || `{{${name}}}`}</strong>`;
+    /<(h1|h2|h3|p|div|span)\b([^>]*)style="([^"]*text-align:[^;]*;([^"]*[^"]*)"([^>]*)?>/gi,
+    (match, tag, pre, styleContent, middle, post) => {
+      const align = styleContent.match(/text-align:\s*(left|center|right|justify)/);
+      if (!align) return match;
+      const alignment = align[1];
+      const cleanStyle = styleContent.replace(/text-align:[^;]*;?/, '').replace(/;$/, '').replace(/;$/, '');
+      const newStyle = cleanStyle ? cleanStyle + '; text-align: ' + alignment : 'text-align: ' + alignment;
+      return `<${tag}${pre}style="${newStyle}"${post}>`;
     }
   );
 
-  // 3. Replace the ClausesPlaceholder block with actual clause content
+  // 5. Replace the ClausesPlaceholder block with actual clause content
   const clauses = substituteClauses(agreement);
   const clauseHtml = clauses.length > 0
     ? clauses.map(c => `
