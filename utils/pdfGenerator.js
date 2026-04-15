@@ -11,7 +11,7 @@ try {
   console.error('[pdfGenerator] Neither puppeteer nor puppeteer-core could be loaded:', e.message);
 }
 
-const { substituteVariables, buildVariableMap, substituteClauses } = require('./clauseSubstitution');
+const { substituteVariables, buildVariableMap, substituteClauses, resolvePath } = require('./clauseSubstitution');
 const { getCurrencyContext } = require('./currencyService');
 const AgreementTemplate = require('../models/AgreementTemplate');
 const Agreement = require('../models/Agreement');
@@ -47,13 +47,18 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         p  { margin-bottom: 1em; }
         ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
 
-        /* ── Alignment — TipTap emits style="text-align:..." on block elements ── */
-        h1, h2, h3, p, div { display: block; margin-bottom: 0.5em; }
-        h1[style*="text-align"], h2[style*="text-align"], h3[style*="text-align"], p[style*="text-align"], div[style*="text-align"] { text-align: inherit !important; }
-        [style*="text-align:left"] { text-align: left !important; }
-        [style*="text-align:center"] { text-align: center !important; }
-        [style*="text-align:right"] { text-align: right !important; }
-        [style*="text-align:justify"] { text-align: justify !important; }
+        /* ── Alignment — TipTap emits style="text-align:..." on block elements. Support inline styles, align attrs and utility classes ── */
+        h1, h2, h3, p, div, li { display: block; margin-bottom: 0.5em; }
+        /* Inline style variations */
+        [style*="text-align:left"], [style*="text-align: left"], .text-left, [align="left"] { text-align: left !important; }
+        [style*="text-align:center"], [style*="text-align: center"], [style*="text-align:middle"], [style*="text-align: middle"], .text-center, [align="center"], [align="middle"] { text-align: center !important; }
+        [style*="text-align:right"], [style*="text-align: right"], .text-right, [align="right"] { text-align: right !important; }
+        [style*="text-align:justify"], [style*="text-align: justify"], .text-justify, [align="justify"] { text-align: justify !important; }
+        /* Tailwind/utility class fallbacks */
+        .text-center { text-align: center !important; }
+        .text-left { text-align: left !important; }
+        .text-right { text-align: right !important; }
+        .text-justify { text-align: justify !important; }
 
         /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
         span[style*="font-size"] { font-size: inherit; } /* reset then let inline win */
@@ -308,23 +313,36 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
 
   // 2. Resolve TipTap Variable nodes using regex with proper handling of nested spans
   //    Pattern matches: <span data-type="variable" data-name="varname" ...>label</span>
-  //    Handles variations in attribute order and nested structures
+  //    Handles variations in attribute order and nested structures. Also resolve dotted paths from the agreement.
+  const agreementObj = typeof agreement.toObject === 'function' ? agreement.toObject() : agreement;
+
   const variablePattern = /<span\b[^>]*\bdata-type=["']variable["'][^>]*>[\s\S]*?<\/span>/gi;
   substitutedHtml = substitutedHtml.replace(variablePattern, (match) => {
     // Extract data-name attribute - handle both single and double quotes, any position
     const nameMatch = match.match(/\bdata-name=["']([^"']+)["']/i) || match.match(/\bdata-name=([^\s>]+)/i);
-    const varName = nameMatch ? (nameMatch[1] || nameMatch[0]) : null;
-    
-    // Extract display label from inside the span (anything between > and </span>)
-    const labelMatch = match.match(/>([^<]+)<\/?span[^>]*>/i);
-    const displayLabel = labelMatch ? labelMatch[1].trim() : varName;
-    
-    if (varName && vars[varName]) {
-      return `<strong>${vars[varName]}</strong>`;
-    } else if (varName) {
-      return `<strong>{{${varName}}}</strong>`;
+    const varName = nameMatch ? (nameMatch[1] || null) : null;
+
+    // Resolve value: first try vars map, then dotted-path on agreement object
+    let value;
+    if (varName) {
+      if (Object.prototype.hasOwnProperty.call(vars, varName)) {
+        value = vars[varName];
+      } else {
+        const resolved = resolvePath(agreementObj, varName);
+        if (resolved !== undefined && resolved !== null) value = String(resolved);
+      }
     }
-    return match; // Keep original if no variable name found
+
+    if (value !== undefined && value !== null) {
+      return `<strong>${value}</strong>`;
+    }
+
+    // Fallbacks: label inside span, then placeholder
+    const labelMatch = match.match(/>([^<]+)<\/?span[^>]*>/i);
+    const displayLabel = labelMatch ? labelMatch[1].trim() : '';
+    if (displayLabel) return `<strong>${displayLabel}</strong>`;
+    if (varName) return `<strong>{{${varName}}}</strong>`;
+    return match;
   });
 
   // 3. Also handle any remaining {{variable}} placeholders in bodyHtml that weren't caught

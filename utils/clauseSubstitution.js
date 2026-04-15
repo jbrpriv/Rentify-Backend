@@ -194,4 +194,5 @@ module.exports = {
   substituteVariables,
   substituteClauses,
   evaluateCondition,  // exported for unit testing
+  resolvePath,
 };
