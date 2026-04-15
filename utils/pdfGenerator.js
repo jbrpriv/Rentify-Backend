@@ -330,17 +330,17 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
   // 3. Also handle any remaining {{variable}} placeholders in bodyHtml that weren't caught
   substitutedHtml = substituteVariables(substitutedHtml, vars);
 
-  // 4. Pre-process alignment styles - extract text-align from style attribute
-  //    and apply it as a style attribute that Puppeteer will honor
+  // 4. Pre-process alignment styles - normalize text-align in style attribute
+  //    Use simpler regex that avoids the group escaping issues
   substitutedHtml = substitutedHtml.replace(
-    /<(h1|h2|h3|p|div|span)\b([^>]*)style="([^"]*text-align:[^;]*;([^"]*[^"]*)"([^>]*)?>/gi,
-    (match, tag, pre, styleContent, middle, post) => {
+    /<(h1|h2|h3|p|div|span)\s+[^>]*style="([^"]*)"[^>]*>/gi,
+    (match, tag, styleContent) => {
       const align = styleContent.match(/text-align:\s*(left|center|right|justify)/);
       if (!align) return match;
       const alignment = align[1];
-      const cleanStyle = styleContent.replace(/text-align:[^;]*;?/, '').replace(/;$/, '').replace(/;$/, '');
-      const newStyle = cleanStyle ? cleanStyle + '; text-align: ' + alignment : 'text-align: ' + alignment;
-      return `<${tag}${pre}style="${newStyle}"${post}>`;
+      const cleanStyle = styleContent.replace(/text-align:[^;]*;?/g, '').replace(/;$/, '').replace(/^;/, '');
+      const newStyle = cleanStyle ? cleanStyle + ';text-align:' + alignment : 'text-align:' + alignment;
+      return `<${tag} style="${newStyle}">`;
     }
   );
 
