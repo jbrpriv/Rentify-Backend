@@ -11,7 +11,7 @@ try {
   console.error('[pdfGenerator] Neither puppeteer nor puppeteer-core could be loaded:', e.message);
 }
 
-const { substituteVariables, buildVariableMap } = require('./clauseSubstitution');
+const { substituteVariables, buildVariableMap, substituteClauses } = require('./clauseSubstitution');
 const { getCurrencyContext } = require('./currencyService');
 const AgreementTemplate = require('../models/AgreementTemplate');
 const Agreement = require('../models/Agreement');
@@ -38,36 +38,77 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
           color: #1a1a1a;
           font-size: 12pt;
         }
-        .container {
-          padding: 0;
-        }
-        h1, h2, h3 { color: #000; }
-        p { margin-bottom: 1em; }
+        .container { padding: 0; }
+
+        /* ── Headings ── */
+        h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: #000; }
+        h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: #000; }
+        h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: #000; }
+        p  { margin-bottom: 1em; }
+        ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
+
+        /* ── Alignment — TipTap emits style="text-align:..." on block elements ── */
+        [style*="text-align: left"],   [style*="text-align:left"]   { text-align: left   !important; }
+        [style*="text-align: center"], [style*="text-align:center"] { text-align: center !important; }
+        [style*="text-align: right"],  [style*="text-align:right"]  { text-align: right  !important; }
+        [style*="text-align: justify"],[style*="text-align:justify"]{ text-align: justify!important; }
+
+        /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
+        span[style*="font-size"] { font-size: inherit; } /* reset then let inline win */
+
+        /* ── Bold / Italic / Underline ── */
+        strong, b { font-weight: bold; }
+        em, i     { font-style: italic; }
+        u         { text-decoration: underline; }
+
+        /* ── Variables rendered as plain text (data-type="variable" stripped) ── */
+        span[data-type="variable"] { font-weight: bold; }
+
+        /* ── Clause sections injected by the PDF generator ── */
+        .clause-section { margin-top: 1.5em; margin-bottom: 1em; }
+        .clause-section h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.5em; }
+        .clause-section p  { margin: 0; }
+
+        /* ── Signature block ──
+             The image sits ABOVE the rule line. We achieve this by putting the
+             image and name inside the box first, then drawing the top border via
+             a separate <div class="sig-rule"> element underneath.            ── */
         .sig-section {
-          margin-top: 50px;
+          margin-top: 60px;
           page-break-inside: avoid;
         }
         .sig-grid {
           display: flex;
           justify-content: space-between;
           gap: 40px;
-          margin-top: 30px;
+          margin-top: 20px;
         }
         .sig-box {
           flex: 1;
-          border-top: 1px solid #000;
-          padding-top: 10px;
         }
         .sig-label {
           font-weight: bold;
-          font-size: 10pt;
+          font-size: 9pt;
           text-transform: uppercase;
-          margin-bottom: 5px;
+          letter-spacing: 0.05em;
+          color: #444;
+          margin-bottom: 6px;
         }
         .sig-image {
-          max-height: 60px;
           display: block;
-          margin-bottom: 5px;
+          max-height: 64px;
+          max-width: 200px;
+          margin-bottom: 4px;
+          object-fit: contain;
+        }
+        .sig-blank {
+          height: 64px;
+          margin-bottom: 4px;
+        }
+        /* The rule sits BELOW the signature image, above the name */
+        .sig-rule {
+          border-top: 1.5px solid #000;
+          margin-bottom: 8px;
         }
         .sig-name {
           font-size: 11pt;
@@ -76,6 +117,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         .sig-meta {
           font-size: 8pt;
           color: #666;
+          margin-top: 2px;
         }
       </style>
     </head>
@@ -86,20 +128,30 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         <div class="sig-section">
           <h2>Signatures</h2>
           <div class="sig-grid">
-            <!-- Landlord -->
+            <!-- Landlord: image first, THEN the rule line, THEN name -->
             <div class="sig-box">
               <div class="sig-label">Landlord Signature</div>
-              ${landlordSig?.signed ? `<img class="sig-image" src="${landlordSig.drawData}" />` : '<div style="height: 50px;"></div>'}
+              ${landlordSig?.signed
+                ? `<img class="sig-image" src="${landlordSig.drawData}" />`
+                : '<div class="sig-blank"></div>'}
+              <div class="sig-rule"></div>
               <div class="sig-name">${landlord?.name || '____________________'}</div>
-              ${landlordSig?.signed ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>` : ''}
+              ${landlordSig?.signed
+                ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>`
+                : ''}
             </div>
 
-            <!-- Tenant -->
+            <!-- Tenant: same structure -->
             <div class="sig-box">
               <div class="sig-label">Tenant Signature</div>
-              ${tenantSig?.signed ? `<img class="sig-image" src="${tenantSig.drawData}" />` : '<div style="height: 50px;"></div>'}
+              ${tenantSig?.signed
+                ? `<img class="sig-image" src="${tenantSig.drawData}" />`
+                : '<div class="sig-blank"></div>'}
+              <div class="sig-rule"></div>
               <div class="sig-name">${tenant?.name || '____________________'}</div>
-              ${tenantSig?.signed ? `<div class="sig-meta">Signed on ${new Date(tenantSig.signedAt).toLocaleString()}</div>` : ''}
+              ${tenantSig?.signed
+                ? `<div class="sig-meta">Signed on ${new Date(tenantSig.signedAt).toLocaleString()}</div>`
+                : ''}
             </div>
           </div>
         </div>
@@ -248,12 +300,36 @@ const generateAgreementPDF = async (agreement, landlord, tenant, property, res, 
     const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
     const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
     
-    // Get variables and body HTML
     const vars = buildVariableMap(agreement);
     let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
     
-    // Substitute variables
-    const substitutedHtml = substituteVariables(bodyHtml, vars);
+    // 1. Substitute {{variable}} placeholders
+    let substitutedHtml = substituteVariables(bodyHtml, vars);
+
+    // 2. Resolve TipTap Variable nodes (<span data-type="variable" data-name="...">)
+    //    These are the rich-editor nodes inserted via the Variable extension.
+    //    In the PDF we render them as plain bold text.
+    substitutedHtml = substitutedHtml.replace(
+      /<span[^>]*data-type="variable"[^>]*data-name="([^"]*)"[^>]*>.*?<\/span>/gs,
+      (_, name) => `<strong>${vars[name] || `{{${name}}}`}</strong>`
+    );
+
+    // 3. Replace the ClausesPlaceholder block with actual clause content
+    const clauses = substituteClauses(agreement);
+    const clauseHtml = clauses.length > 0
+      ? clauses.map(c => `
+          <div class="clause-section">
+            <h3>${c.title}</h3>
+            <p>${c.body}</p>
+          </div>`).join('\n')
+      : '<p><em>No clauses have been added to this agreement.</em></p>';
+
+    // Replace the placeholder div (rendered by TipTap's ClausesPlaceholder node)
+    substitutedHtml = substitutedHtml.replace(
+      /<div[^>]*data-type="clauses-placeholder"[^>]*>[\s\S]*?<\/div>/g,
+      clauseHtml
+    );
+
     const finalHtml = wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
     
     const buffer = await generatePuppeteerPDFBuffer(finalHtml);
@@ -278,9 +354,28 @@ const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property,
   const vars = buildVariableMap(agreement);
   let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
   
-  const substitutedHtml = substituteVariables(bodyHtml, vars);
+  let substitutedHtml = substituteVariables(bodyHtml, vars);
+
+  substitutedHtml = substitutedHtml.replace(
+    /<span[^>]*data-type="variable"[^>]*data-name="([^"]*)"[^>]*>.*?<\/span>/gs,
+    (_, name) => `<strong>${vars[name] || `{{${name}}}`}</strong>`
+  );
+
+  const clauses = substituteClauses(agreement);
+  const clauseHtml = clauses.length > 0
+    ? clauses.map(c => `
+        <div class="clause-section">
+          <h3>${c.title}</h3>
+          <p>${c.body}</p>
+        </div>`).join('\n')
+    : '<p><em>No clauses have been added to this agreement.</em></p>';
+
+  substitutedHtml = substitutedHtml.replace(
+    /<div[^>]*data-type="clauses-placeholder"[^>]*>[\s\S]*?<\/div>/g,
+    clauseHtml
+  );
+
   const finalHtml = wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
-  
   return await generatePuppeteerPDFBuffer(finalHtml);
 };
 
