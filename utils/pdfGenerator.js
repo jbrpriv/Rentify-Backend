@@ -293,74 +293,30 @@ async function generatePuppeteerPDFBuffer(html) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
-  // NOTE: The caller (downloadAgreementPDF) must NOT set Content-Type before calling this.
-  // We set it here so error responses can still use res.status(500).json().
-  try {
-    const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
-    const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
-    
-    const vars = buildVariableMap(agreement);
-    let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
-    
-    // 1. Substitute {{variable}} placeholders
-    let substitutedHtml = substituteVariables(bodyHtml, vars);
-
-    // 2. Resolve TipTap Variable nodes (<span data-type="variable" data-name="...">)
-    //    These are the rich-editor nodes inserted via the Variable extension.
-    //    In the PDF we render them as plain bold text.
-    substitutedHtml = substitutedHtml.replace(
-      /<span[^>]*data-type="variable"[^>]*data-name="([^"]*)"[^>]*>.*?<\/span>/gs,
-      (_, name) => `<strong>${vars[name] || `{{${name}}}`}</strong>`
-    );
-
-    // 3. Replace the ClausesPlaceholder block with actual clause content
-    const clauses = substituteClauses(agreement);
-    const clauseHtml = clauses.length > 0
-      ? clauses.map(c => `
-          <div class="clause-section">
-            <h3>${c.title}</h3>
-            <p>${c.body}</p>
-          </div>`).join('\n')
-      : '<p><em>No clauses have been added to this agreement.</em></p>';
-
-    // Replace the placeholder div (rendered by TipTap's ClausesPlaceholder node)
-    substitutedHtml = substitutedHtml.replace(
-      /<div[^>]*data-type="clauses-placeholder"[^>]*>[\s\S]*?<\/div>/g,
-      clauseHtml
-    );
-
-    const finalHtml = wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
-    
-    const buffer = await generatePuppeteerPDFBuffer(finalHtml);
-
-    // Only set headers once we have a valid buffer — prevents header-conflict errors
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
-    return res.end(buffer);
-  } catch (error) {
-    console.error('PDF Generation Error:', error);
-    // Guard: only send JSON error if headers haven't been flushed yet
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to generate PDF agreement.', details: error.message });
-    }
-  }
-};
-
-const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property, options = {}) => {
+// Shared HTML builder for agreements (keeps generateAgreementPDF and buffer variant DRY)
+async function _buildAgreementHtml(agreement, landlord, tenant, property, options = {}) {
   const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
   const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
-  
+
   const vars = buildVariableMap(agreement);
   let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
-  
+
+  // 1. Substitute {{variable}} placeholders (simple token replacement)
   let substitutedHtml = substituteVariables(bodyHtml, vars);
 
+  // 2. Resolve TipTap Variable nodes (<span data-type="variable" data-name="...">)
+  //    Use a robust pass that finds any span with data-type="variable" regardless of
+  //    attribute order and extracts data-name from the tag before replacing.
   substitutedHtml = substitutedHtml.replace(
-    /<span[^>]*data-type="variable"[^>]*data-name="([^"]*)"[^>]*>.*?<\/span>/gs,
-    (_, name) => `<strong>${vars[name] || `{{${name}}}`}</strong>`
+    /<span\b[^>]*\bdata-type=(?:"|')variable(?:"|')[^>]*>[\s\S]*?<\/span>(?:<\/span>)*/gi,
+    (match) => {
+      const nameMatch = match.match(/data-name=(?:"|')([^"']+)(?:"|')/i);
+      const name = nameMatch ? nameMatch[1] : '';
+      return `<strong>${vars[name] || `{{${name}}}`}</strong>`;
+    }
   );
 
+  // 3. Replace the ClausesPlaceholder block with actual clause content
   const clauses = substituteClauses(agreement);
   const clauseHtml = clauses.length > 0
     ? clauses.map(c => `
@@ -370,12 +326,36 @@ const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property,
         </div>`).join('\n')
     : '<p><em>No clauses have been added to this agreement.</em></p>';
 
-  substitutedHtml = substitutedHtml.replace(
-    /<div[^>]*data-type="clauses-placeholder"[^>]*>[\s\S]*?<\/div>/g,
-    clauseHtml
-  );
+  const placeholderRegex = /<div[^>]*\bdata-type=(?:"|')clauses-placeholder(?:"|')[^>]*>[\s\S]*?<\/div>/gi;
+  if (placeholderRegex.test(substitutedHtml)) {
+    substitutedHtml = substitutedHtml.replace(placeholderRegex, clauseHtml);
+  } else if (clauses.length > 0) {
+    // No placeholder found in template — append clauses at end
+    substitutedHtml += `\n<div class="clause-section-container">${clauseHtml}</div>`;
+  }
 
-  const finalHtml = wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
+  return wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
+}
+
+const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
+  try {
+    const finalHtml = await _buildAgreementHtml(agreement, landlord, tenant, property, options);
+    const buffer = await generatePuppeteerPDFBuffer(finalHtml);
+
+    // Only set headers once we have a valid buffer — prevents header-conflict errors
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
+    return res.end(buffer);
+  } catch (error) {
+    console.error('PDF Generation Error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate PDF agreement.', details: error.message });
+    }
+  }
+};
+
+const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property, options = {}) => {
+  const finalHtml = await _buildAgreementHtml(agreement, landlord, tenant, property, options);
   return await generatePuppeteerPDFBuffer(finalHtml);
 };
 

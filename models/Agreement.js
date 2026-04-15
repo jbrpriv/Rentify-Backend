@@ -84,6 +84,11 @@ const agreementSchema = mongoose.Schema(
         clauseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Clause' },
         title: { type: String },
         body: { type: String },
+        condition: {
+          field: { type: String },
+          operator: { type: String, enum: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'exists', 'in', 'contains'] },
+          value: { type: mongoose.Schema.Types.Mixed },
+        },
       }
     ],
 
