@@ -6,7 +6,17 @@ RUN npm ci --omit=dev
 
 # ─── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS runtime
-RUN apk add --no-cache dumb-init
+
+# Chromium and its dependencies on Alpine
+RUN apk add --no-cache \
+    dumb-init \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
 WORKDIR /app
 
 # Copy installed production deps from the deps stage
@@ -22,6 +32,10 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
 
 ENV NODE_ENV=production
 ENV PORT=5000
+
+# Tell Puppeteer where Alpine's Chromium lives, and skip downloading its own bundled copy
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 EXPOSE 5000
 
