@@ -128,6 +128,22 @@ const agreementTemplateSchema = new mongoose.Schema(
       type:    mongoose.Schema.Types.Mixed,
       default: {},
     },
+
+    // ─── Custom Template Variables ────────────────────────────────
+    // Key/value pairs defined by the template author for any
+    // {{variable}} tokens used in bodyHtml that are NOT part of the
+    // standard agreement variable map (tenant_name, rent_amount, etc.).
+    //
+    // Example:
+    //   { "company_name": "Acme Properties", "late_fee_policy": "10% after 5 days" }
+    //
+    // These are merged on top of the system variable map at PDF
+    // generation time, so they populate in the rendered document.
+    variables: {
+      type:    Map,
+      of:      String,
+      default: {},
+    },
   },
   { timestamps: true }
 );

@@ -44,21 +44,53 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: #000; }
         h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: #000; }
         h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: #000; }
+        h4 { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.5rem; color: #000; }
+        h5, h6 { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: #000; }
         p  { margin-bottom: 1em; }
         ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
 
-        /* ── Alignment — TipTap emits style="text-align:..." on block elements. Support inline styles, align attrs and utility classes ── */
-        h1, h2, h3, p, div, li { display: block; margin-bottom: 0.5em; }
-        /* Inline style variations */
-        [style*="text-align:left"], [style*="text-align: left"], .text-left, [align="left"] { text-align: left !important; }
-        [style*="text-align:center"], [style*="text-align: center"], [style*="text-align:middle"], [style*="text-align: middle"], .text-center, [align="center"], [align="middle"] { text-align: center !important; }
-        [style*="text-align:right"], [style*="text-align: right"], .text-right, [align="right"] { text-align: right !important; }
-        [style*="text-align:justify"], [style*="text-align: justify"], .text-justify, [align="justify"] { text-align: justify !important; }
-        /* Tailwind/utility class fallbacks */
-        .text-center { text-align: center !important; }
-        .text-left { text-align: left !important; }
-        .text-right { text-align: right !important; }
-        .text-justify { text-align: justify !important; }
+        /* ── Alignment ──────────────────────────────────────────────────────
+           TipTap TextAlign extension emits style="text-align: center" (with
+           a space after the colon) on block elements.  We cover both the
+           spaced and un-spaced forms, utility classes, and the legacy align
+           attribute.  Selectors use !important so they win over any reset.
+        ─────────────────────────────────────────────────────────────────── */
+        h1, h2, h3, h4, h5, h6, p, div, li, blockquote {
+          display: block;
+          margin-bottom: 0.5em;
+        }
+
+        /* center */
+        [style*="text-align: center"],
+        [style*="text-align:center"],
+        .text-center,
+        [align="center"] {
+          text-align: center !important;
+        }
+
+        /* right */
+        [style*="text-align: right"],
+        [style*="text-align:right"],
+        .text-right,
+        [align="right"] {
+          text-align: right !important;
+        }
+
+        /* justify */
+        [style*="text-align: justify"],
+        [style*="text-align:justify"],
+        .text-justify,
+        [align="justify"] {
+          text-align: justify !important;
+        }
+
+        /* left (explicit — Puppeteer inherits left by default, but be explicit) */
+        [style*="text-align: left"],
+        [style*="text-align:left"],
+        .text-left,
+        [align="left"] {
+          text-align: left !important;
+        }
 
         /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
         span[style*="font-size"] { font-size: inherit; } /* reset then let inline win */
@@ -300,12 +332,39 @@ async function generatePuppeteerPDFBuffer(html) {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+/**
+ * Convert a Mongoose Map (or plain object) stored in template.variables into a
+ * plain { key: value } object that can be spread into the variable map.
+ */
+function flattenTemplateVariables(variables) {
+  if (!variables) return {};
+  // Mongoose Map has a .toObject() or we can use Object.fromEntries on its entries
+  if (variables instanceof Map) {
+    return Object.fromEntries(variables.entries());
+  }
+  if (typeof variables.toObject === 'function') {
+    return variables.toObject();
+  }
+  if (typeof variables === 'object') {
+    return { ...variables };
+  }
+  return {};
+}
+
 // Shared HTML builder for agreements (keeps generateAgreementPDF and buffer variant DRY)
 async function _buildAgreementHtml(agreement, landlord, tenant, property, options = {}) {
   const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
   const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
 
-  const vars = buildVariableMap(agreement);
+  // Build variable map: system variables first, then template-level custom variables on top,
+  // then any caller-injected overrides (e.g. from options.customVars) last.
+  // This order means caller overrides win, then template defaults, then system values.
+  const vars = {
+    ...buildVariableMap(agreement),
+    ...flattenTemplateVariables(template?.variables),
+    ...(options.customVars || {}),
+  };
+
   let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
 
   // 1. Substitute {{variable}} placeholders (simple token replacement)
@@ -322,7 +381,7 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     const nameMatch = match.match(/\bdata-name=["']([^"']+)["']/i) || match.match(/\bdata-name=([^\s>]+)/i);
     const varName = nameMatch ? (nameMatch[1] || null) : null;
 
-    // Resolve value: first try vars map, then dotted-path on agreement object
+    // Resolve value: first try vars map (includes template variables), then dotted-path on agreement object
     let value;
     if (varName) {
       if (Object.prototype.hasOwnProperty.call(vars, varName)) {
@@ -345,24 +404,17 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     return match;
   });
 
-  // 3. Also handle any remaining {{variable}} placeholders in bodyHtml that weren't caught
+  // 3. Also handle any remaining {{variable}} placeholders that weren't caught above
   substitutedHtml = substituteVariables(substitutedHtml, vars);
 
-  // 4. Pre-process alignment styles - normalize text-align in style attribute
-  //    Use simpler regex that avoids the group escaping issues
-  substitutedHtml = substitutedHtml.replace(
-    /<(h1|h2|h3|p|div|span)\s+[^>]*style="([^"]*)"[^>]*>/gi,
-    (match, tag, styleContent) => {
-      const align = styleContent.match(/text-align:\s*(left|center|right|justify)/);
-      if (!align) return match;
-      const alignment = align[1];
-      const cleanStyle = styleContent.replace(/text-align:[^;]*;?/g, '').replace(/;$/, '').replace(/^;/, '');
-      const newStyle = cleanStyle ? cleanStyle + ';text-align:' + alignment : 'text-align:' + alignment;
-      return `<${tag} style="${newStyle}">`;
-    }
-  );
+  // NOTE: The alignment pre-processing regex that previously rewrote opening tags has been
+  // intentionally removed. It was stripping non-style attributes (class, data-*, id) from
+  // elements and was redundant — Puppeteer correctly applies the CSS attribute selectors
+  // defined in wrapInHtmlTemplate ([style*="text-align: center"] etc.) without any
+  // pre-processing. TipTap's TextAlign extension emits inline style attributes directly,
+  // which the CSS selectors handle correctly.
 
-  // 5. Replace the ClausesPlaceholder block with actual clause content
+  // 4. Replace the ClausesPlaceholder block with actual clause content
   const clauses = substituteClauses(agreement);
   const clauseHtml = clauses.length > 0
     ? clauses.map(c => `

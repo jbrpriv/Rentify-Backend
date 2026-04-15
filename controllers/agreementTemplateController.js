@@ -56,6 +56,31 @@ function normalizeStandardClauses(input = {}) {
   };
 }
 
+/**
+ * Sanitize the incoming `variables` payload into a plain { key: stringValue } object.
+ * - Accepts a plain object or a Map-like structure.
+ * - Skips keys that are empty strings or contain characters that could
+ *   break the {{variable}} regex (anything that isn't \w).
+ * - Values are coerced to strings and trimmed.
+ */
+function normalizeVariables(input) {
+  if (!input || typeof input !== 'object') return {};
+
+  const entries = input instanceof Map
+    ? Array.from(input.entries())
+    : Object.entries(input);
+
+  const result = {};
+  for (const [key, value] of entries) {
+    if (typeof key !== 'string') continue;
+    const cleanKey = key.trim();
+    // Only allow word-character keys to match {{variable}} token syntax
+    if (!cleanKey || !/^\w+$/.test(cleanKey)) continue;
+    result[cleanKey] = String(value ?? '').trim();
+  }
+  return result;
+}
+
 const getTemplates = async (req, res) => {
   try {
     if (!ensureTemplateStudioAccess(req, res)) return;
@@ -128,7 +153,7 @@ const createTemplate = async (req, res) => {
       return res.status(403).json({ message: 'Only landlords or admins can create agreement templates' });
     }
 
-    const { name, description, jurisdiction, baseTheme, bodyHtml, bodyJson } = req.body;
+    const { name, description, jurisdiction, baseTheme, bodyHtml, bodyJson, variables } = req.body;
     if (!name || (!baseTheme && !bodyHtml)) {
       return res.status(400).json({ message: 'name and either baseTheme or bodyHtml are required' });
     }
@@ -151,6 +176,7 @@ const createTemplate = async (req, res) => {
       reviewedAt: req.user.role === 'admin' ? new Date() : null,
       bodyHtml: bodyHtml || '',
       bodyJson: bodyJson || {},
+      variables: normalizeVariables(variables),
     });
 
     const populated = await populateTemplate(AgreementTemplate.findById(template._id));
@@ -175,7 +201,7 @@ const updateTemplate = async (req, res) => {
       return res.status(400).json({ message: 'Only pending or rejected templates can be edited' });
     }
 
-    const { name, description, jurisdiction, baseTheme, bodyHtml, bodyJson } = req.body;
+    const { name, description, jurisdiction, baseTheme, bodyHtml, bodyJson, variables } = req.body;
 
     if (name !== undefined) template.name = name.trim();
     if (description !== undefined) template.description = description.trim();
@@ -195,13 +221,17 @@ const updateTemplate = async (req, res) => {
       template.standardClauses = normalizeStandardClauses(req.body.standardClauses);
     }
 
+    if (variables !== undefined) {
+      template.variables = normalizeVariables(variables);
+    }
+
     if (template.status === 'rejected') {
       template.status = 'pending';
       template.reviewedBy = null;
       template.reviewedAt = null;
       template.rejectionReason = '';
     }
-    
+
     if (bodyHtml !== undefined) template.bodyHtml = bodyHtml;
     if (bodyJson !== undefined) template.bodyJson = bodyJson;
 
