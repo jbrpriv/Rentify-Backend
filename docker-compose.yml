@@ -14,6 +14,7 @@ services:
     environment:
       NODE_ENV: production
       REDIS_URL: redis://redis:6379
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/google-chrome-stable
     depends_on:
       redis:
         condition: service_healthy

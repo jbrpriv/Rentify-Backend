@@ -1,8 +1,14 @@
 let puppeteer;
 try {
-  puppeteer = require('puppeteer');
+  // Prefer puppeteer-core (lighter, no bundled Chromium) if available,
+  // then fall back to the full puppeteer package.
+  try {
+    puppeteer = require('puppeteer-core');
+  } catch (_) {
+    puppeteer = require('puppeteer');
+  }
 } catch (e) {
-  // Silent fail - user will install manually on server
+  console.error('[pdfGenerator] Neither puppeteer nor puppeteer-core could be loaded:', e.message);
 }
 
 const { substituteVariables, buildVariableMap } = require('./clauseSubstitution');
@@ -144,32 +150,100 @@ function getDefaultAgreementHtml() {
 /**
  * Common Puppeteer PDF generation logic
  */
+/**
+ * Resolve the Chromium/Chrome executable path for the current environment.
+ * Priority:
+ *   1. PUPPETEER_EXECUTABLE_PATH env var  (set this in docker-compose / .env)
+ *   2. The path bundled by the full `puppeteer` package
+ *   3. Common system paths for Debian/Ubuntu Docker images
+ */
+function resolveChromiumPath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  // Full `puppeteer` package exposes executablePath()
+  if (typeof puppeteer.executablePath === 'function') {
+    try {
+      const p = puppeteer.executablePath();
+      if (p) return p;
+    } catch (_) {}
+  }
+
+  // Common system Chrome/Chromium locations on Debian/Ubuntu (typical Docker base)
+  const candidates = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/local/bin/chromium',
+  ];
+  const fs = require('fs');
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+
+  // Let Puppeteer try its own default (may work with full package)
+  return undefined;
+}
+
 async function generatePuppeteerPDFBuffer(html) {
   if (!puppeteer) {
-    throw new Error('Puppeteer is not installed on this server. Please run "npm install puppeteer" to enable high-fidelity PDF generation.');
+    throw new Error(
+      'Puppeteer is not installed. Run "npm install puppeteer" (bundles Chromium) ' +
+      'or "npm install puppeteer-core" and set PUPPETEER_EXECUTABLE_PATH in your environment.'
+    );
+  }
+
+  const executablePath = resolveChromiumPath();
+
+  const launchOptions = {
+    headless: 'new',   // Use the new headless mode (avoids deprecation warning in newer Puppeteer)
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',   // Critical in Docker: /dev/shm is often too small
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',          // Reduces memory, avoids sandbox issues in constrained containers
+    ],
+  };
+
+  if (executablePath) {
+    launchOptions.executablePath = executablePath;
   }
 
   let browser;
   try {
-    browser = await puppeteer.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    
+
+    // Use domcontentloaded instead of networkidle0 for self-contained HTML (faster, no network wait)
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+
     return await page.pdf({
       format: 'A4',
       margin: { top: '60px', right: '60px', bottom: '60px', left: '60px' },
-      printBackground: true
+      printBackground: true,
     });
+  } catch (err) {
+    const hint = !executablePath
+      ? ' Tip: Set PUPPETEER_EXECUTABLE_PATH in your .env or docker-compose to point to your Chrome/Chromium binary.'
+      : ` (executablePath: ${executablePath})`;
+    throw new Error(`Puppeteer failed to generate PDF: ${err.message}.${hint}`);
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      await browser.close().catch(() => {}); // Swallow close errors — the PDF is already generated
+    }
   }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
+  // NOTE: The caller (downloadAgreementPDF) must NOT set Content-Type before calling this.
+  // We set it here so error responses can still use res.status(500).json().
   try {
     const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
     const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
@@ -183,11 +257,17 @@ const generateAgreementPDF = async (agreement, landlord, tenant, property, res, 
     const finalHtml = wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
     
     const buffer = await generatePuppeteerPDFBuffer(finalHtml);
+
+    // Only set headers once we have a valid buffer — prevents header-conflict errors
     res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
     return res.end(buffer);
   } catch (error) {
     console.error('PDF Generation Error:', error);
-    res.status(500).json({ error: 'Failed to generate PDF agreement.', details: error.message });
+    // Guard: only send JSON error if headers haven't been flushed yet
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate PDF agreement.', details: error.message });
+    }
   }
 };
 

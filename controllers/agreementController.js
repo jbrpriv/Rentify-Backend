@@ -281,7 +281,6 @@ const downloadAgreementPDF = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
-    res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=agreement-${agreement._id}.pdf`);
 
     if (agreement.documentUrl && isS3Configured()) {
@@ -296,6 +295,7 @@ const downloadAgreementPDF = async (req, res) => {
       await agreement.save();
 
       if (stream && typeof stream.pipe === 'function') {
+        res.setHeader('Content-Type', 'application/pdf');
         return stream.pipe(res);
       }
     }
