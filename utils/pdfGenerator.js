@@ -12,6 +12,7 @@ try {
 }
 
 const { substituteVariables, buildVariableMap, substituteClauses, resolvePath } = require('./clauseSubstitution');
+const { generateHtmlFromJson } = require('./tiptapParser');
 const { getCurrencyContext } = require('./currencyService');
 const AgreementTemplate = require('../models/AgreementTemplate');
 const Agreement = require('../models/Agreement');
@@ -365,7 +366,12 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     ...(options.customVars || {}),
   };
 
-  let bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
+  let bodyHtml = '';
+  if (template?.bodyJson && template.bodyJson.type === 'doc') {
+    bodyHtml = generateHtmlFromJson(template.bodyJson);
+  } else {
+    bodyHtml = template?.bodyHtml || getDefaultAgreementHtml();
+  }
 
   // 1. Substitute {{variable}} placeholders (simple token replacement)
   let substitutedHtml = substituteVariables(bodyHtml, vars);

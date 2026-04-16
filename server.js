@@ -186,11 +186,34 @@ app.use((req, res, next) => {
   next();
 });
 // Data sanitization against XSS
+const xssOptions = {
+  whiteList: {
+    ...xssClean.whiteList,
+    span: [...(xssClean.whiteList.span || []), 'data-type', 'data-name', 'data-label', 'style', 'class'],
+    div: [...(xssClean.whiteList.div || []), 'data-type', 'style', 'class'],
+    p: [...(xssClean.whiteList.p || []), 'style', 'class', 'align'],
+    h1: [...(xssClean.whiteList.h1 || []), 'style', 'class', 'align'],
+    h2: [...(xssClean.whiteList.h2 || []), 'style', 'class', 'align'],
+    h3: [...(xssClean.whiteList.h3 || []), 'style', 'class', 'align'],
+    h4: [...(xssClean.whiteList.h4 || []), 'style', 'class', 'align'],
+    h5: [...(xssClean.whiteList.h5 || []), 'style', 'class', 'align'],
+    h6: [...(xssClean.whiteList.h6 || []), 'style', 'class', 'align'],
+    ul: [...(xssClean.whiteList.ul || []), 'style', 'class'],
+    ol: [...(xssClean.whiteList.ol || []), 'style', 'class'],
+    li: [...(xssClean.whiteList.li || []), 'style', 'class'],
+    table: [...(xssClean.whiteList.table || []), 'style', 'class'],
+    tr: [...(xssClean.whiteList.tr || []), 'style', 'class'],
+    td: [...(xssClean.whiteList.td || []), 'style', 'class'],
+    th: [...(xssClean.whiteList.th || []), 'style', 'class'],
+    blockquote: [...(xssClean.whiteList.blockquote || []), 'style', 'class'],
+    img: [...(xssClean.whiteList.img || []), 'style', 'class'],
+  }
+};
+const myXss = new xssClean.FilterXSS(xssOptions);
 
-// ...
 app.use((req, res, next) => {
   const sanitize = (obj) => {
-    if (typeof obj === 'string') return xssClean(obj);
+    if (typeof obj === 'string') return myXss.process(obj);
     if (obj && typeof obj === 'object') {
       for (const key in obj) obj[key] = sanitize(obj[key]);
     }
