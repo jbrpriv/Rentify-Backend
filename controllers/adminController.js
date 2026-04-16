@@ -881,29 +881,30 @@ const approvePaymentForLandlord = async (req, res) => {
 // the set of variables is static and tied to the Agreement schema.
 const CLAUSE_VARIABLES = [
   // Parties
-  { key: 'tenantName', label: 'Tenant Name', group: 'Parties', description: 'Full legal name of the tenant' },
-  { key: 'landlordName', label: 'Landlord Name', group: 'Parties', description: 'Full legal name of the landlord' },
+  { key: 'tenant_name', label: 'Tenant Name', group: 'Parties', description: 'Full legal name of the tenant' },
+  { key: 'landlord_name', label: 'Landlord Name', group: 'Parties', description: 'Full legal name of the landlord' },
   // Property
-  { key: 'propertyTitle', label: 'Property Title', group: 'Property', description: 'Listing title of the property' },
-  { key: 'propertyAddress', label: 'Property Address', group: 'Property', description: 'Full street, city, and state address' },
+  { key: 'property_title', label: 'Property Title', group: 'Property', description: 'Listing title of the property' },
+  { key: 'property_address', label: 'Property Address', group: 'Property', description: 'Full street, city, and state address' },
   // Financials
-  { key: 'rentAmount', label: 'Rent Amount', group: 'Financials', description: 'Monthly rent (USD formatted)' },
-  { key: 'depositAmount', label: 'Security Deposit', group: 'Financials', description: 'Security deposit amount (USD formatted)' },
-  { key: 'lateFeeAmount', label: 'Late Fee Amount', group: 'Financials', description: 'Late fee charged after grace period' },
-  { key: 'lateFeeGraceDays', label: 'Late Fee Grace Days', group: 'Financials', description: 'Number of days before late fee is applied' },
+  { key: 'rent_amount', label: 'Monthly Rent', group: 'Financials', description: 'Monthly rent amount' },
+  { key: 'security_deposit', label: 'Security Deposit', group: 'Financials', description: 'Refundable security deposit' },
+  { key: 'total_move_in', label: 'Total Move-in Cost', group: 'Financials', description: 'Total of first month rent and deposit' },
+  { key: 'late_fee', label: 'Late Fee Amount', group: 'Financials', description: 'Penalty charged after grace period' },
+  { key: 'late_fee_grace_days', label: 'Grace Period (Days)', group: 'Financials', description: 'Days before late fee applies' },
+  { key: 'maintenance_fee', label: 'Maintenance Fee', group: 'Financials', description: 'Monthly service or maintenance charges' },
   // Term
-  { key: 'startDate', label: 'Start Date', group: 'Term', description: 'Lease commencement date' },
-  { key: 'endDate', label: 'End Date', group: 'Term', description: 'Lease expiry date' },
-  { key: 'durationMonths', label: 'Duration (Months)', group: 'Term', description: 'Total length of the lease in months' },
-  { key: 'currentDate', label: 'Current Date', group: 'Term', description: 'Date the agreement document is generated' },
+  { key: 'start_date', label: 'Lease Start Date', group: 'Term', description: 'Commencement date of the lease' },
+  { key: 'end_date', label: 'Lease End Date', group: 'Term', description: 'Expiration date of the lease' },
+  { key: 'duration_months', label: 'Lease Duration', group: 'Term', description: 'Total length of lease in months' },
   // Policies
-  { key: 'petPolicy', label: 'Pet Policy', group: 'Policies', description: '"Pets allowed" or "No pets"' },
-  { key: 'petDeposit', label: 'Pet Deposit', group: 'Policies', description: 'Pet security deposit amount' },
-  { key: 'utilities', label: 'Utilities', group: 'Policies', description: '"Utilities included" or "Utilities not included"' },
-  { key: 'utilitiesDetails', label: 'Utilities Details', group: 'Policies', description: 'Custom description of included utilities' },
-  { key: 'terminationPolicy', label: 'Termination Policy', group: 'Policies', description: 'Termination notice and penalty details' },
+  { key: 'utilities_included', label: 'Utilities Policy', group: 'Policies', description: 'Whether utilities are included in rent' },
+  { key: 'pet_allowed', label: 'Pet Policy', group: 'Policies', description: 'Whether pets are permitted' },
+  { key: 'pet_deposit', label: 'Pet Deposit', group: 'Policies', description: 'Additional security deposit for pets' },
+  { key: 'termination_policy', label: 'Termination Notice', group: 'Policies', description: 'Notice period required to end lease' },
   // System
-  { key: 'agreementId', label: 'Agreement ID', group: 'System', description: 'Unique system identifier for this agreement' },
+  { key: 'current_date', label: 'Current Date', group: 'System', description: 'Date the document is generated' },
+  { key: 'agreement_id', label: 'Agreement ID', group: 'System', description: 'Unique system identifier' },
 ];
 
 const getClauseVariables = (req, res) => {

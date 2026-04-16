@@ -45,7 +45,31 @@ function buildVariableMap(agreement) {
   const _maintenanceStr = _fmt.money(_maintenanceVal);
 
   return {
-    // CamelCase (Legacy Support)
+    // Standard snake_case (Primary)
+    tenant_name:       tenant?.name       || '____________________',
+    landlord_name:     landlord?.name     || '____________________',
+    property_title:    property?.title    || '____________________',
+    property_address:  address           || '____________________',
+    rent_amount:       _fmt.money(financials?.rentAmount),
+    monthly_rent:      _fmt.money(financials?.rentAmount),
+    security_deposit:  _fmt.money(financials?.depositAmount),
+    deposit_amount:    _fmt.money(financials?.depositAmount),
+    total_move_in:     _fmt.money((financials?.rentAmount || 0) + (financials?.depositAmount || 0)),
+    maintenance_fee:   _maintenanceStr,
+    late_fee:          _fmt.money(financials?.lateFeeAmount),
+    late_fee_amount:   _fmt.money(financials?.lateFeeAmount),
+    late_fee_grace_days: String(financials?.lateFeeGracePeriodDays ?? 5),
+    start_date:        _fmt.date(term?.startDate),
+    end_date:          _fmt.date(term?.endDate),
+    duration_months:   _durationStr,
+    utilities_included: agreement.utilitiesIncluded ? 'Included' : 'Not Included',
+    pet_allowed:       agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed',
+    pet_deposit:       _fmt.money(agreement.petPolicy?.deposit || 0),
+    termination_policy: agreement.terminationPolicy || '',
+    current_date:      _fmt.date(new Date()),
+    agreement_id:      String(agreement._id),
+
+    // camelCase & legacy aliases (Backward Compatibility)
     tenantName:        tenant?.name       || '____________________',
     landlordName:      landlord?.name     || '____________________',
     propertyTitle:     property?.title    || '____________________',
@@ -54,45 +78,20 @@ function buildVariableMap(agreement) {
     depositAmount:     _fmt.money(financials?.depositAmount),
     startDate:         _fmt.date(term?.startDate),
     endDate:           _fmt.date(term?.endDate),
-
-    // snake_case (Modern Builder Support)
-    agreement_id:      String(agreement._id),
-    current_date:      _fmt.date(new Date()),
-    tenant_name:       tenant?.name       || '____________________',
-    landlord_name:     landlord?.name     || '____________________',
-    property_title:    property?.title    || '____________________',
-    property_address:  address           || '____________________',
-    rent_amount:       _fmt.money(financials?.rentAmount),
-    monthly_rent:      _fmt.money(financials?.rentAmount),
-    security_deposit:  _fmt.money(financials?.depositAmount),
-    total_move_in:     _fmt.money((financials?.rentAmount || 0) + (financials?.depositAmount || 0)),
-    start_date:        _fmt.date(term?.startDate),
-    end_date:          _fmt.date(term?.endDate),
     lease_end_date:    _fmt.date(term?.endDate),
-    duration_months:   term?.durationMonths || '—',
-    // Aliases expected by the Agreement Builder / templates
     durationMonths:    _durationStr,
     lease_duration:    _durationStr,
     leaseDuration:     _durationStr,
     duration:          _durationStr,
-    pet_allowed:       agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed',
-    pet_deposit:       _fmt.money(agreement.petPolicy?.deposit || 0),
-    utilities_included: agreement.utilitiesIncluded ? 'Included' : 'Not Included',
-    // Other fields
     lateFeeAmount:     _fmt.money(financials?.lateFeeAmount),
-    // friendly aliases for templates
-    late_fee:          _fmt.money(financials?.lateFeeAmount),
     lateFee:           _fmt.money(financials?.lateFeeAmount),
-    late_fee_amount:   _fmt.money(financials?.lateFeeAmount),
-    maintenance_fee:   _maintenanceStr,
-    maintenanceFee:    _maintenanceStr,
     lateFeeGraceDays:  String(financials?.lateFeeGracePeriodDays ?? 5),
-    currentDate:       _fmt.date(new Date()),
-    agreementId:       String(agreement._id),
+    maintenanceFee:    _maintenanceStr,
     petPolicy:         agreement.petPolicy?.allowed ? 'Pets allowed' : 'No pets',
-    petDeposit:        _fmt.money(agreement.petPolicy?.deposit),
     utilities:         agreement.utilitiesIncluded ? 'Utilities included' : 'Utilities not included',
     utilitiesDetails:  agreement.utilitiesDetails  || '',
+    currentDate:       _fmt.date(new Date()),
+    agreementId:       String(agreement._id),
     terminationPolicy: agreement.terminationPolicy || '',
   };
 }
