@@ -94,7 +94,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         }
 
         /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
-        span[style*="font-size"] { font-size: inherit; } /* reset then let inline win */
+        /* Inline font-size styles are preserved; no stylesheet override here. */
 
         /* ── Bold / Italic / Underline ── */
         strong, b { font-weight: bold; }
@@ -541,13 +541,14 @@ const generateReceiptPDFBuffer = async (payment, tenant, property, options = {})
     bodyHtml = template.bodyHtml;
   } else {
     bodyHtml = `
-      <div style="margin-top: 30px;">
+      <div style="margin-top: 20px;">
         <p><strong>Receipt Number:</strong> ${vars.receipt_number}</p>
         <p><strong>Date:</strong> ${vars.payment_date}</p>
         <p><strong>Tenant:</strong> ${vars.tenant_name || '—'}</p>
         <p><strong>Property:</strong> ${vars.property_title || '—'}</p>
-        <hr/>
-        <h2 style="text-align: right;">Amount Paid: ${vars.paid_amount}</h2>
+        <div style="margin-top:12px; text-align: right;">
+          <h2 style="margin:0;">Amount Paid: ${vars.paid_amount}</h2>
+        </div>
       </div>
     `;
   }
@@ -578,7 +579,7 @@ const generateReceiptPDFBuffer = async (payment, tenant, property, options = {})
   const placeholderRegex = /<div[^>]*\bdata-type=(?:"|')clauses-placeholder(?:"|')[^>]*>[\s\S]*?<\/div>/gi;
   bodyHtml = bodyHtml.replace(placeholderRegex, '');
 
-  // Final wrapper for receipts (includes branding)
+  // Final wrapper for receipts (minimal — no hardcoded header or brand)
   const finalHtml = `
     <html>
     <head>
@@ -588,10 +589,6 @@ const generateReceiptPDFBuffer = async (payment, tenant, property, options = {})
       </style>
     </head>
     <body style="padding:50px;">
-      <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px;">
-        <h1 style="margin:0;">PAYMENT RECEIPT</h1>
-        <p style="margin:6px 0 0;">${branding.brandName || 'RentifyPro'}</p>
-      </div>
       ${bodyHtml}
       <div style="margin-top: 60px; text-align:center; font-size:10pt; color:#666;">Thank you for your payment. This is a system-generated receipt.</div>
     </body>
