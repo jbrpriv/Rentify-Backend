@@ -15,10 +15,15 @@ const {
   useTemplate,
   getTemplateAnalytics,
   getApprovedClauses,
+  getAdminGlobalTemplates,
+  saveAdminGlobalTemplate,
 } = require('../controllers/agreementTemplateController');
 
 // Analytics (admin only) — must be before /:id to avoid route collision
 router.get('/analytics', protect, isAdmin, getTemplateAnalytics);
+router.get('/admin/global', protect, isAdmin, getAdminGlobalTemplates);
+router.post('/admin/global', protect, isAdmin, saveAdminGlobalTemplate);
+
 router.get('/available', protect, getAvailableTemplates);
 router.get('/approved-clauses', protect, getApprovedClauses);
 

@@ -6,7 +6,7 @@ const agreementTemplateSchema = new mongoose.Schema(
     landlord: {
       type: mongoose.Schema.Types.ObjectId,
       ref:  'User',
-      required: true,
+      required: function() { return !this.isGlobalDefault; },
     },
 
     name: {
@@ -25,7 +25,7 @@ const agreementTemplateSchema = new mongoose.Schema(
     baseTheme: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'PdfTheme',
-      required: true,
+      required: false,
     },
 
     // Landlord-level branding overrides layered on top of baseTheme.
@@ -127,6 +127,17 @@ const agreementTemplateSchema = new mongoose.Schema(
     bodyJson: {
       type:    mongoose.Schema.Types.Mixed,
       default: {},
+    },
+
+    // ─── Global Default Configuration ─────────────────────────────
+    isGlobalDefault: {
+      type:    Boolean,
+      default: false,
+    },
+    templateType: {
+      type:    String,
+      enum:    ['agreement', 'receipt'],
+      default: 'agreement',
     },
 
     // ─── Custom Template Variables ────────────────────────────────

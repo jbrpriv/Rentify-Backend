@@ -131,15 +131,14 @@ const getAvailableTemplates = async (req, res) => {
           landlord: req.user._id,
           status: 'approved',
           isArchived: false,
+          isGlobalDefault: false,
         }).sort('-updatedAt')
       )
       : [];
 
-    const themes = canSelectPdfThemes
-      ? await PdfTheme.find({ isGlobal: true }).sort({ name: 1 })
-      : [];
+    const globalDefaults = await AgreementTemplate.find({ isGlobalDefault: true });
 
-    res.json({ templates, themes, capabilities: { canUseAgreementTemplates, canSelectPdfThemes } });
+    res.json({ templates, globalDefaults, capabilities: { canUseAgreementTemplates, canSelectPdfThemes } });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -158,9 +157,13 @@ const createTemplate = async (req, res) => {
       return res.status(400).json({ message: 'name and either baseTheme or bodyHtml are required' });
     }
 
-    const baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
-    if (!baseThemeDoc) {
-      return res.status(404).json({ message: 'Base theme not found' });
+    let baseThemeId = baseTheme;
+    if (baseTheme) {
+      const baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+      if (!baseThemeDoc) {
+        return res.status(404).json({ message: 'Base theme not found' });
+      }
+      baseThemeId = baseThemeDoc._id;
     }
 
     const template = await AgreementTemplate.create({
@@ -168,7 +171,7 @@ const createTemplate = async (req, res) => {
       name: name.trim(),
       description: (description || '').trim(),
       jurisdiction: (jurisdiction || 'general').trim().toLowerCase(),
-      baseTheme,
+      baseTheme: baseThemeId,
       customizations: normalizeCustomizations(req.body.customizations),
       standardClauses: normalizeStandardClauses(req.body.standardClauses),
       status: req.user.role === 'admin' ? 'approved' : 'pending',
@@ -468,6 +471,50 @@ const getApprovedClauses = async (req, res) => {
   }
 };
 
+const getAdminGlobalTemplates = async (req, res) => {
+  try {
+    if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+    const templates = await AgreementTemplate.find({ isGlobalDefault: true });
+    res.json(templates);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const saveAdminGlobalTemplate = async (req, res) => {
+  try {
+    if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
+    const { templateType, bodyHtml, bodyJson, variables } = req.body;
+    
+    if (!['agreement', 'receipt'].includes(templateType)) {
+      return res.status(400).json({ message: 'Invalid template type' });
+    }
+
+    let template = await AgreementTemplate.findOne({ isGlobalDefault: true, templateType });
+    if (template) {
+      template.name = `Global ${templateType === 'agreement' ? 'Agreement' : 'Receipt'} Template`;
+      template.bodyHtml = bodyHtml;
+      template.bodyJson = bodyJson;
+      template.variables = normalizeVariables(variables);
+      await template.save();
+    } else {
+      template = await AgreementTemplate.create({
+        isGlobalDefault: true,
+        templateType,
+        name: `Global ${templateType === 'agreement' ? 'Agreement' : 'Receipt'} Template`,
+        status: 'approved',
+        bodyHtml,
+        bodyJson,
+        variables: normalizeVariables(variables),
+      });
+    }
+
+    res.json(template);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 module.exports = {
   getTemplates,
   getTemplateById,
@@ -482,4 +529,6 @@ module.exports = {
   useTemplate,
   getTemplateAnalytics,
   getApprovedClauses,
+  getAdminGlobalTemplates,
+  saveAdminGlobalTemplate,
 };

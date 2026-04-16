@@ -464,48 +464,141 @@ const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property,
 };
 
 /**
- * Placeholder Receipt PDF (Uses Puppeteer for consistency)
+ * Receipt generation using TipTap templates (falls back to simple HTML)
+ * - Resolution order: landlord-specific receipt template -> global default receipt template -> simple fallback
  */
 const generateReceiptPDF = async (payment, tenant, property, res, options = {}) => {
   try {
-    const currencyCtx = await getCurrencyContext(options.currency || 'USD');
-    const branding = await getPlatformBranding();
-    
-    const html = `
-      <html>
-      <body style="font-family: 'Times New Roman'; padding: 50px;">
-        <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px;">
-          <h1>PAYMENT RECEIPT</h1>
-          <p>${branding.brandName || 'RentifyPro'}</p>
-        </div>
-        <div style="margin-top: 30px;">
-          <p><strong>Receipt Number:</strong> ${payment.receiptNumber || payment._id}</p>
-          <p><strong>Date:</strong> ${new Date(payment.paidAt || payment.createdAt).toLocaleDateString()}</p>
-          <p><strong>Tenant:</strong> ${tenant?.name || '—'}</p>
-          <p><strong>Property:</strong> ${property?.title || '—'}</p>
-          <hr/>
-          <h2 style="text-align: right;">Amount Paid: ${currencyCtx.money(payment.amount)}</h2>
-        </div>
-        <div style="margin-top: 100px; text-align: center; font-size: 10pt; color: #666;">
-          Thank you for your payment. This is a system-generated receipt.
-        </div>
-      </body>
-      </html>
-    `;
-    
-    const buffer = await generatePuppeteerPDFBuffer(html);
+    const buffer = await generateReceiptPDFBuffer(payment, tenant, property, options);
+    if (!buffer) throw new Error('No PDF buffer generated');
+
     res.setHeader('Content-Type', 'application/pdf');
+    const filename = `receipt-${payment.receiptNumber || payment._id}.pdf`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return res.end(buffer);
   } catch (error) {
     console.error('Receipt Generation Error:', error);
-    res.status(500).json({ error: 'Failed to generate PDF receipt.' });
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to generate PDF receipt.' });
   }
 };
 
 const generateReceiptPDFBuffer = async (payment, tenant, property, options = {}) => {
+  // Try to resolve a receipt template: landlord-specific first, then global default
+  let template = null;
+  try {
+    const landlordId = (payment && payment.landlord && (payment.landlord._id || payment.landlord)) || (property && property.landlord) || null;
+    if (landlordId) {
+      template = await AgreementTemplate.findOne({
+        landlord: landlordId,
+        templateType: 'receipt',
+        status: 'approved',
+        isArchived: false,
+      }).sort('-updatedAt').lean();
+    }
+  } catch (_) {
+    template = null;
+  }
+
+  if (!template) {
+    template = await AgreementTemplate.findOne({ isGlobalDefault: true, templateType: 'receipt', status: 'approved', isArchived: false }).lean();
+  }
+
   const currencyCtx = await getCurrencyContext(options.currency || 'USD');
-  const html = `<html><body style="padding:50px;"><h1>RECEIPT</h1><p>Amount: ${currencyCtx.money(payment.amount)}</p></body></html>`;
-  return await generatePuppeteerPDFBuffer(html);
+  const branding = await getPlatformBranding();
+
+  // Build common receipt variables (snake_case + camelCase aliases)
+  const paidDate = payment.paidAt ? new Date(payment.paidAt) : new Date(payment.createdAt || Date.now());
+  const nowStr = new Date().toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
+  const paidDateStr = paidDate.toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  const vars = {
+    paid_amount: currencyCtx.money(payment.amount),
+    paidAmount: currencyCtx.money(payment.amount),
+    amount: currencyCtx.money(payment.amount),
+    payment_date: paidDateStr,
+    paymentDate: paidDateStr,
+    receipt_number: payment.receiptNumber || String(payment._id),
+    receiptNumber: payment.receiptNumber || String(payment._id),
+    transaction_id: payment.stripePaymentIntent || payment.gatewayPaymentId || String(payment._id),
+    transactionId: payment.stripePaymentIntent || payment.gatewayPaymentId || String(payment._id),
+    tenant_name: tenant?.name || '',
+    tenantName: tenant?.name || '',
+    property_title: property?.title || '',
+    propertyTitle: property?.title || '',
+    landlord_name: payment.landlord?.name || '',
+    landlordName: payment.landlord?.name || '',
+    current_date: nowStr,
+    currentDate: nowStr,
+    // merge template custom variables (if any)
+    ...flattenTemplateVariables(template?.variables),
+  };
+
+  // Render body HTML from template if available, otherwise fall back to a simple receipt layout
+  let bodyHtml = '';
+  if (template && template.bodyJson && template.bodyJson.type === 'doc') {
+    bodyHtml = generateHtmlFromJson(template.bodyJson);
+  } else if (template && template.bodyHtml) {
+    bodyHtml = template.bodyHtml;
+  } else {
+    bodyHtml = `
+      <div style="margin-top: 30px;">
+        <p><strong>Receipt Number:</strong> ${vars.receipt_number}</p>
+        <p><strong>Date:</strong> ${vars.payment_date}</p>
+        <p><strong>Tenant:</strong> ${vars.tenant_name || '—'}</p>
+        <p><strong>Property:</strong> ${vars.property_title || '—'}</p>
+        <hr/>
+        <h2 style="text-align: right;">Amount Paid: ${vars.paid_amount}</h2>
+      </div>
+    `;
+  }
+
+  // Replace TipTap variable spans (<span data-type="variable" data-name="..."></span>) with values from vars
+  const variablePattern = /<span\b[^>]*\bdata-type=["']variable["'][^>]*>[\s\S]*?<\/span>/gi;
+  bodyHtml = bodyHtml.replace(variablePattern, (match) => {
+    const nameMatch = match.match(/\bdata-name=["']([^"']+)["']/i) || match.match(/\bdata-name=([^\s>]+)/i);
+    const varName = nameMatch ? (nameMatch[1] || null) : null;
+
+    if (varName) {
+      if (Object.prototype.hasOwnProperty.call(vars, varName)) {
+        return `<strong>${vars[varName]}</strong>`;
+      }
+    }
+
+    const labelMatch = match.match(/>([^<]+)<\/?span[^>]*>/i);
+    const displayLabel = labelMatch ? labelMatch[1].trim() : '';
+    if (displayLabel) return `<strong>${displayLabel}</strong>`;
+    if (varName) return `<strong>{{${varName}}}</strong>`;
+    return match;
+  });
+
+  // Substitute remaining {{variable}} tokens
+  bodyHtml = substituteVariables(bodyHtml, vars);
+
+  // Remove any clauses placeholders — receipts do not include clauses
+  const placeholderRegex = /<div[^>]*\bdata-type=(?:"|')clauses-placeholder(?:"|')[^>]*>[\s\S]*?<\/div>/gi;
+  bodyHtml = bodyHtml.replace(placeholderRegex, '');
+
+  // Final wrapper for receipts (includes branding)
+  const finalHtml = `
+    <html>
+    <head>
+      <meta charset="UTF-8" />
+      <style>
+        body { font-family: "Times New Roman", Times, serif; line-height: 1.4; color: #111; }
+      </style>
+    </head>
+    <body style="padding:50px;">
+      <div style="text-align: center; border-bottom: 2px solid #000; padding-bottom: 20px;">
+        <h1 style="margin:0;">PAYMENT RECEIPT</h1>
+        <p style="margin:6px 0 0;">${branding.brandName || 'RentifyPro'}</p>
+      </div>
+      ${bodyHtml}
+      <div style="margin-top: 60px; text-align:center; font-size:10pt; color:#666;">Thank you for your payment. This is a system-generated receipt.</div>
+    </body>
+    </html>
+  `;
+
+  return await generatePuppeteerPDFBuffer(finalHtml);
 };
 
 module.exports = {
