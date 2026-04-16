@@ -391,11 +391,15 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
       return `<strong>${value}</strong>`;
     }
 
-    // Fallbacks: label inside span, then placeholder
+    // Fallbacks: Prefer [name] over generic labels like {} or {x}
+    if (varName) return `<strong>[${varName}]</strong>`;
+    
     const labelMatch = match.match(/>([^<]+)<\/?span[^>]*>/i);
     const displayLabel = labelMatch ? labelMatch[1].trim() : '';
-    if (displayLabel) return `<strong>${displayLabel}</strong>`;
-    if (varName) return `<strong>{{${varName}}}</strong>`;
+    if (displayLabel && displayLabel !== '{}' && displayLabel !== '{x}') {
+      return `<strong>${displayLabel}</strong>`;
+    }
+
     return match;
   });
 
