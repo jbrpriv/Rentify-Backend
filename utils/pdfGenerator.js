@@ -57,167 +57,168 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
            attribute.  Selectors use !important so they win over any reset.
         ─────────────────────────────────────────────────────────────────── */
         h1, h2, h3, h4, h5, h6, p, div, li, blockquote {
-          display: block;
-          margin-bottom: 0.5em;
-        }
-
-        /* center */
-        [style*="text-align: center"],
-        [style*="text-align:center"],
-        .text-center,
-        [align="center"] {
-          text-align: center !important;
-        }
-
-        /* right */
-        [style*="text-align: right"],
-        [style*="text-align:right"],
-        .text-right,
-        [align="right"] {
-          text-align: right !important;
-        }
-
-        /* justify */
-        [style*="text-align: justify"],
-        [style*="text-align:justify"],
-        .text-justify,
-        [align="justify"] {
-          text-align: justify !important;
-        }
-
-        /* left (explicit — Puppeteer inherits left by default, but be explicit) */
-        [style*="text-align: left"],
-        [style*="text-align:left"],
-        .text-left,
-        [align="left"] {
-          text-align: left !important;
-        }
-
-        /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
-        /* Inline font-size styles are preserved; no stylesheet override here. */
-
-        /* ── Bold / Italic / Underline ── */
-        strong, b { font-weight: bold; }
-        em, i     { font-style: italic; }
-        u         { text-decoration: underline; }
-
-        /* ── Variables rendered as plain text (data-type="variable" stripped) ── */
-        span[data-type="variable"] { font-weight: bold; }
-
-        /* ── Clause sections injected by the PDF generator ── */
-        .clause-section { margin-top: 1.5em; margin-bottom: 1em; }
-        .clause-section h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.5em; }
-        .clause-section p  { margin: 0; }
-
-        /* ── Signature block ──
-             The image sits ABOVE the rule line. We achieve this by putting the
-             image and name inside the box first, then drawing the top border via
-             a separate <div class="sig-rule"> element underneath.            ── */
-        .sig-section {
-          margin-top: 60px;
-          page-break-inside: avoid;
-        }
-        .sig-grid {
-          display: flex;
-          justify-content: space-between;
-          gap: 40px;
-          margin-top: 20px;
-        }
-        .sig-box {
-          flex: 1;
-        }
-        .sig-label {
-          font-weight: bold;
-          font-size: 9pt;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: #444;
-          margin-bottom: 6px;
-        }
-        .sig-image {
-          display: block;
-          max-height: 64px;
-          max-width: 200px;
-          margin-bottom: 4px;
-          object-fit: contain;
-        }
-        .sig-blank {
-          height: 64px;
-          margin-bottom: 4px;
-        }
-        /* The rule sits BELOW the signature image, above the name */
-        .sig-rule {
-          border-top: 1.5px solid #000;
-          margin-bottom: 8px;
-        }
-        .sig-name {
-          font-size: 11pt;
-          font-weight: bold;
-        }
-        .sig-meta {
-          font-size: 8pt;
-          color: #666;
-          margin-top: 2px;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        ${bodyHtml}
-
-        <div class="sig-section">
-          <h2>Signatures</h2>
-          <div class="sig-grid">
-            <!-- Landlord: image first, THEN the rule line, THEN name -->
-            <div class="sig-box">
-              <div class="sig-label">Landlord Signature</div>
-              ${landlordSig?.signed
-                ? `<img class="sig-image" src="${landlordSig.drawData}" />`
-                : '<div class="sig-blank"></div>'}
-              <div class="sig-rule"></div>
-              <div class="sig-name">${landlord?.name || '____________________'}</div>
-              ${landlordSig?.signed
-                ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>`
-                : ''}
-            </div>
-
-            <!-- Tenant: same structure -->
-            <div class="sig-box">
-              <div class="sig-label">Tenant Signature</div>
-              ${tenantSig?.signed
-                ? `<img class="sig-image" src="${tenantSig.drawData}" />`
-                : '<div class="sig-blank"></div>'}
-              <div class="sig-rule"></div>
-              <div class="sig-name">${tenant?.name || '____________________'}</div>
-              ${tenantSig?.signed
-                ? `<div class="sig-meta">Signed on ${new Date(tenantSig.signedAt).toLocaleString()}</div>`
-                : ''}
-            </div>
-          </div>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-}
-
-/**
- * Professional Default Fallback HTML (used if no custom template is assigned)
- */
-function getDefaultAgreementHtml() {
-  return `
-    <div style="text-align: center; margin-bottom: 40px;">
-      <h1 style="margin-bottom: 5px;">RESIDENTIAL RENTAL AGREEMENT</h1>
-      <p style="font-size: 10pt; color: #666;">Agreement ID: {{agreement_id}}</p>
-    </div>
-
-    <h3>1. THE PARTIES</h3>
-    <p>This Agreement is entered into on <strong>{{current_date}}</strong> by and between <strong>{{landlord_name}}</strong> ("Landlord") and <strong>{{tenant_name}}</strong> ("Tenant").</p>
-
-    <h3>2. THE PROPERTY</h3>
-    <p>The Landlord agrees to lease the property located at: <br/>
-    <strong>{{property_address}}</strong></p>
-
+            const titleText = vars.receiptNumber || vars.receipt_number || `Receipt ${String(payment._id).slice(-6)}`;
+            return `
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <meta charset="UTF-8">
+                <style>
+                  body {
+                    font-family: "Times New Roman", Times, serif;
+                    line-height: 1.5;
+                    margin: 0;
+                    padding: 0;
+                    color: #1a1a1a;
+                    font-size: 12pt;
+                  }
+                  .container { padding: 0; }
+                  /* ── Headings ── */
+                  h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: #000; }
+                  h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: #000; }
+                  h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: #000; }
+                  h4 { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.5rem; color: #000; }
+                  h5, h6 { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: #000; }
+                  p  { margin-bottom: 1em; }
+                  ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
+                  /* ── Alignment ──────────────────────────────────────────────────────
+                     TipTap TextAlign extension emits style="text-align: center" (with
+                     a space after the colon) on block elements.  We cover both the
+                     spaced and un-spaced forms, utility classes, and the legacy align
+                     attribute.  Selectors use !important so they win over any reset.
+                  ─────────────────────────────────────────────────────────────────── */
+                  h1, h2, h3, h4, h5, h6, p, div, li, blockquote {
+                    display: block;
+                    margin-bottom: 0.5em;
+                  }
+                  /* center */
+                  [style*="text-align: center"],
+                  [style*="text-align:center"],
+                  .text-center,
+                  [align="center"] {
+                    text-align: center !important;
+                  }
+                  /* right */
+                  [style*="text-align: right"],
+                  [style*="text-align:right"],
+                  .text-right,
+                  [align="right"] {
+                    text-align: right !important;
+                  }
+                  /* justify */
+                  [style*="text-align: justify"],
+                  [style*="text-align:justify"],
+                  .text-justify,
+                  [align="justify"] {
+                    text-align: justify !important;
+                  }
+                  /* left (explicit — Puppeteer inherits left by default, but be explicit) */
+                  [style*="text-align: left"],
+                  [style*="text-align:left"],
+                  .text-left,
+                  [align="left"] {
+                    text-align: left !important;
+                  }
+                  /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
+                  /* Inline font-size styles are preserved; no stylesheet override here. */
+                  /* ── Bold / Italic / Underline ── */
+                  strong, b { font-weight: bold; }
+                  em, i     { font-style: italic; }
+                  u         { text-decoration: underline; }
+                  /* ── Variables rendered as plain text (data-type="variable" stripped) ── */
+                  span[data-type="variable"] { font-weight: bold; }
+                  /* ── Clause sections injected by the PDF generator ── */
+                  .clause-section { margin-top: 1.5em; margin-bottom: 1em; }
+                  .clause-section h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.5em; }
+                  .clause-section p  { margin: 0; }
+                  /* ── Signature block ──
+                       The image sits ABOVE the rule line. We achieve this by putting the
+                       image and name inside the box first, then drawing the top border via
+                       a separate <div class="sig-rule"> element underneath.            ── */
+                  .sig-section {
+                    margin-top: 60px;
+                    page-break-inside: avoid;
+                  }
+                  .sig-grid {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 40px;
+                    margin-top: 20px;
+                  }
+                  .sig-box {
+                    flex: 1;
+                  }
+                  .sig-label {
+                    font-weight: bold;
+                    font-size: 9pt;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    color: #444;
+                    margin-bottom: 6px;
+                  }
+                  .sig-image {
+                    display: block;
+                    max-height: 64px;
+                    max-width: 200px;
+                    margin-bottom: 4px;
+                    object-fit: contain;
+                  }
+                  .sig-blank {
+                    height: 64px;
+                    margin-bottom: 4px;
+                  }
+                  /* The rule sits BELOW the signature image, above the name */
+                  .sig-rule {
+                    border-top: 1.5px solid #000;
+                    margin-bottom: 8px;
+                  }
+                  .sig-name {
+                    font-size: 11pt;
+                    font-weight: bold;
+                  }
+                  .sig-meta {
+                    font-size: 8pt;
+                    color: #666;
+                    margin-top: 2px;
+                  }
+                </style>
+              </head>
+              <body>
+                <div class="container">
+                  ${bodyHtml}
+                  <div class="sig-section">
+                    <h2>Signatures</h2>
+                    <div class="sig-grid">
+                      <!-- Landlord: image first, THEN the rule line, THEN name -->
+                      <div class="sig-box">
+                        <div class="sig-label">Landlord Signature</div>
+                        ${landlordSig?.signed
+                          ? `<img class="sig-image" src="${landlordSig.drawData}" />`
+                          : '<div class="sig-blank"></div>'}
+                        <div class="sig-rule"></div>
+                        <div class="sig-name">${landlord?.name || '____________________'}</div>
+                        ${landlordSig?.signed
+                          ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>`
+                          : ''}
+                      </div>
+                      <!-- Tenant: same structure -->
+                      <div class="sig-box">
+                        <div class="sig-label">Tenant Signature</div>
+                        ${tenantSig?.signed
+                          ? `<img class="sig-image" src="${tenantSig.drawData}" />`
+                          : '<div class="sig-blank"></div>'}
+                        <div class="sig-rule"></div>
+                        <div class="sig-name">${tenant?.name || '____________________'}</div>
+                        ${tenantSig?.signed
+                          ? `<div class="sig-meta">Signed on ${new Date(tenantSig.signedAt).toLocaleString()}</div>`
+                          : ''}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </body>
+              </html>
+            `;
     <h3>3. LEASE TERM</h3>
     <p>The lease term shall begin on <strong>{{start_date}}</strong> and end on <strong>{{end_date}}</strong>, with a total duration of <strong>{{duration_months}} months</strong>.</p>
 
@@ -508,27 +509,92 @@ const generateReceiptPDFBuffer = async (payment, tenant, property, options = {})
 
   // Build common receipt variables (snake_case + camelCase aliases)
   const paidDate = payment.paidAt ? new Date(payment.paidAt) : new Date(payment.createdAt || Date.now());
-  const nowStr = new Date().toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
+  const now = new Date();
+  const nowStr = now.toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
   const paidDateStr = paidDate.toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' });
+  const paidTimeStr = paidDate.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' });
+
+  // Human-readable payment method
+  let paymentMethodDisplay = '';
+  if (payment.gateway) {
+    const g = String(payment.gateway).toLowerCase();
+    if (g === 'stripe') paymentMethodDisplay = 'Stripe';
+    else if (g === 'paypal') paymentMethodDisplay = 'PayPal';
+    else if (g === 'manual') paymentMethodDisplay = 'Manual';
+    else paymentMethodDisplay = payment.gateway;
+  } else if (payment.stripePaymentIntent) {
+    paymentMethodDisplay = 'Stripe';
+  }
+
+  // Period covered (best-effort): prefer dueDate (month + year)
+  let periodCovered = '';
+  if (payment.dueDate) {
+    try {
+      const d = new Date(payment.dueDate);
+      periodCovered = d.toLocaleDateString('en-PK', { year: 'numeric', month: 'long' });
+    } catch (_) {
+      periodCovered = '';
+    }
+  }
+
+  // Property address formatting (if available)
+  let propertyAddress = '';
+  if (property && property.address) {
+    const parts = [property.address.street, property.address.city, property.address.state].filter(Boolean);
+    propertyAddress = parts.join(', ');
+  }
 
   const vars = {
+    // Amounts
     paid_amount: currencyCtx.money(payment.amount),
+    amount_paid: currencyCtx.money(payment.amount),
     paidAmount: currencyCtx.money(payment.amount),
     amount: currencyCtx.money(payment.amount),
+
+    // Dates & times
     payment_date: paidDateStr,
     paymentDate: paidDateStr,
+    payment_time: paidTimeStr,
+    paymentTime: paidTimeStr,
+
+    // Receipt & transaction
     receipt_number: payment.receiptNumber || String(payment._id),
     receiptNumber: payment.receiptNumber || String(payment._id),
-    transaction_id: payment.stripePaymentIntent || payment.gatewayPaymentId || String(payment._id),
-    transactionId: payment.stripePaymentIntent || payment.gatewayPaymentId || String(payment._id),
+    transaction_id: payment.stripePaymentIntent || payment.gatewayPaymentId || payment.gatewayOrderId || String(payment._id),
+    transactionId: payment.stripePaymentIntent || payment.gatewayPaymentId || payment.gatewayOrderId || String(payment._id),
+
+    // Payment method
+    payment_method: paymentMethodDisplay,
+    paymentMethod: paymentMethodDisplay,
+
+    // Period covered
+    period_covered: periodCovered,
+    periodCovered: periodCovered,
+
+    // Parties & contact
     tenant_name: tenant?.name || '',
     tenantName: tenant?.name || '',
+    tenant_email: tenant?.email || '',
+    tenantEmail: tenant?.email || '',
     property_title: property?.title || '',
     propertyTitle: property?.title || '',
-    landlord_name: payment.landlord?.name || '',
-    landlordName: payment.landlord?.name || '',
+    property_address: propertyAddress,
+    propertyAddress: propertyAddress,
+    landlord_name: (payment.landlord && payment.landlord.name) || property?.landlord?.name || '',
+    landlordName: (payment.landlord && payment.landlord.name) || property?.landlord?.name || '',
+    landlord_email: (payment.landlord && payment.landlord.email) || property?.landlord?.email || '',
+    landlordEmail: (payment.landlord && payment.landlord.email) || property?.landlord?.email || '',
+
+    // Metadata
     current_date: nowStr,
     currentDate: nowStr,
+    payment_notes: payment.notes || '',
+    paymentNotes: payment.notes || '',
+    gateway: payment.gateway || '',
+    gateway_payment_id: payment.gatewayPaymentId || '',
+    gatewayOrderId: payment.gatewayOrderId || '',
+    receipt_url: payment.receiptUrl || '',
+
     // merge template custom variables (if any)
     ...flattenTemplateVariables(template?.variables),
   };

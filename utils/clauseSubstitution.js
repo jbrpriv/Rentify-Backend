@@ -38,6 +38,12 @@ function buildVariableMap(agreement) {
         .filter(Boolean).join(', ')
     : '';
 
+  // Derived helpers for common aliases used by the frontend editor
+  const _durationVal = term?.durationMonths ?? null;
+  const _durationStr = _durationVal ? String(_durationVal) : '—';
+  const _maintenanceVal = (financials && financials.maintenanceFee) || property?.financials?.maintenanceFee || property?.maintenanceFee || 0;
+  const _maintenanceStr = _fmt.money(_maintenanceVal);
+
   return {
     // CamelCase (Legacy Support)
     tenantName:        tenant?.name       || '____________________',
@@ -64,11 +70,22 @@ function buildVariableMap(agreement) {
     end_date:          _fmt.date(term?.endDate),
     lease_end_date:    _fmt.date(term?.endDate),
     duration_months:   term?.durationMonths || '—',
+    // Aliases expected by the Agreement Builder / templates
+    durationMonths:    _durationStr,
+    lease_duration:    _durationStr,
+    leaseDuration:     _durationStr,
+    duration:          _durationStr,
     pet_allowed:       agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed',
     pet_deposit:       _fmt.money(agreement.petPolicy?.deposit || 0),
     utilities_included: agreement.utilitiesIncluded ? 'Included' : 'Not Included',
     // Other fields
     lateFeeAmount:     _fmt.money(financials?.lateFeeAmount),
+    // friendly aliases for templates
+    late_fee:          _fmt.money(financials?.lateFeeAmount),
+    lateFee:           _fmt.money(financials?.lateFeeAmount),
+    late_fee_amount:   _fmt.money(financials?.lateFeeAmount),
+    maintenance_fee:   _maintenanceStr,
+    maintenanceFee:    _maintenanceStr,
     lateFeeGraceDays:  String(financials?.lateFeeGracePeriodDays ?? 5),
     currentDate:       _fmt.date(new Date()),
     agreementId:       String(agreement._id),
