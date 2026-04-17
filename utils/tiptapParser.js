@@ -87,9 +87,22 @@ function generateHtmlFromJson(node) {
       const src = node.attrs?.src || '';
       const alt = node.attrs?.alt || '';
       const title = node.attrs?.title || '';
+      const width = node.attrs?.width;
       const align = node.attrs?.textAlign;
-      const style = align ? ` style="text-align: ${align}"` : '';
-      return `<img src="${src}" alt="${alt}" title="${title}" class="document-image"${style} />`;
+      
+      const styles = [];
+      if (width && width !== 'auto') styles.push(`width: ${width}`);
+      
+      if (align === 'center') {
+        styles.push('display: block', 'margin-left: auto', 'margin-right: auto');
+      } else if (align === 'right') {
+        styles.push('display: block', 'margin-left: auto', 'margin-right: 0');
+      } else if (align === 'left') {
+        styles.push('display: block', 'margin-right: auto', 'margin-left: 0');
+      }
+      
+      const styleAttr = styles.length > 0 ? ` style="${styles.join('; ')}"` : '';
+      return `<img src="${src}" alt="${alt}" title="${title}" class="document-image"${styleAttr} />`;
     }
 
     default:

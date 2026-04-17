@@ -141,11 +141,11 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         
         /* ── Document Images ── */
         .document-image {
-          display: block;
-          margin: 1.5rem auto;
           max-width: 100%;
           height: auto;
           border-radius: 4px;
+          margin-top: 1.5rem;
+          margin-bottom: 1.5rem;
         }
         /* ── Signature block ──
              The image sits ABOVE the rule line. We achieve this by putting the
