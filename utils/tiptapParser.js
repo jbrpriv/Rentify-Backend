@@ -82,6 +82,15 @@ function generateHtmlFromJson(node) {
       
     case 'clausesPlaceholder':
       return `<div data-type="clauses-placeholder"></div>`;
+      
+    case 'image': {
+      const src = node.attrs?.src || '';
+      const alt = node.attrs?.alt || '';
+      const title = node.attrs?.title || '';
+      const align = node.attrs?.textAlign;
+      const style = align ? ` style="text-align: ${align}"` : '';
+      return `<img src="${src}" alt="${alt}" title="${title}" class="document-image"${style} />`;
+    }
 
     default:
       return children;

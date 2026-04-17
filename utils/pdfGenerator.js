@@ -138,6 +138,15 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
         .clause-section { margin-top: 1.5em; margin-bottom: 1em; }
         .clause-section h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.5em; }
         .clause-section p  { margin: 0; }
+        
+        /* ── Document Images ── */
+        .document-image {
+          display: block;
+          margin: 1.5rem auto;
+          max-width: 100%;
+          height: auto;
+          border-radius: 4px;
+        }
         /* ── Signature block ──
              The image sits ABOVE the rule line. We achieve this by putting the
              image and name inside the box first, then drawing the top border via
@@ -300,8 +309,9 @@ async function generatePuppeteerPDFBuffer(html) {
     browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
 
-    // Use domcontentloaded instead of networkidle0 for self-contained HTML (faster, no network wait)
-    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    // Use 'load' strategy instead of 'domcontentloaded' to ensure images (Cloudinary) 
+    // are fully loaded before rendering the PDF.
+    await page.setContent(html, { waitUntil: 'load' });
 
     return await page.pdf({
       format: 'A4',
