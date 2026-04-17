@@ -15,6 +15,7 @@ const mockPuppeteer = (() => {
   };
 })();
 
+jest.mock('puppeteer', () => mockPuppeteer);
 jest.mock('puppeteer-core', () => mockPuppeteer);
 
 // Prevent DB queries for templates and branding/currency lookups
