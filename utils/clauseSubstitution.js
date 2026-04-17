@@ -70,6 +70,10 @@ function buildVariableMap(agreement) {
     pet_allowed:       agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed',
     pet_policy:        agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed',
     pet_deposit:       _fmt.money(agreement.petPolicy?.deposit || 0),
+    rent_escalation_enabled:     agreement.rentEscalation?.enabled ? 'Enabled' : 'Disabled',
+    rent_escalation_percentage:  agreement.rentEscalation?.enabled
+                                   ? `${agreement.rentEscalation.percentage ?? 0}%`
+                                   : 'N/A',
     termination_policy: agreement.terminationPolicy || '',
     current_date:      _fmt.date(new Date()),
     agreement_id:      String(agreement._id),
@@ -94,6 +98,10 @@ function buildVariableMap(agreement) {
     maintenanceFee:    _maintenanceStr,
     petPolicy:         agreement.petPolicy?.allowed ? 'Pets allowed' : 'No pets',
     utilitiesDetails:  agreement.utilitiesDetails  || '',
+    rentEscalationEnabled:       agreement.rentEscalation?.enabled ? 'Enabled' : 'Disabled',
+    rentEscalationPercentage:    agreement.rentEscalation?.enabled
+                                   ? `${agreement.rentEscalation.percentage ?? 0}%`
+                                   : 'N/A',
     currentDate:       _fmt.date(new Date()),
     agreementId:       String(agreement._id),
     terminationPolicy: agreement.terminationPolicy || '',
