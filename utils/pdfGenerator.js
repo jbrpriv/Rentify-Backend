@@ -343,8 +343,18 @@ function flattenTemplateVariables(variables) {
 
 // Shared HTML builder for agreements (keeps generateAgreementPDF and buffer variant DRY)
 async function _buildAgreementHtml(agreement, landlord, tenant, property, options = {}) {
-  const templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
-  const template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
+  let templateId = agreement.agreementTemplate?._id || agreement.agreementTemplate;
+  let template = templateId ? await AgreementTemplate.findById(templateId).lean() : null;
+
+  // Fallback: If no specific template is linked to the agreement, try to fetch the Global Default
+  if (!template) {
+    template = await AgreementTemplate.findOne({ 
+      isGlobalDefault: true, 
+      templateType: 'agreement', 
+      status: 'approved', 
+      isArchived: false 
+    }).lean();
+  }
 
   // Build variable map: system variables first, then template-level custom variables on top,
   // then any caller-injected overrides (e.g. from options.customVars) last.
