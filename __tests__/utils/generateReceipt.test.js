@@ -1,7 +1,7 @@
 jest.resetModules();
 
 // Mock Puppeteer so tests don't try to launch a real browser.
-const puppeteerMock = (() => {
+const mockPuppeteer = (() => {
   let lastHtml = '';
   return {
     executablePath: jest.fn(() => '/fake/chrome'),
@@ -15,7 +15,7 @@ const puppeteerMock = (() => {
   };
 })();
 
-jest.mock('puppeteer-core', () => puppeteerMock);
+jest.mock('puppeteer-core', () => mockPuppeteer);
 
 // Prevent DB queries for templates and branding/currency lookups
 jest.mock('../../models/AgreementTemplate', () => ({
