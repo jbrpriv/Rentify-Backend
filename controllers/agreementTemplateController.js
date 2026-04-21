@@ -200,8 +200,8 @@ const updateTemplate = async (req, res) => {
       return res.status(403).json({ message: 'Not authorised' });
     }
 
-    if (!['pending', 'rejected'].includes(template.status)) {
-      return res.status(400).json({ message: 'Only pending or rejected templates can be edited' });
+    if (!['pending', 'rejected', 'approved'].includes(template.status)) {
+      return res.status(400).json({ message: 'Only pending, rejected, or approved templates can be edited' });
     }
 
     const { name, description, jurisdiction, baseTheme, bodyHtml, bodyJson, variables } = req.body;
@@ -228,7 +228,7 @@ const updateTemplate = async (req, res) => {
       template.variables = normalizeVariables(variables);
     }
 
-    if (template.status === 'rejected') {
+    if (['rejected', 'approved'].includes(template.status)) {
       template.status = 'pending';
       template.reviewedBy = null;
       template.reviewedAt = null;
