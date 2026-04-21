@@ -147,6 +147,53 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
           margin-top: 1.5rem;
           margin-bottom: 1.5rem;
         }
+
+        /* ── Split Column (Dual Column) ── */
+        .dual-column-wrapper {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0;
+          position: relative;
+          min-height: 100px;
+          margin: 1.5rem 0;
+        }
+        .dual-column-wrapper::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: 50%;
+          border-left: 2px dotted #000;
+          transform: translateX(-50%);
+          z-index: 1;
+        }
+        .dual-column-side {
+          padding: 0 20px;
+          position: relative;
+          z-index: 2;
+        }
+
+        /* ── Tables ── */
+        .agreement-table {
+          width: 100%;
+          margin: 1.5rem 0;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        .agreement-table th, .agreement-table td {
+          min-width: 1em;
+          border: 1px solid #cbd5e1;
+          padding: 10px 14px;
+          vertical-align: top;
+        }
+        .agreement-table th {
+          font-weight: bold;
+          text-align: left;
+          background-color: #f8fafc;
+          color: #1a1a1a;
+        }
+        .agreement-table p { margin: 0; }
+
         /* ── Signature block ──
              The image sits ABOVE the rule line. We achieve this by putting the
              image and name inside the box first, then drawing the top border via
@@ -664,6 +711,12 @@ const generateReceiptPDFBuffer = async (payment, tenant, property, options = {})
       <meta charset="UTF-8" />
       <style>
         body { font-family: "Times New Roman", Times, serif; line-height: 1.4; color: #111; }
+        
+        /* ── Tables ── */
+        .agreement-table { width: 100%; margin: 1.5rem 0; border-collapse: collapse; table-layout: fixed; }
+        .agreement-table th, .agreement-table td { min-width: 1em; border: 1px solid #cbd5e1; padding: 10px 14px; vertical-align: top; }
+        .agreement-table th { font-weight: bold; text-align: left; background-color: #f8fafc; color: #111; }
+        .agreement-table p { margin: 0; }
       </style>
     </head>
     <body style="padding:50px;">
