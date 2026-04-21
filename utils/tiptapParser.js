@@ -64,7 +64,7 @@ function generateHtmlFromJson(node) {
       return '<hr>';
 
     case 'table':
-      return `<table><tbody>${children}</tbody></table>`;
+      return `<table class="agreement-table"><tbody>${children}</tbody></table>`;
 
     case 'tableRow':
       return `<tr>${children}</tr>`;
@@ -76,6 +76,13 @@ function generateHtmlFromJson(node) {
       return `<td>${children}</td>`;
 
     // ─── Custom Rentify Extensions ──────────────────────────────
+    case 'dualColumn':
+      return `<div data-type="dual-column" class="dual-column-wrapper">${children}</div>`;
+
+    case 'dualColumnSide':
+      return `<div data-type="dual-column-side" class="dual-column-side">${children}</div>`;
+
+
     case 'variable':
       const name = node.attrs?.name || '';
       const label = node.attrs?.label || '';
