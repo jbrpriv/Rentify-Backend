@@ -386,7 +386,10 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     // 3. Fallback: themeSlug from options (frontend sends activeTheme id)
     if (!theme && options.themeSlug) {
       theme = await PdfTheme.findOne({ themeSlug: options.themeSlug }).lean();
-
+    }
+    // 4. Fallback: Use default theme (isDefault: true)
+    if (!theme) {
+      theme = await PdfTheme.findOne({ isDefault: true }).lean();
     }
   } catch (err) {
     console.warn('[pdfGenerator] Theme resolution failed, using defaults:', err.message);
