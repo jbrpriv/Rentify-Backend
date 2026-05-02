@@ -2,6 +2,7 @@ const Property = require('../models/Property');
 const Agreement = require('../models/Agreement');
 const { sendEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
+const { appendVersionSnapshot } = require('../utils/agreementVersionHistory');
 
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -256,6 +257,7 @@ const updateOfferStatus = async (req, res) => {
         },
         auditLog: [{ action: 'CREATED_FROM_OFFER', actor: req.user._id, details: `From ${offer.offerType} offer ${offer._id}` }],
       });
+      await appendVersionSnapshot(agreement, req.user._id, 'Initial snapshot on agreement creation');
       offer.agreement = agreement._id;
       const prop = await Property.findById(offer.property._id);
       if (prop) { const e = prop.applications.find(a => a.tenant.toString() === offer.tenant._id.toString()); if (e) { e.status = 'accepted'; await prop.save(); } }

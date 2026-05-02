@@ -7,6 +7,7 @@ const logger = require('../utils/logger');
 const { generateAgreementPDF, generateAgreementPDFBuffer } = require('../utils/pdfGenerator');
 const { sendEmail } = require('../utils/emailService');
 const { uploadAgreementPDF, isS3Configured, getAgreementPDFStream } = require('../utils/s3Service');
+const { appendVersionSnapshot, saveVersionSnapshot } = require('../utils/agreementVersionHistory');
 const AgreementTemplate = require('../models/AgreementTemplate');
 
 const normalizeTier = (tier) => (
@@ -87,6 +88,8 @@ const createAgreement = async (req, res) => {
       agreementTemplate: agreementTemplate || null,
       customWatermark: req.body.customWatermark || '',
     });
+
+    await appendVersionSnapshot(agreement, req.user._id, 'Initial snapshot on agreement creation');
 
     return res.status(201).json(agreement);
   } catch (error) {
@@ -783,29 +786,6 @@ const getVersionHistory = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-};
-
-
-// Internal helper — saves version snapshot
-const saveVersionSnapshot = async (agreementId, userId, reason = 'Manual save') => {
-  const agreement = await Agreement.findById(agreementId);
-  if (!agreement) return;
-
-  const nextVersion = (agreement.versionHistory.length || 0) + 1;
-  agreement.versionHistory.push({
-    version: nextVersion,
-    savedAt: new Date(),
-    savedBy: userId,
-    reason,
-    snapshot: {
-      clauses: (agreement.clauseSet || []).map((c) => c.title || c.clauseId?.toString() || ''),
-      financials: agreement.financials,
-      term: agreement.term,
-      status: agreement.status,
-    },
-  });
-  await agreement.save();
-  return nextVersion;
 };
 
 

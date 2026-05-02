@@ -6,6 +6,7 @@ const AgreementTemplate = require('../models/AgreementTemplate');
 const PdfTheme = require('../models/PdfTheme');
 const { sendEmail } = require('../utils/emailService');
 const notificationQueue = require('../queues/notificationQueue');
+const { appendVersionSnapshot } = require('../utils/agreementVersionHistory');
 
 const normalizeTier = (tier) => (
   ['free', 'pro', 'enterprise'].includes(String(tier || '').trim().toLowerCase())
@@ -265,6 +266,7 @@ const acceptOffer = async (req, res) => {
         nextScheduledAt: rentEscalationEnabled ? (() => { const d = new Date(startDate); d.setFullYear(d.getFullYear() + 1); return d; })() : null,
       },
     });
+    await appendVersionSnapshot(agreement, req.user._id, 'Initial snapshot on agreement creation');
 
     offer.status = 'accepted';
     offer.agreement = agreement._id;
