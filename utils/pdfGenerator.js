@@ -125,7 +125,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     : '';
 
   const heroHtml = t.heroPattern
-    ? `<div style="position:absolute;top:0;left:0;right:0;height:250px;background:${t.heroPattern};pointer-events:none;z-index:0;"></div>`
+    ? `<div style="position:absolute;top:0;left:0;right:0;height:250px;background:${t.heroPattern} !important;pointer-events:none;z-index:0;"></div>`
     : '';
 
   return `
@@ -182,8 +182,8 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         /* ── Tables ── */
         .agreement-table { width: 100%; margin: 1.5rem 0; border-collapse: collapse; table-layout: fixed; }
         .agreement-table th, .agreement-table td { min-width: 1em; border: 1px solid ${t.tableBorder}; padding: 10px 14px; vertical-align: top; }
-        .agreement-table th { font-weight: bold; text-align: left; background: ${t.tableHeaderBg}; color: ${t.tableHeaderText}; }
-        .agreement-table th p { color: ${t.tableHeaderText}; }
+        .agreement-table th { font-weight: bold; text-align: left; background: ${t.tableHeaderBg} !important; color: ${t.tableHeaderText} !important; }
+        .agreement-table th p { color: ${t.tableHeaderText} !important; }
         .agreement-table p { margin: 0; }
 
         /* ── Signature block ── */
