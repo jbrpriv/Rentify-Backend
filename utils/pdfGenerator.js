@@ -93,7 +93,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     : '';
 
   const heroHtml = t.heroPattern
-    ? `<div style="position:absolute;top:0;left:0;right:0;height:200px;background:${t.heroPattern};pointer-events:none;z-index:0;"></div>`
+    ? `<div style="position:absolute;top:0;left:0;right:0;height:250px;background:${t.heroPattern};pointer-events:none;z-index:0;"></div>`
     : '';
 
   return `
