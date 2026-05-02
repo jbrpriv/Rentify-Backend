@@ -2,7 +2,7 @@ const PdfTheme = require('../models/PdfTheme');
 const { generateAgreementPDFBuffer, generateReceiptPDFBuffer } = require('../utils/pdfGenerator');
 const logger = require('../utils/logger');
 
-const ALLOWED_FONTS = ['Helvetica', 'Times-Roman', 'Courier'];
+
 
 function buildThemeOverrides(input = {}) {
   const out = {};
@@ -12,7 +12,7 @@ function buildThemeOverrides(input = {}) {
   if (typeof input.backgroundColor === 'string') out.backgroundColor = input.backgroundColor;
   if (typeof input.description === 'string') out.description = input.description.trim();
 
-  if (typeof input.fontFamily === 'string' && ALLOWED_FONTS.includes(input.fontFamily)) {
+  if (typeof input.fontFamily === 'string') {
     out.fontFamily = input.fontFamily;
   }
 
@@ -33,6 +33,17 @@ const getPdfThemes = async (req, res) => {
   } catch (err) {
     logger.error('getPdfThemes error', { message: err.message });
     res.status(500).json({ message: 'Server error fetching themes' });
+  }
+};
+
+const getThemeBySlug = async (req, res) => {
+  try {
+    const theme = await PdfTheme.findOne({ themeSlug: req.params.slug });
+    if (!theme) return res.status(404).json({ message: 'Theme not found' });
+    res.json(theme);
+  } catch (err) {
+    logger.error('getThemeBySlug error', { message: err.message });
+    res.status(500).json({ message: 'Server error fetching theme by slug' });
   }
 };
 
@@ -206,6 +217,7 @@ const previewPdfTheme = async (req, res) => {
 
 module.exports = {
   getPdfThemes,
+  getThemeBySlug,
   updatePdfTheme,
   setDefaultTheme,
   setReceiptDefaultTheme,

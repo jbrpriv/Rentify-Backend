@@ -44,7 +44,6 @@ const agreementTemplateSchema = new mongoose.Schema(
       },
       fontFamily: {
         type: String,
-        enum: ['', 'Helvetica', 'Times-Roman', 'Courier'],
         default: '',
       },
       fontSizeScale: {

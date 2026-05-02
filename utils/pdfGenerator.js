@@ -17,6 +17,7 @@ const { getCurrencyContext } = require('./currencyService');
 const AgreementTemplate = require('../models/AgreementTemplate');
 const Agreement = require('../models/Agreement');
 const { getPlatformBranding } = require('./platformSettings');
+const PdfTheme = require('../models/PdfTheme');
 
 /**
  * Returns a simple default agreement HTML when no template body is available.
@@ -59,204 +60,121 @@ function getDefaultAgreementHtml() {
 /**
  * Wraps the agreement body in a professional HTML document with Times New Roman styling.
  */
-function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
+function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
   const landlordSig = agreement.signatures?.landlord;
   const tenantSig = agreement.signatures?.tenant;
+
+  // Theme-driven values with sensible defaults
+  const t = {
+    fontFamily: theme?.fontFamily || '"Times New Roman", Times, serif',
+    headingFont: theme?.headingFontFamily || theme?.fontFamily || '"Times New Roman", Times, serif',
+    googleFontUrl: theme?.googleFontUrl || '',
+    headingColor: theme?.headingColor || '#000',
+    bodyTextColor: theme?.bodyTextColor || '#1a1a1a',
+    tableBorder: theme?.tableBorderColor || '#cbd5e1',
+    tableHeaderBg: theme?.tableHeaderBg || '#f8fafc',
+    tableHeaderText: theme?.tableHeaderTextColor || '#1a1a1a',
+    heroPattern: theme?.heroPattern || '',
+    pageTexture: theme?.pageTexture || 'none',
+    headerRule: theme?.headerRule || 'none',
+    sectionRule: theme?.sectionRule || 'none',
+    watermarkEnabled: theme?.watermarkEnabled || false,
+    watermarkText: theme?.watermarkText || '',
+    watermarkOpacity: theme?.watermarkOpacity || 0.04,
+    watermarkColor: theme?.watermarkColor || '#000',
+  };
+
+  const googleFontLink = t.googleFontUrl
+    ? `<link rel="stylesheet" href="${t.googleFontUrl}" />`
+    : '';
+
+  const watermarkHtml = t.watermarkEnabled && t.watermarkText
+    ? `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:100px;font-weight:900;letter-spacing:0.15em;color:${t.watermarkColor};opacity:${t.watermarkOpacity};pointer-events:none;z-index:0;white-space:nowrap;">${t.watermarkText}</div>`
+    : '';
+
+  const heroHtml = t.heroPattern
+    ? `<div style="position:absolute;top:0;left:0;right:0;height:200px;background:${t.heroPattern};pointer-events:none;z-index:0;"></div>`
+    : '';
 
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8">
+      ${googleFontLink}
       <style>
         body {
-          font-family: "Times New Roman", Times, serif;
+          font-family: ${t.fontFamily};
           line-height: 1.5;
           margin: 0;
           padding: 0;
-          color: #1a1a1a;
+          color: ${t.bodyTextColor};
           font-size: 12pt;
+          ${t.pageTexture !== 'none' ? `background-image: ${t.pageTexture};` : ''}
         }
-        .container { padding: 0; }
+        .container { padding: 0; position: relative; }
 
         /* ── Headings ── */
-        h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: #000; }
-        h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: #000; }
-        h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: #000; }
-        h4 { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.5rem; color: #000; }
-        h5, h6 { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: #000; }
+        h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: ${t.headingColor}; font-family: ${t.headingFont}; padding-bottom: 0.5rem; border-bottom: ${t.headerRule}; }
+        h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: ${t.headingColor}; font-family: ${t.headingFont}; padding-bottom: 0.25rem; border-bottom: ${t.sectionRule}; }
+        h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: ${t.headingColor}; font-family: ${t.headingFont}; }
+        h4 { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.5rem; color: ${t.headingColor}; }
+        h5, h6 { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: ${t.headingColor}; }
         p  { margin-bottom: 1em; }
         ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
 
-        /* ── Alignment ──────────────────────────────────────────────────────
-           TipTap TextAlign extension emits style="text-align: center" (with
-           a space after the colon) on block elements.  We cover both the
-           spaced and un-spaced forms, utility classes, and the legacy align
-           attribute.  Selectors use !important so they win over any reset.
-        ─────────────────────────────────────────────────────────────────── */
-        h1, h2, h3, h4, h5, h6, p, div, li, blockquote {
-          display: block;
-          margin-bottom: 0.5em;
-        }
-        /* center */
-        [style*="text-align: center"],
-        [style*="text-align:center"],
-        .text-center,
-        [align="center"] {
-          text-align: center !important;
-        }
-        /* right */
-        [style*="text-align: right"],
-        [style*="text-align:right"],
-        .text-right,
-        [align="right"] {
-          text-align: right !important;
-        }
-        /* justify */
-        [style*="text-align: justify"],
-        [style*="text-align:justify"],
-        .text-justify,
-        [align="justify"] {
-          text-align: justify !important;
-        }
-        /* left (explicit — Puppeteer inherits left by default, but be explicit) */
-        [style*="text-align: left"],
-        [style*="text-align:left"],
-        .text-left,
-        [align="left"] {
-          text-align: left !important;
-        }
-        /* ── Font sizes — TipTap FontSize mark emits <span style="font-size:..."> ── */
-        /* Inline font-size styles are preserved; no stylesheet override here. */
-        /* ── Bold / Italic / Underline ── */
+        /* ── Alignment ── */
+        h1, h2, h3, h4, h5, h6, p, div, li, blockquote { display: block; margin-bottom: 0.5em; }
+        [style*="text-align: center"], [style*="text-align:center"], .text-center, [align="center"] { text-align: center !important; }
+        [style*="text-align: right"], [style*="text-align:right"], .text-right, [align="right"] { text-align: right !important; }
+        [style*="text-align: justify"], [style*="text-align:justify"], .text-justify, [align="justify"] { text-align: justify !important; }
+        [style*="text-align: left"], [style*="text-align:left"], .text-left, [align="left"] { text-align: left !important; }
+
         strong, b { font-weight: bold; }
         em, i     { font-style: italic; }
         u         { text-decoration: underline; }
-        /* ── Variables rendered as plain text (data-type="variable" stripped) ── */
         span[data-type="variable"] { font-weight: bold; }
-        /* ── Clause sections injected by the PDF generator ── */
+
         .clause-section { margin-top: 1.5em; margin-bottom: 1em; }
         .clause-section h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.5em; }
         .clause-section p  { margin: 0; }
         
-        /* ── Document Images ── */
-        .document-image {
-          max-width: 100%;
-          height: auto;
-          border-radius: 4px;
-          margin-top: 1.5rem;
-          margin-bottom: 1.5rem;
-        }
+        .document-image { max-width: 100%; height: auto; border-radius: 4px; margin-top: 1.5rem; margin-bottom: 1.5rem; }
 
-        /* ── Split Column (Dual Column) ── */
-        .dual-column-wrapper {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-          gap: 0;
-          position: relative;
-          min-height: 100px;
-          margin: 1.5rem 0;
-        }
-        .dual-column-wrapper::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          bottom: 0;
-          left: 50%;
-          border-left: 2px dotted #000;
-          transform: translateX(-50%);
-          z-index: 1;
-        }
-        .dual-column-side {
-          padding: 0 20px;
-          position: relative;
-          z-index: 2;
-          min-width: 0;
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-          max-width: 100%;
-        }
+        /* ── Split Column ── */
+        .dual-column-wrapper { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; position: relative; min-height: 100px; margin: 1.5rem 0; }
+        .dual-column-wrapper::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 2px dotted ${t.tableBorder}; transform: translateX(-50%); z-index: 1; }
+        .dual-column-side { padding: 0 20px; position: relative; z-index: 2; min-width: 0; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; }
 
         /* ── Tables ── */
-        .agreement-table {
-          width: 100%;
-          margin: 1.5rem 0;
-          border-collapse: collapse;
-          table-layout: fixed;
-        }
-        .agreement-table th, .agreement-table td {
-          min-width: 1em;
-          border: 1px solid #cbd5e1;
-          padding: 10px 14px;
-          vertical-align: top;
-        }
-        .agreement-table th {
-          font-weight: bold;
-          text-align: left;
-          background-color: #f8fafc;
-          color: #1a1a1a;
-        }
+        .agreement-table { width: 100%; margin: 1.5rem 0; border-collapse: collapse; table-layout: fixed; }
+        .agreement-table th, .agreement-table td { min-width: 1em; border: 1px solid ${t.tableBorder}; padding: 10px 14px; vertical-align: top; }
+        .agreement-table th { font-weight: bold; text-align: left; background: ${t.tableHeaderBg}; color: ${t.tableHeaderText}; }
+        .agreement-table th p { color: ${t.tableHeaderText}; }
         .agreement-table p { margin: 0; }
 
-        /* ── Signature block ──
-             The image sits ABOVE the rule line. We achieve this by putting the
-             image and name inside the box first, then drawing the top border via
-             a separate <div class="sig-rule"> element underneath.            ── */
-        .sig-section {
-          margin-top: 60px;
-          page-break-inside: avoid;
-        }
-        .sig-grid {
-          display: flex;
-          justify-content: space-between;
-          gap: 40px;
-          margin-top: 20px;
-        }
-        .sig-box {
-          flex: 1;
-        }
-        .sig-label {
-          font-weight: bold;
-          font-size: 9pt;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: #444;
-          margin-bottom: 6px;
-        }
-        .sig-image {
-          display: block;
-          max-height: 64px;
-          max-width: 200px;
-          margin-bottom: 4px;
-          object-fit: contain;
-        }
-        .sig-blank {
-          height: 64px;
-          margin-bottom: 4px;
-        }
-        /* The rule sits BELOW the signature image, above the name */
-        .sig-rule {
-          border-top: 1.5px solid #000;
-          margin-bottom: 8px;
-        }
-        .sig-name {
-          font-size: 11pt;
-          font-weight: bold;
-        }
-        .sig-meta {
-          font-size: 8pt;
-          color: #666;
-          margin-top: 2px;
-        }
+        /* ── Signature block ── */
+        .sig-section { margin-top: 60px; page-break-inside: avoid; }
+        .sig-grid { display: flex; justify-content: space-between; gap: 40px; margin-top: 20px; }
+        .sig-box { flex: 1; }
+        .sig-label { font-weight: bold; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #444; margin-bottom: 6px; }
+        .sig-image { display: block; max-height: 64px; max-width: 200px; margin-bottom: 4px; object-fit: contain; }
+        .sig-blank { height: 64px; margin-bottom: 4px; }
+        .sig-rule { border-top: 1.5px solid #000; margin-bottom: 8px; }
+        .sig-name { font-size: 11pt; font-weight: bold; }
+        .sig-meta { font-size: 8pt; color: #666; margin-top: 2px; }
       </style>
     </head>
     <body>
+      ${watermarkHtml}
       <div class="container">
+        ${heroHtml}
+        <div style="position:relative;z-index:1;">
         ${bodyHtml}
+        </div>
         <div class="sig-section">
           <h2>Signatures</h2>
           <div class="sig-grid">
-            <!-- Landlord: image first, THEN the rule line, THEN name -->
             <div class="sig-box">
               <div class="sig-label">Landlord Signature</div>
               ${landlordSig?.signed
@@ -268,7 +186,6 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant) {
                 ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>`
                 : ''}
             </div>
-            <!-- Tenant: same structure -->
             <div class="sig-box">
               <div class="sig-label">Tenant Signature</div>
               ${tenantSig?.signed
@@ -417,6 +334,22 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     }).lean();
   }
 
+  // ─── Resolve visual theme ──────────────────────────────────────────────
+  let theme = null;
+  try {
+    // 1. Direct pdfTheme ref on agreement
+    const themeRef = agreement.pdfTheme?._id || agreement.pdfTheme;
+    if (themeRef) {
+      theme = await PdfTheme.findById(themeRef).lean();
+    }
+    // 2. Fallback: themeSlug from options (frontend sends activeTheme id)
+    if (!theme && options.themeSlug) {
+      theme = await PdfTheme.findOne({ themeSlug: options.themeSlug }).lean();
+    }
+  } catch (err) {
+    console.warn('[pdfGenerator] Theme resolution failed, using defaults:', err.message);
+  }
+
   // Build variable map: system variables first, then template-level custom variables on top,
   // then any caller-injected overrides (e.g. from options.customVars) last.
   // This order means caller overrides win, then template defaults, then system values.
@@ -502,7 +435,7 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     substitutedHtml += `\n<div class="clause-section-container">${clauseHtml}</div>`;
   }
 
-  return wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant);
+  return wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant, theme);
 }
 
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
