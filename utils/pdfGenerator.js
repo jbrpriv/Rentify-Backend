@@ -136,6 +136,11 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
       <meta charset="UTF-8">
       ${googleFontLink}
       <style>
+        @page {
+          size: A4;
+          margin: 0;
+        }
+
         body {
           font-family: ${t.fontFamily};
           line-height: 1.5;
@@ -317,7 +322,8 @@ async function generatePuppeteerPDFBuffer(html) {
 
     return await page.pdf({
       format: 'A4',
-      margin: { top: '60px', right: '60px', bottom: '60px', left: '60px' },
+      margin: { top: '0', right: '0', bottom: '0', left: '0' },
+      preferCSSPageSize: true,
       printBackground: true,
     });
   } catch (err) {
