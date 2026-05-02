@@ -394,6 +394,12 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     theme = applyTemplateCustomizations(theme || {}, template.customizations);
   }
 
+  // Debug: log resolved theme used to build the HTML (helpful for diagnosing missing hero/table styles)
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[pdfGenerator] resolved theme for agreement:', theme && typeof theme === 'object' ? { id: theme._id || theme.themeSlug, name: theme.name } : theme);
+  } catch (e) {}
+
   // Build variable map: system variables first, then template-level custom variables on top,
   // then any caller-injected overrides (e.g. from options.customVars) last.
   // This order means caller overrides win, then template defaults, then system values.
