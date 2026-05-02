@@ -47,6 +47,17 @@ const getThemeBySlug = async (req, res) => {
   }
 };
 
+const getThemeById = async (req, res) => {
+  try {
+    const theme = await PdfTheme.findById(req.params.id);
+    if (!theme) return res.status(404).json({ message: 'Theme not found' });
+    res.json(theme);
+  } catch (err) {
+    logger.error('getThemeById error', { message: err.message });
+    res.status(500).json({ message: 'Server error fetching theme' });
+  }
+};
+
 const updatePdfTheme = async (req, res) => {
   try {
     const theme = await PdfTheme.findById(req.params.id);
@@ -217,6 +228,7 @@ const previewPdfTheme = async (req, res) => {
 
 module.exports = {
   getPdfThemes,
+  getThemeById,
   getThemeBySlug,
   updatePdfTheme,
   setDefaultTheme,

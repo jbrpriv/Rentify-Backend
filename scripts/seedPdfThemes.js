@@ -143,7 +143,7 @@ const themes = [
     tableHeaderBg: 'linear-gradient(135deg, #2D1B4E 0%, #4A2D6E 100%)',
     tableHeaderTextColor: '#FFFFFF',
     heroBackground: '#FAF7FF',
-    heroPattern: 'linear-gradient(135deg, rgba(250,247,255,0.95) 0%, rgba(243,234,255,0.7) 35%, rgba(255,255,255,0) 100%)',
+    heroPattern: 'linear-gradient(180deg, rgba(250,247,255,0.95) 0%, rgba(243,234,255,0.55) 45%, rgba(255,255,255,0) 100%)',
     pageTexture: 'none',
     headerRule: '3px solid #C4917B',
     sectionRule: '1px solid #EDE5F5',
