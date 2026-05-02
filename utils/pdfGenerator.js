@@ -19,6 +19,36 @@ const Agreement = require('../models/Agreement');
 const { getPlatformBranding } = require('./platformSettings');
 const PdfTheme = require('../models/PdfTheme');
 
+const pickThemeString = (value, fallback) => (
+  typeof value === 'string' && value.trim() ? value.trim() : fallback
+);
+
+function applyTemplateCustomizations(theme = {}, customizations = {}) {
+  if (!customizations || typeof customizations !== 'object') return theme;
+
+  const customWatermark = pickThemeString(customizations.customWatermark, '');
+  const watermarkEnabled = Boolean(customWatermark || theme.watermarkEnabled);
+
+  return {
+    ...theme,
+    primaryColor: pickThemeString(customizations.primaryColor, theme.primaryColor),
+    accentColor: pickThemeString(customizations.accentColor, theme.accentColor),
+    backgroundColor: pickThemeString(customizations.backgroundColor, theme.backgroundColor),
+    fontFamily: pickThemeString(customizations.fontFamily, theme.fontFamily),
+    fontSizeScale: typeof customizations.fontSizeScale === 'number'
+      ? customizations.fontSizeScale
+      : theme.fontSizeScale,
+    watermarkText: customWatermark || theme.watermarkText,
+    watermarkEnabled,
+    watermarkOpacity: customWatermark
+      ? 0.08
+      : (typeof theme.watermarkOpacity === 'number' ? theme.watermarkOpacity : 0.04),
+    watermarkColor: customWatermark
+      ? (theme.watermarkColor || theme.primaryColor || '#000000')
+      : theme.watermarkColor,
+  };
+}
+
 /**
  * Returns a simple default agreement HTML when no template body is available.
  */
@@ -71,6 +101,8 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     googleFontUrl: theme?.googleFontUrl || '',
     headingColor: theme?.headingColor || '#000',
     bodyTextColor: theme?.bodyTextColor || '#1a1a1a',
+    backgroundColor: theme?.backgroundColor || '#FFFFFF',
+    fontSizeScale: typeof theme?.fontSizeScale === 'number' ? theme.fontSizeScale : 1.0,
     tableBorder: theme?.tableBorderColor || '#cbd5e1',
     tableHeaderBg: theme?.tableHeaderBg || '#f8fafc',
     tableHeaderText: theme?.tableHeaderTextColor || '#1a1a1a',
@@ -109,7 +141,8 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
           margin: 0;
           padding: 0;
           color: ${t.bodyTextColor};
-          font-size: 12pt;
+          font-size: ${12 * t.fontSizeScale}pt;
+          background-color: ${t.backgroundColor};
           ${t.pageTexture !== 'none' ? `background-image: ${t.pageTexture};` : ''}
         }
         .container { padding: 0; position: relative; }
@@ -342,12 +375,23 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     if (themeRef) {
       theme = await PdfTheme.findById(themeRef).lean();
     }
-    // 2. Fallback: themeSlug from options (frontend sends activeTheme id)
+    // 2. Template base theme (for agreement templates)
+    if (!theme) {
+      const baseThemeId = template?.baseTheme?._id || template?.baseTheme;
+      if (baseThemeId) {
+        theme = await PdfTheme.findById(baseThemeId).lean();
+      }
+    }
+    // 3. Fallback: themeSlug from options (frontend sends activeTheme id)
     if (!theme && options.themeSlug) {
       theme = await PdfTheme.findOne({ themeSlug: options.themeSlug }).lean();
     }
   } catch (err) {
     console.warn('[pdfGenerator] Theme resolution failed, using defaults:', err.message);
+  }
+
+  if (template?.customizations) {
+    theme = applyTemplateCustomizations(theme || {}, template.customizations);
   }
 
   // Build variable map: system variables first, then template-level custom variables on top,
