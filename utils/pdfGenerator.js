@@ -106,6 +106,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     tableBorder: theme?.tableBorderColor || '#cbd5e1',
     tableHeaderBg: theme?.tableHeaderBg || '#f8fafc',
     tableHeaderText: theme?.tableHeaderTextColor || '#1a1a1a',
+    heroBackground: theme?.heroBackground || '',
     heroPattern: theme?.heroPattern || '',
     pageTexture: theme?.pageTexture || 'none',
     headerRule: theme?.headerRule || 'none',
@@ -124,8 +125,8 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     ? `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:100px;font-weight:900;letter-spacing:0.15em;color:${t.watermarkColor};opacity:${t.watermarkOpacity};pointer-events:none;z-index:0;white-space:nowrap;">${t.watermarkText}</div>`
     : '';
 
-  const heroHtml = t.heroPattern
-    ? `<div style="position:absolute;top:0;left:0;right:0;height:250px;background:${t.heroPattern} !important;pointer-events:none;z-index:0;"></div>`
+  const heroHtml = (t.heroPattern || t.heroBackground)
+    ? `<div style="position:absolute;top:0;left:0;right:0;height:250px;background-color:${t.heroBackground || 'transparent'};background-image:${t.heroPattern || 'none'};pointer-events:none;z-index:0;"></div>`
     : '';
 
   return `
@@ -385,6 +386,7 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     // 3. Fallback: themeSlug from options (frontend sends activeTheme id)
     if (!theme && options.themeSlug) {
       theme = await PdfTheme.findOne({ themeSlug: options.themeSlug }).lean();
+
     }
   } catch (err) {
     console.warn('[pdfGenerator] Theme resolution failed, using defaults:', err.message);

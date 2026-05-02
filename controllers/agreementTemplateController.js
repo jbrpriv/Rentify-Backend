@@ -137,7 +137,7 @@ const getAvailableTemplates = async (req, res) => {
       )
       : [];
 
-    const globalDefaults = await AgreementTemplate.find({ isGlobalDefault: true });
+    const globalDefaults = await AgreementTemplate.find({ isGlobalDefault: true }).populate('baseTheme');
 
     res.json({ templates, globalDefaults, capabilities: { canUseAgreementTemplates, canSelectPdfThemes } });
   } catch (err) {
@@ -160,7 +160,15 @@ const createTemplate = async (req, res) => {
 
     let baseThemeId = baseTheme;
     if (baseTheme) {
-      const baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+      // Accept either a MongoDB ObjectId or a themeSlug string
+      const mongoose = require('mongoose');
+      let baseThemeDoc = null;
+      if (mongoose.Types.ObjectId.isValid(baseTheme)) {
+        baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+      }
+      if (!baseThemeDoc) {
+        baseThemeDoc = await PdfTheme.findOne({ themeSlug: baseTheme }).select('_id');
+      }
       if (!baseThemeDoc) {
         return res.status(404).json({ message: 'Base theme not found' });
       }
@@ -212,9 +220,16 @@ const updateTemplate = async (req, res) => {
     if (jurisdiction !== undefined) template.jurisdiction = jurisdiction.trim().toLowerCase();
 
     if (baseTheme !== undefined) {
-      const baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+      const mongoose = require('mongoose');
+      let baseThemeDoc = null;
+      if (mongoose.Types.ObjectId.isValid(baseTheme)) {
+        baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+      }
+      if (!baseThemeDoc) {
+        baseThemeDoc = await PdfTheme.findOne({ themeSlug: baseTheme }).select('_id');
+      }
       if (!baseThemeDoc) return res.status(404).json({ message: 'Base theme not found' });
-      template.baseTheme = baseTheme;
+      template.baseTheme = baseThemeDoc._id;
     }
 
     if (req.body.customizations !== undefined) {
