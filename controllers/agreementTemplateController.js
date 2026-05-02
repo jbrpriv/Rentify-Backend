@@ -43,6 +43,7 @@ function normalizeCustomizations(input = {}) {
       typeof input.fontSizeScale === 'number'
         ? Math.min(1.4, Math.max(0.8, input.fontSizeScale))
         : 1.0,
+    customWatermark: typeof input.customWatermark === 'string' ? input.customWatermark : '',
   };
 }
 

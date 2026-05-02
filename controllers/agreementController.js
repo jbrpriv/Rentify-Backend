@@ -85,6 +85,7 @@ const createAgreement = async (req, res) => {
       auditLog: [{ action: 'CREATED', actor: req.user._id, details: 'Agreement created directly by landlord' }],
       pdfTheme: pdfTheme || null,
       agreementTemplate: agreementTemplate || null,
+      customWatermark: req.body.customWatermark || '',
     });
 
     return res.status(201).json(agreement);

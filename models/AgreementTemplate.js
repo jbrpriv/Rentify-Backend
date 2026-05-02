@@ -52,6 +52,10 @@ const agreementTemplateSchema = new mongoose.Schema(
         max: 1.4,
         default: 1.0,
       },
+      customWatermark: {
+        type: String,
+        default: '',
+      },
     },
 
     // Editable standard legal clauses rendered in the PDF layout.

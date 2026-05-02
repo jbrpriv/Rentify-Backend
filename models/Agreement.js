@@ -98,6 +98,10 @@ const agreementSchema = mongoose.Schema(
       ref: 'AgreementTemplate',
       default: null,
     },
+    customWatermark: {
+      type: String,
+      default: '',
+    },
     documentUrl: {
       type: String,
       default: null,

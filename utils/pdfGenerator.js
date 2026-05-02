@@ -78,10 +78,10 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     pageTexture: theme?.pageTexture || 'none',
     headerRule: theme?.headerRule || 'none',
     sectionRule: theme?.sectionRule || 'none',
-    watermarkEnabled: theme?.watermarkEnabled || false,
-    watermarkText: theme?.watermarkText || '',
-    watermarkOpacity: theme?.watermarkOpacity || 0.04,
-    watermarkColor: theme?.watermarkColor || '#000',
+    watermarkEnabled: !!(agreement.customWatermark || theme?.watermarkEnabled),
+    watermarkText: agreement.customWatermark || theme?.watermarkText || '',
+    watermarkOpacity: agreement.customWatermark ? 0.08 : (theme?.watermarkOpacity || 0.04),
+    watermarkColor: agreement.customWatermark ? '#E11D48' : (theme?.watermarkColor || '#000'), // Use a distinct rose color for custom watermarks
   };
 
   const googleFontLink = t.googleFontUrl
