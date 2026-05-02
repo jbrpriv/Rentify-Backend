@@ -126,7 +126,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     : '';
 
   const heroHtml = (t.heroPattern || t.heroBackground)
-    ? `<div style="position:absolute;top:0;left:0;right:0;height:340px;background-color:${t.heroBackground || 'transparent'};background-image:${t.heroPattern || 'none'};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
+    ? `<div style="position:absolute;top:-1px;left:-1px;right:-1px;height:341px;background-color:${t.heroBackground || 'transparent'};background-image:${t.heroPattern || 'none'};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
     : '';
 
   return `
@@ -151,7 +151,12 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
           background-color: ${t.backgroundColor};
           ${t.pageTexture !== 'none' ? `background-image: ${t.pageTexture};` : ''}
         }
-        .container { padding: 0; position: relative; }
+        .container { position: relative; width: 100%; min-height: 100vh; }
+        .content-shell {
+          position: relative;
+          z-index: 1;
+          padding: 56px 60px 60px;
+        }
 
         /* ── Headings ── */
         h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: ${t.headingColor}; font-family: ${t.headingFont}; padding-bottom: 0.5rem; border-bottom: ${t.headerRule}; }
@@ -208,9 +213,8 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
       ${watermarkHtml}
       <div class="container">
         ${heroHtml}
-        <div style="position:relative;z-index:1;">
-        ${bodyHtml}
-        </div>
+        <div class="content-shell">
+          ${bodyHtml}
         <div class="sig-section">
           <h2>Signatures</h2>
           <div class="sig-grid">
