@@ -126,7 +126,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     : '';
 
   const heroHtml = (t.heroPattern || t.heroBackground)
-    ? `<div style="position:absolute;top:0;left:0;right:0;height:250px;background-color:${t.heroBackground || 'transparent'};background-image:${t.heroPattern || 'none'};pointer-events:none;z-index:0;"></div>`
+    ? `<div style="position:absolute;top:0;left:0;right:0;height:340px;background-color:${t.heroBackground || 'transparent'};background-image:${t.heroPattern || 'none'};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
     : '';
 
   return `
