@@ -64,7 +64,7 @@ function buildThemeObject(rawTheme, customizations) {
     heroPattern: t.heroPattern || 'none',
     heroHeight: t.heroHeight || 200,
     logoMaxHeight: t.logoMaxHeight || '80px',
-    logoAlignment: t.logoAlignment || 'left',
+    logoAlignment: 'center',
     tableRadius: t.tableRadius || '0px',
     headingFont: t.headingFontFamily || t.fontFamily || 'Helvetica',
     bodyFont: t.fontFamily || 'Helvetica',
@@ -388,9 +388,9 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         .agreement-table p { margin: 0; }
 
         /* ── Logo detection CSS (Step 7.2) ── */
-        .logo-container { margin-bottom: 1.5rem; text-align: ${t.logoAlignment || 'left'}; }
+        .logo-container { margin-bottom: 2rem; text-align: center !important; }
         .logo-container img {
-          max-height: ${t.logoMaxHeight || '80px'};
+          max-height: 80px;
           width: auto;
           height: auto;
           display: inline-block;
