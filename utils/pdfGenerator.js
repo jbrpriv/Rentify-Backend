@@ -46,6 +46,7 @@ function applyTemplateCustomizations(theme = {}, customizations = {}) {
     watermarkColor: customWatermark
       ? (theme.watermarkColor || theme.primaryColor || '#000000')
       : theme.watermarkColor,
+    logoUrl: pickThemeString(customizations.logoUrl, theme.logoUrl),
   };
 }
 
@@ -84,6 +85,7 @@ function buildThemeObject(rawTheme, customizations) {
     watermarkText: t.watermarkText || '',
     watermarkOpacity: t.watermarkOpacity || 0,
     watermarkColor: t.watermarkColor || '#000000',
+    logoUrl: t.logoUrl || '',
   };
 }
 
@@ -279,6 +281,10 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     ? `<div style="position:absolute;top:-1px;left:-1px;right:-1px;height:${t.heroHeight + 40}px;background-color:${t.heroBackground};background-image:${t.heroPattern};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
     : '';
 
+  const logoHtml = t.logoUrl
+    ? `<div class="logo-container"><img src="${t.logoUrl}" alt="Logo" /></div>`
+    : '';
+
   const arrangedBodyHtml = applyThemeLayout(bodyHtml, t.layoutStyle, agreement);
 
   return `
@@ -408,6 +414,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
       <div class="container">
         ${heroHtml}
         <div class="content-shell">
+          ${logoHtml}
           ${arrangedBodyHtml}
         <div class="sig-section">
           <h2>Signatures</h2>
@@ -601,6 +608,22 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
 
   if (template?.customizations) {
     theme = applyTemplateCustomizations(theme || {}, template.customizations);
+  }
+
+  // 1.5. Override with specific agreement-level branding if present
+  if (agreement.logoUrl || agreement.customWatermark) {
+    theme = applyTemplateCustomizations(theme || {}, {
+      logoUrl: agreement.logoUrl,
+      customWatermark: agreement.customWatermark,
+    });
+  }
+
+  // Final fallback: use platform branding logo if still no logo resolved
+  if (!theme?.logoUrl) {
+    const branding = await getPlatformBranding();
+    if (branding?.logoUrl) {
+      theme = { ...theme, logoUrl: branding.logoUrl };
+    }
   }
 
   // Debug: log resolved theme used to build the HTML (helpful for diagnosing missing hero/table styles)
