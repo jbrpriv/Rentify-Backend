@@ -49,6 +49,139 @@ function applyTemplateCustomizations(theme = {}, customizations = {}) {
   };
 }
 
+function extractFirstBlock(html, regex) {
+  const match = html.match(regex);
+  if (!match) return { block: '', rest: html };
+
+  const block = match[0];
+  return {
+    block,
+    rest: html.replace(block, ''),
+  };
+}
+
+function escapeHtml(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function applyThemeLayout(bodyHtml, layoutStyle = 'minimalist', agreement = {}) {
+  if (!bodyHtml || typeof bodyHtml !== 'string') return bodyHtml;
+
+  let working = bodyHtml;
+  const { block: heading, rest: afterHeading } = extractFirstBlock(working, /<h1\b[^>]*>[\s\S]*?<\/h1>/i);
+  working = afterHeading;
+
+  const { block: intro, rest: afterIntro } = extractFirstBlock(working, /<p\b[^>]*>[\s\S]*?<\/p>/i);
+  working = afterIntro;
+
+  const { block: table, rest: afterTable } = extractFirstBlock(working, /<table\b[^>]*>[\s\S]*?<\/table>/i);
+  working = afterTable;
+
+  const safeHeading = heading || '<h1>Rental Agreement</h1>';
+  const agreementId = agreement?._id ? escapeHtml(agreement._id) : '';
+  const createdDate = agreement?.createdAt
+    ? new Date(agreement.createdAt).toLocaleDateString()
+    : new Date().toLocaleDateString();
+
+  const metaStrip = `
+    <div class="layout-meta-strip">
+      <span>Agreement ${agreementId || 'Draft'}</span>
+      <span>${escapeHtml(createdDate)}</span>
+    </div>
+  `;
+
+  const content = working.trim();
+
+  switch (layoutStyle) {
+    case 'classic':
+      return `
+        <section class="layout-classic-wrap">
+          ${safeHeading}
+          ${intro || ''}
+          ${table ? `<div class="layout-classic-table">${table}</div>` : ''}
+          ${content}
+        </section>
+      `;
+
+    case 'legal':
+      return `
+        <section class="layout-legal-wrap">
+          ${metaStrip}
+          ${safeHeading}
+          ${intro || ''}
+          ${table ? `<div class="layout-legal-table">${table}</div>` : ''}
+          ${content}
+        </section>
+      `;
+
+    case 'premium':
+      return `
+        <section class="layout-premium-wrap">
+          <div class="layout-premium-hero">
+            <div class="layout-premium-title">${safeHeading}${intro || ''}</div>
+            ${table ? `<div class="layout-premium-summary">${table}</div>` : ''}
+          </div>
+          <div class="layout-premium-content">${content}</div>
+        </section>
+      `;
+
+    case 'contemporary':
+      return `
+        <section class="layout-contemporary-wrap">
+          ${safeHeading}
+          <div class="layout-contemporary-top">
+            ${table ? `<div class="layout-contemporary-card">${table}</div>` : ''}
+            ${intro ? `<div class="layout-contemporary-card">${intro}</div>` : ''}
+          </div>
+          <div class="layout-contemporary-content">${content}</div>
+        </section>
+      `;
+
+    case 'editorial':
+      return `
+        <section class="layout-editorial-wrap">
+          <div class="layout-editorial-header">
+            ${safeHeading}
+            ${intro || ''}
+          </div>
+          ${table ? `<div class="layout-editorial-feature">${table}</div>` : ''}
+          <div class="layout-editorial-content">${content}</div>
+        </section>
+      `;
+
+    case 'ledger':
+      return `
+        <section class="layout-ledger-wrap">
+          ${metaStrip}
+          ${safeHeading}
+          ${table ? `<div class="layout-ledger-block">${table}</div>` : ''}
+          ${intro || ''}
+          <div class="layout-ledger-content">${content}</div>
+        </section>
+      `;
+
+    case 'modern':
+      return `
+        <section class="layout-modern-wrap">
+          <div class="layout-modern-hero-grid">
+            <div class="layout-modern-intro">${safeHeading}${intro || ''}</div>
+            ${table ? `<aside class="layout-modern-summary">${table}</aside>` : ''}
+          </div>
+          <div class="layout-modern-content">${content}</div>
+        </section>
+      `;
+
+    case 'minimalist':
+    default:
+      return bodyHtml;
+  }
+}
+
 /**
  * Returns a simple default agreement HTML when no template body is available.
  */
@@ -111,6 +244,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     pageTexture: theme?.pageTexture || 'none',
     headerRule: theme?.headerRule || 'none',
     sectionRule: theme?.sectionRule || 'none',
+    layoutStyle: theme?.layoutStyle || 'minimalist',
     watermarkEnabled: !!(agreement.customWatermark || theme?.watermarkEnabled),
     watermarkText: agreement.customWatermark || theme?.watermarkText || '',
     watermarkOpacity: agreement.customWatermark ? 0.08 : (theme?.watermarkOpacity || 0.04),
@@ -128,6 +262,8 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
   const heroHtml = (t.heroPattern || t.heroBackground)
     ? `<div style="position:absolute;top:-1px;left:-1px;right:-1px;height:341px;background-color:${t.heroBackground || 'transparent'};background-image:${t.heroPattern || 'none'};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
     : '';
+
+  const arrangedBodyHtml = applyThemeLayout(bodyHtml, t.layoutStyle, agreement);
 
   return `
     <!DOCTYPE html>
@@ -156,6 +292,38 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
           position: relative;
           z-index: 1;
           padding: 56px 60px 60px;
+        }
+
+        /* ── Theme Layout Engine ── */
+        .layout-meta-strip { display: flex; justify-content: space-between; gap: 16px; border: 1px solid ${t.tableBorder}; border-radius: 10px; padding: 8px 12px; font-size: 9pt; font-weight: 700; letter-spacing: 0.03em; margin-bottom: 16px; text-transform: uppercase; }
+        .layout-modern-hero-grid,
+        .layout-premium-hero,
+        .layout-contemporary-top { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; margin-bottom: 16px; }
+        .layout-modern-summary,
+        .layout-premium-summary,
+        .layout-classic-table,
+        .layout-legal-table,
+        .layout-contemporary-card { border: 1px solid ${t.tableBorder}; border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.8); }
+        .layout-modern-summary .agreement-table,
+        .layout-premium-summary .agreement-table,
+        .layout-classic-table .agreement-table,
+        .layout-legal-table .agreement-table,
+        .layout-contemporary-card .agreement-table { margin: 0; }
+        .layout-modern-content,
+        .layout-premium-content,
+        .layout-contemporary-content,
+        .layout-editorial-content,
+        .layout-ledger-content { margin-top: 8px; }
+        .layout-editorial-header { border-left: 4px solid ${t.primaryColor || '#111'}; padding-left: 14px; margin-bottom: 14px; }
+        .layout-editorial-feature { border: 1px dashed ${t.tableBorder}; border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+        .layout-editorial-feature .agreement-table { margin: 0; }
+        .layout-ledger-block { border: 1px solid ${t.tableBorder}; border-radius: 6px; padding: 8px; margin: 12px 0; background: rgba(255,255,255,0.75); }
+        .layout-ledger-block .agreement-table { margin: 0; }
+
+        @media (max-width: 900px) {
+          .layout-modern-hero-grid,
+          .layout-premium-hero,
+          .layout-contemporary-top { grid-template-columns: minmax(0, 1fr); }
         }
 
         /* ── Headings ── */
@@ -214,7 +382,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
       <div class="container">
         ${heroHtml}
         <div class="content-shell">
-          ${bodyHtml}
+          ${arrangedBodyHtml}
         <div class="sig-section">
           <h2>Signatures</h2>
           <div class="sig-grid">

@@ -124,7 +124,7 @@ const pdfThemeSchema = new mongoose.Schema(
     // ─── Layout / Classification ─────────────────────────────────
     layoutStyle: {
       type: String,
-      enum: ['modern', 'classic', 'minimalist', 'legal', 'premium', 'contemporary'],
+      enum: ['modern', 'classic', 'minimalist', 'legal', 'premium', 'contemporary', 'editorial', 'ledger'],
       default: 'minimalist',
     },
     isGlobal: {
