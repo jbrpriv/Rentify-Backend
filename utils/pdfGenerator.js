@@ -49,6 +49,44 @@ function applyTemplateCustomizations(theme = {}, customizations = {}) {
   };
 }
 
+/**
+ * buildThemeObject(rawTheme, customizations)
+ * Maps backend PdfTheme fields to the unified display vars the HTML generator needs.
+ */
+function buildThemeObject(rawTheme, customizations) {
+  const t = applyTemplateCustomizations(rawTheme || {}, customizations || {});
+  
+  return {
+    ...t,
+    pageBackground: t.backgroundColor || t.pageBackgroundColor || '#FFFFFF',
+    heroBackground: t.heroBgColor || t.heroBackground || 'transparent',
+    heroPattern: t.heroPattern || 'none',
+    heroHeight: t.heroHeight || 200,
+    logoMaxHeight: t.logoMaxHeight || '80px',
+    logoAlignment: t.logoAlignment || 'left',
+    tableRadius: t.tableRadius || '0px',
+    headingFont: t.headingFontFamily || t.fontFamily || 'Helvetica',
+    bodyFont: t.fontFamily || 'Helvetica',
+    primaryColor: t.primaryColor || '#000000',
+    accentColor: t.accentColor || '#333333',
+    headingColor: t.headingColor || '#000000',
+    bodyTextColor: t.bodyTextColor || '#333333',
+    tableBorder: t.tableBorderColor || t.tableBorder || '#cbd5e1',
+    tableHeaderBg: t.tableHeaderBg || '#f8fafc',
+    tableHeaderText: t.tableHeaderTextColor || t.tableHeaderText || '#334155',
+    headerRule: t.headerRule || 'none',
+    sectionRule: t.sectionRule || 'none',
+    pageTexture: t.pageTexture || 'none',
+    fontSizeScale: t.fontSizeScale || 1.0,
+    layoutStyle: t.layoutStyle || 'minimalist',
+    googleFontUrl: t.googleFontUrl || '',
+    watermarkEnabled: t.watermarkEnabled || false,
+    watermarkText: t.watermarkText || '',
+    watermarkOpacity: t.watermarkOpacity || 0,
+    watermarkColor: t.watermarkColor || '#000000',
+  };
+}
+
 function extractFirstBlock(html, regex) {
   const match = html.match(regex);
   if (!match) return { block: '', rest: html };
@@ -227,29 +265,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
   const landlordSig = agreement.signatures?.landlord;
   const tenantSig = agreement.signatures?.tenant;
 
-  // Theme-driven values with sensible defaults
-  const t = {
-    fontFamily: theme?.fontFamily || '"Times New Roman", Times, serif',
-    headingFont: theme?.headingFontFamily || theme?.fontFamily || '"Times New Roman", Times, serif',
-    googleFontUrl: theme?.googleFontUrl || '',
-    headingColor: theme?.headingColor || '#000',
-    bodyTextColor: theme?.bodyTextColor || '#1a1a1a',
-    backgroundColor: theme?.backgroundColor || '#FFFFFF',
-    fontSizeScale: typeof theme?.fontSizeScale === 'number' ? theme.fontSizeScale : 1.0,
-    tableBorder: theme?.tableBorderColor || '#cbd5e1',
-    tableHeaderBg: theme?.tableHeaderBg || '#f8fafc',
-    tableHeaderText: theme?.tableHeaderTextColor || '#1a1a1a',
-    heroBackground: theme?.heroBackground || '',
-    heroPattern: theme?.heroPattern || '',
-    pageTexture: theme?.pageTexture || 'none',
-    headerRule: theme?.headerRule || 'none',
-    sectionRule: theme?.sectionRule || 'none',
-    layoutStyle: theme?.layoutStyle || 'minimalist',
-    watermarkEnabled: !!(agreement.customWatermark || theme?.watermarkEnabled),
-    watermarkText: agreement.customWatermark || theme?.watermarkText || '',
-    watermarkOpacity: agreement.customWatermark ? 0.08 : (theme?.watermarkOpacity || 0.04),
-    watermarkColor: agreement.customWatermark ? '#E11D48' : (theme?.watermarkColor || '#000'), // Use a distinct rose color for custom watermarks
-  };
+  const t = theme; // Use the already built theme object
 
   const googleFontLink = t.googleFontUrl
     ? `<link rel="stylesheet" href="${t.googleFontUrl}" />`
@@ -259,8 +275,8 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     ? `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:100px;font-weight:900;letter-spacing:0.15em;color:${t.watermarkColor};opacity:${t.watermarkOpacity};pointer-events:none;z-index:0;white-space:nowrap;">${t.watermarkText}</div>`
     : '';
 
-  const heroHtml = (t.heroPattern || t.heroBackground)
-    ? `<div style="position:absolute;top:-1px;left:-1px;right:-1px;height:341px;background-color:${t.heroBackground || 'transparent'};background-image:${t.heroPattern || 'none'};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
+  const heroHtml = (t.heroPattern !== 'none' || t.heroBackground !== 'transparent')
+    ? `<div style="position:absolute;top:-1px;left:-1px;right:-1px;height:${t.heroHeight + 40}px;background-color:${t.heroBackground};background-image:${t.heroPattern};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
     : '';
 
   const arrangedBodyHtml = applyThemeLayout(bodyHtml, t.layoutStyle, agreement);
@@ -303,7 +319,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         .layout-premium-summary,
         .layout-classic-table,
         .layout-legal-table,
-        .layout-contemporary-card { border: 1px solid ${t.tableBorder}; border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.8); }
+        .layout-contemporary-card { border: 1px solid ${t.tableBorder}; border-radius: ${t.tableRadius || '12px'}; padding: 10px; background: rgba(255,255,255,0.8); min-width: 200px; }
         .layout-modern-summary .agreement-table,
         .layout-premium-summary .agreement-table,
         .layout-classic-table .agreement-table,
@@ -359,11 +375,21 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         .dual-column-side { padding: 0 20px; position: relative; z-index: 2; min-width: 0; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; }
 
         /* ── Tables ── */
-        .agreement-table { width: 100%; margin: 1.5rem 0; border-collapse: collapse; table-layout: fixed; }
+        .agreement-table { width: 100%; margin: 1.5rem 0; border-collapse: collapse; table-layout: auto; }
         .agreement-table th, .agreement-table td { min-width: 1em; border: 1px solid ${t.tableBorder}; padding: 10px 14px; vertical-align: top; }
-        .agreement-table th { font-weight: bold; text-align: left; background: ${t.tableHeaderBg} !important; color: ${t.tableHeaderText} !important; }
+        .agreement-table th { font-weight: bold; text-align: left; background: ${t.tableHeaderBg} !important; color: ${t.tableHeaderText} !important; background-attachment: local; }
         .agreement-table th p { color: ${t.tableHeaderText} !important; }
         .agreement-table p { margin: 0; }
+
+        /* ── Logo detection CSS (Step 7.2) ── */
+        .logo-container { margin-bottom: 1.5rem; text-align: ${t.logoAlignment || 'left'}; }
+        .logo-container img {
+          max-height: ${t.logoMaxHeight || '80px'};
+          width: auto;
+          height: auto;
+          display: inline-block;
+        }
+        ${t.layoutStyle === 'ledger' ? '.logo-container img { filter: brightness(0) invert(1); }' : ''}
 
         /* ── Signature block ── */
         .sig-section { margin-top: 60px; page-break-inside: avoid; }
@@ -668,7 +694,15 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     substitutedHtml += `\n<div class="clause-section-container">${clauseHtml}</div>`;
   }
 
-  return wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant, theme);
+  // 5. Logo detection and treatment (Step 7.2)
+  const logoPattern = /<p[^>]*>\s*(<img\b[^>]*class="[^"]*document-image[^"]*"[^>]*>)\s*<\/p>/i;
+  substitutedHtml = substitutedHtml.replace(logoPattern, (match, imgTag) => {
+    return `<p class="logo-container">${imgTag}</p>`;
+  });
+
+  const finalTheme = buildThemeObject(theme, template?.customizations);
+
+  return wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant, finalTheme);
 }
 
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {

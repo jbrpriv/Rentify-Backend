@@ -139,6 +139,37 @@ const pdfThemeSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // ─── NEW: Modernization Fields (Step 8.1) ────────────────────
+    heroHeight: {
+      type: Number,
+      default: 200,
+    },
+    heroBgColor: {
+      type: String,
+      default: '',
+    },
+    logoMaxHeight: {
+      type: String,
+      default: '80px',
+    },
+    logoAlignment: {
+      type: String,
+      enum: ['left', 'center', 'right'],
+      default: 'left',
+    },
+    tableRadius: {
+      type: String,
+      default: '0px',
+    },
+    tableAltRowBg: {
+      type: String,
+      default: '',
+    },
+    pageBackgroundColor: {
+      type: String,
+      default: '#FFFFFF',
+    },
   },
   { timestamps: true }
 );
