@@ -113,6 +113,7 @@ function applyThemeLayout(bodyHtml, layoutStyle = 'minimalist', agreement = {}) 
   if (!bodyHtml || typeof bodyHtml !== 'string') return bodyHtml;
 
   let working = bodyHtml;
+  // Extract and DISCARD the H1 from the body content (it will be rendered in the global hero)
   const { block: heading, rest: afterHeading } = extractFirstBlock(working, /<h1\b[^>]*>[\s\S]*?<\/h1>/i);
   working = afterHeading;
 
@@ -122,101 +123,49 @@ function applyThemeLayout(bodyHtml, layoutStyle = 'minimalist', agreement = {}) 
   const { block: table, rest: afterTable } = extractFirstBlock(working, /<table\b[^>]*>[\s\S]*?<\/table>/i);
   working = afterTable;
 
-  const safeHeading = heading || '<h1>Rental Agreement</h1>';
-  const agreementId = agreement?._id ? escapeHtml(agreement._id) : '';
-  const createdDate = agreement?.createdAt
-    ? new Date(agreement.createdAt).toLocaleDateString()
-    : new Date().toLocaleDateString();
-
-  const metaStrip = `
-    <div class="layout-meta-strip">
-      <span>Agreement ${agreementId || 'Draft'}</span>
-      <span>${escapeHtml(createdDate)}</span>
-    </div>
-  `;
-
   const content = working.trim();
 
   switch (layoutStyle) {
     case 'classic':
-      return `
-        <section class="layout-classic-wrap">
-          ${safeHeading}
-          ${intro || ''}
-          ${table ? `<div class="layout-classic-table">${table}</div>` : ''}
-          ${content}
-        </section>
-      `;
-
     case 'legal':
+    case 'minimalist':
       return `
-        <section class="layout-legal-wrap">
-          ${metaStrip}
-          ${safeHeading}
+        <div class="layout-simple-wrap">
           ${intro || ''}
-          ${table ? `<div class="layout-legal-table">${table}</div>` : ''}
+          ${table ? `<div class="layout-table-block">${table}</div>` : ''}
           ${content}
-        </section>
+        </div>
       `;
 
     case 'premium':
+    case 'modern':
       return `
-        <section class="layout-premium-wrap">
-          <div class="layout-premium-hero">
-            <div class="layout-premium-title">${safeHeading}${intro || ''}</div>
-            ${table ? `<div class="layout-premium-summary">${table}</div>` : ''}
+        <div class="layout-grid-wrap">
+          <div class="layout-intro-column">
+            ${intro || ''}
+            ${table ? `<div class="layout-table-block">${table}</div>` : ''}
           </div>
-          <div class="layout-premium-content">${content}</div>
-        </section>
+          <div class="layout-main-column">
+            ${content}
+          </div>
+        </div>
       `;
 
     case 'contemporary':
-      return `
-        <section class="layout-contemporary-wrap">
-          ${safeHeading}
-          <div class="layout-contemporary-top">
-            ${table ? `<div class="layout-contemporary-card">${table}</div>` : ''}
-            ${intro ? `<div class="layout-contemporary-card">${intro}</div>` : ''}
-          </div>
-          <div class="layout-contemporary-content">${content}</div>
-        </section>
-      `;
-
     case 'editorial':
-      return `
-        <section class="layout-editorial-wrap">
-          <div class="layout-editorial-header">
-            ${safeHeading}
-            ${intro || ''}
-          </div>
-          ${table ? `<div class="layout-editorial-feature">${table}</div>` : ''}
-          <div class="layout-editorial-content">${content}</div>
-        </section>
-      `;
-
     case 'ledger':
       return `
-        <section class="layout-ledger-wrap">
-          ${metaStrip}
-          ${safeHeading}
-          ${table ? `<div class="layout-ledger-block">${table}</div>` : ''}
-          ${intro || ''}
-          <div class="layout-ledger-content">${content}</div>
-        </section>
-      `;
-
-    case 'modern':
-      return `
-        <section class="layout-modern-wrap">
-          <div class="layout-modern-hero-grid">
-            <div class="layout-modern-intro">${safeHeading}${intro || ''}</div>
-            ${table ? `<aside class="layout-modern-summary">${table}</aside>` : ''}
+        <div class="layout-stack-wrap">
+          <div class="layout-intro-header">
+            ${intro || ''}
+            ${table ? `<div class="layout-table-block">${table}</div>` : ''}
           </div>
-          <div class="layout-modern-content">${content}</div>
-        </section>
+          <div class="layout-main-content">
+            ${content}
+          </div>
+        </div>
       `;
 
-    case 'minimalist':
     default:
       return bodyHtml;
   }
@@ -277,15 +226,29 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
     ? `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:100px;font-weight:900;letter-spacing:0.15em;color:${t.watermarkColor};opacity:${t.watermarkOpacity};pointer-events:none;z-index:0;white-space:nowrap;">${t.watermarkText}</div>`
     : '';
 
-  const heroHtml = (t.heroPattern !== 'none' || t.heroBackground !== 'transparent')
-    ? `<div style="position:absolute;top:-1px;left:-1px;right:-1px;height:${t.heroHeight + 40}px;background-color:${t.heroBackground};background-image:${t.heroPattern};background-repeat:no-repeat;background-size:cover;background-position:top center;pointer-events:none;z-index:0;"></div>`
-    : '';
+  // ─── Extract parts ───
+  const { block: headingHtml, rest: bodyHtmlRemaining } = extractFirstBlock(bodyHtml, /<h1\b[^>]*>[\s\S]*?<\/h1>/i);
+  const safeHeading = headingHtml || '<h1>Rental Agreement</h1>';
 
   const logoHtml = t.logoUrl
     ? `<div class="logo-container"><img src="${t.logoUrl}" alt="Logo" /></div>`
     : '';
 
-  const arrangedBodyHtml = applyThemeLayout(bodyHtml, t.layoutStyle, agreement);
+  const hasHeroBackground = (t.heroPattern !== 'none' || t.heroBackground !== 'transparent');
+
+  const heroHtml = hasHeroBackground
+    ? `<div class="hero-section" style="background-color:${t.heroBackground};background-image:${t.heroPattern};background-repeat:no-repeat;background-size:cover;background-position:top center;height:${t.heroHeight}px;">
+         <div class="hero-inner">
+           ${logoHtml}
+           <div class="hero-heading">${safeHeading}</div>
+         </div>
+       </div>`
+    : `<div class="standard-header">
+         ${logoHtml}
+         ${safeHeading}
+       </div>`;
+
+  const arrangedBodyHtml = applyThemeLayout(bodyHtmlRemaining, t.layoutStyle, agreement);
 
   return `
     <!DOCTYPE html>
@@ -317,43 +280,29 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         }
 
         /* ── Theme Layout Engine ── */
-        .layout-meta-strip { display: flex; justify-content: space-between; gap: 16px; border: 1px solid ${t.tableBorder}; border-radius: 10px; padding: 8px 12px; font-size: 9pt; font-weight: 700; letter-spacing: 0.03em; margin-bottom: 16px; text-transform: uppercase; }
-        .layout-modern-hero-grid,
-        .layout-premium-hero,
-        .layout-contemporary-top { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); align-items: start; margin-bottom: 16px; }
-        .layout-modern-summary,
-        .layout-premium-summary,
-        .layout-classic-table,
-        .layout-legal-table,
-        .layout-contemporary-card { border: 1px solid ${t.tableBorder}; border-radius: ${t.tableRadius || '12px'}; padding: 10px; background: rgba(255,255,255,0.8); min-width: 200px; }
-        .layout-modern-summary .agreement-table,
-        .layout-premium-summary .agreement-table,
-        .layout-classic-table .agreement-table,
-        .layout-legal-table .agreement-table,
-        .layout-contemporary-card .agreement-table { margin: 0; }
-        .layout-modern-content,
-        .layout-premium-content,
-        .layout-contemporary-content,
-        .layout-editorial-content,
-        .layout-ledger-content { margin-top: 8px; }
-        .layout-editorial-header { border-left: 4px solid ${t.primaryColor || '#111'}; padding-left: 14px; margin-bottom: 14px; }
-        .layout-editorial-feature { border: 1px dashed ${t.tableBorder}; border-radius: 10px; padding: 12px; margin-bottom: 14px; }
-        .layout-editorial-feature .agreement-table { margin: 0; }
-        .layout-ledger-block { border: 1px solid ${t.tableBorder}; border-radius: 6px; padding: 8px; margin: 12px 0; background: rgba(255,255,255,0.75); }
-        .layout-ledger-block .agreement-table { margin: 0; }
+        .hero-section { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; text-align: center; }
+        .hero-inner { padding: 40px 60px; width: 100%; }
+        .hero-heading h1 { color: ${t.headingColor} !important; border-bottom: none !important; margin: 0; }
+        
+        .standard-header { padding: 40px 60px 0; text-align: center; }
+        .standard-header h1 { color: ${t.primaryColor || '#111'} !important; border-bottom: none !important; }
+
+        .layout-grid-wrap { display: grid; gap: 40px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
+        .layout-table-block { border: 1px solid ${t.tableBorder}; border-radius: ${t.tableRadius || '12px'}; padding: 12px; background: rgba(255,255,255,0.8); margin: 16px 0; }
+        .layout-table-block .agreement-table { margin: 0; }
+        
+        .layout-stack-wrap .layout-intro-header { border-bottom: 1px solid ${t.tableBorder}; padding-bottom: 20px; margin-bottom: 24px; }
 
         @media (max-width: 900px) {
-          .layout-modern-hero-grid,
-          .layout-premium-hero,
-          .layout-contemporary-top { grid-template-columns: minmax(0, 1fr); }
+          .layout-grid-wrap { grid-template-columns: minmax(0, 1fr); }
         }
 
         /* ── Headings ── */
-        h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: ${t.headingColor}; font-family: ${t.headingFont}; padding-bottom: 0.5rem; border-bottom: ${t.headerRule}; }
-        h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: ${t.headingColor}; font-family: ${t.headingFont}; padding-bottom: 0.25rem; border-bottom: ${t.sectionRule}; }
-        h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: ${t.headingColor}; font-family: ${t.headingFont}; }
-        h4 { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.5rem; color: ${t.headingColor}; }
-        h5, h6 { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: ${t.headingColor}; }
+        h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: ${t.primaryColor || '#111'}; font-family: ${t.headingFont}; padding-bottom: 0.5rem; border-bottom: ${t.headerRule}; }
+        h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: ${t.primaryColor || '#111'}; font-family: ${t.headingFont}; padding-bottom: 0.25rem; border-bottom: ${t.sectionRule}; }
+        h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: ${t.primaryColor || '#111'}; font-family: ${t.headingFont}; }
+        h4 { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.5rem; color: ${t.primaryColor || '#111'}; }
+        h5, h6 { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: ${t.primaryColor || '#111'}; }
         p  { margin-bottom: 1em; }
         ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
 
@@ -395,7 +344,6 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
           height: auto;
           display: inline-block;
         }
-        ${t.layoutStyle === 'ledger' ? '.logo-container img { filter: brightness(0) invert(1); }' : ''}
 
         /* ── Signature block ── */
         .sig-section { margin-top: 60px; page-break-inside: avoid; }
@@ -409,12 +357,9 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         .sig-meta { font-size: 8pt; color: #666; margin-top: 2px; }
       </style>
     </head>
-    <body>
-      ${watermarkHtml}
       <div class="container">
         ${heroHtml}
         <div class="content-shell">
-          ${logoHtml}
           ${arrangedBodyHtml}
         <div class="sig-section">
           <h2>Signatures</h2>
