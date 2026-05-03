@@ -204,6 +204,8 @@ const acceptOffer = async (req, res) => {
       terminationPolicy = '',
       rentEscalationEnabled = false,
       rentEscalationPercentage = 5,
+      logoUrl = '',
+      customWatermark = '',
     } = req.body;
 
     const startDate = startDateRaw ? new Date(startDateRaw) : new Date();
@@ -255,6 +257,8 @@ const acceptOffer = async (req, res) => {
       terminationPolicy: terminationPolicy || '',
       agreementTemplate,
       pdfTheme,
+      logoUrl,
+      customWatermark,
       auditLog: [{
         action: 'CREATED_FROM_OFFER',
         actor: req.user._id,

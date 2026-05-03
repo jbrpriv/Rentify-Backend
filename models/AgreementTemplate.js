@@ -56,6 +56,10 @@ const agreementTemplateSchema = new mongoose.Schema(
         type: String,
         default: '',
       },
+      logoUrl: {
+        type: String,
+        default: '',
+      },
     },
 
     // Editable standard legal clauses rendered in the PDF layout.

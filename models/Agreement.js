@@ -102,6 +102,10 @@ const agreementSchema = mongoose.Schema(
       type: String,
       default: '',
     },
+    logoUrl: {
+      type: String,
+      default: '',
+    },
     documentUrl: {
       type: String,
       default: null,

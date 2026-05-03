@@ -87,6 +87,7 @@ const createAgreement = async (req, res) => {
       pdfTheme: pdfTheme || null,
       agreementTemplate: agreementTemplate || null,
       customWatermark: req.body.customWatermark || '',
+      logoUrl: req.body.logoUrl || '',
     });
 
     await appendVersionSnapshot(agreement, req.user._id, 'Initial snapshot on agreement creation');
