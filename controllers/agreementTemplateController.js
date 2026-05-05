@@ -491,7 +491,7 @@ const getApprovedClauses = async (req, res) => {
 const getAdminGlobalTemplates = async (req, res) => {
   try {
     if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
-    const templates = await AgreementTemplate.find({ isGlobalDefault: true });
+    const templates = await AgreementTemplate.find({ isGlobalDefault: true }).populate('baseTheme');
     res.json(templates);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -501,10 +501,25 @@ const getAdminGlobalTemplates = async (req, res) => {
 const saveAdminGlobalTemplate = async (req, res) => {
   try {
     if (req.user?.role !== 'admin') return res.status(403).json({ message: 'Admin only' });
-    const { templateType, bodyHtml, bodyJson, variables } = req.body;
+    const { templateType, bodyHtml, bodyJson, variables, baseTheme, customizations } = req.body;
     
     if (!['agreement', 'receipt'].includes(templateType)) {
       return res.status(400).json({ message: 'Invalid template type' });
+    }
+
+    let baseThemeId = undefined;
+    if (baseTheme) {
+      const mongoose = require('mongoose');
+      let baseThemeDoc = null;
+      if (mongoose.Types.ObjectId.isValid(baseTheme)) {
+        baseThemeDoc = await PdfTheme.findById(baseTheme).select('_id');
+      }
+      if (!baseThemeDoc) {
+        baseThemeDoc = await PdfTheme.findOne({ themeSlug: baseTheme }).select('_id');
+      }
+      if (baseThemeDoc) {
+        baseThemeId = baseThemeDoc._id;
+      }
     }
 
     let template = await AgreementTemplate.findOne({ isGlobalDefault: true, templateType });
@@ -513,6 +528,8 @@ const saveAdminGlobalTemplate = async (req, res) => {
       template.bodyHtml = bodyHtml;
       template.bodyJson = bodyJson;
       template.variables = normalizeVariables(variables);
+      if (baseThemeId) template.baseTheme = baseThemeId;
+      if (customizations) template.customizations = normalizeCustomizations(customizations);
       await template.save();
     } else {
       template = await AgreementTemplate.create({
@@ -523,10 +540,13 @@ const saveAdminGlobalTemplate = async (req, res) => {
         bodyHtml,
         bodyJson,
         variables: normalizeVariables(variables),
+        baseTheme: baseThemeId,
+        customizations: normalizeCustomizations(customizations),
       });
     }
 
-    res.json(template);
+    const populated = await AgreementTemplate.findById(template._id).populate('baseTheme');
+    res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
