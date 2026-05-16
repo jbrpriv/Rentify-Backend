@@ -1105,6 +1105,7 @@ function gridModularCss(vars) {
       width: auto;
       object-fit: contain;
       margin-bottom: calc(6px * var(--onepage-margin-scale, 1));
+      grid-column: 1 / -1; justify-self: center;
     }
     .layout-main { flex: 1; }
   `;
@@ -1127,6 +1128,7 @@ function infographicCss(vars) {
       padding: calc(14px * var(--onepage-padding-scale, 1)) calc(20px * var(--onepage-padding-scale, 1));
       border-bottom: 3px solid ${sidebarAccent};
       gap: calc(8px * var(--onepage-margin-scale, 1));
+      flex-wrap: wrap;
     }
     .layout-sidebar .sidebar-section {
       flex: 1;
@@ -1163,7 +1165,7 @@ function infographicCss(vars) {
     }
     .layout-sidebar .sidebar-logo {
       max-height: calc(36px * var(--onepage-padding-scale, 1));
-      width: auto;
+      width: 100%;
       object-fit: contain;
       margin-bottom: calc(6px * var(--onepage-margin-scale, 1));
     }
@@ -1288,7 +1290,7 @@ function cardHeaderCss(vars) {
       width: auto;
       object-fit: contain;
       margin-bottom: calc(6px * var(--onepage-margin-scale, 1));
-      grid-column: 1 / -1;
+      grid-column: 1 / -1; justify-self: center;
     }
     .layout-main { flex: 1; }
   `;
