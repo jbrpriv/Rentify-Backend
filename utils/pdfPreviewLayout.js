@@ -1417,6 +1417,7 @@ function threeColumnCss(vars) {
       max-height: calc(36px * var(--onepage-padding-scale, 1));
       width: auto;
       object-fit: contain;
+      grid-column: 1 / -1; justify-self: center;
     }
     .layout-sidebar .sidebar-logo-wrapper {
       width: auto;
