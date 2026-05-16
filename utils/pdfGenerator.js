@@ -23,6 +23,19 @@ const pickThemeString = (value, fallback) => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
 );
 
+const CSS_PX_PER_INCH = 96;
+const A4_WIDTH_IN = 8.27;
+const A4_HEIGHT_IN = 11.69;
+const A4_WIDTH_PX = Math.round(A4_WIDTH_IN * CSS_PX_PER_INCH);
+const A4_HEIGHT_PX = Math.round(A4_HEIGHT_IN * CSS_PX_PER_INCH);
+
+function computeSinglePageScale(contentHeightPx, targetHeightPx) {
+  if (!contentHeightPx || !targetHeightPx) return 1;
+  const rawScale = targetHeightPx / contentHeightPx;
+  if (!Number.isFinite(rawScale)) return 1;
+  return Math.min(1, Math.max(0.1, rawScale));
+}
+
 function applyTemplateCustomizations(theme = {}, customizations = {}) {
   if (!customizations || typeof customizations !== 'object') return theme;
 
@@ -662,7 +675,7 @@ function resolveChromiumPath() {
   return undefined;
 }
 
-async function generatePuppeteerPDFBuffer(html) {
+async function generatePuppeteerPDFBuffer(html, options = {}) {
   if (!puppeteer) {
     throw new Error(
       'Puppeteer is not installed. Run "npm install puppeteer" (bundles Chromium) ' +
@@ -693,17 +706,31 @@ async function generatePuppeteerPDFBuffer(html) {
   try {
     browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
+    const forceSinglePage = options.forceSinglePage !== false;
+
+    await page.setViewport({ width: A4_WIDTH_PX, height: A4_HEIGHT_PX });
 
     // Use 'load' strategy instead of 'domcontentloaded' to ensure images (Cloudinary) 
     // are fully loaded before rendering the PDF.
     await page.setContent(html, { waitUntil: 'load' });
 
-    return await page.pdf({
+    const pdfOptions = {
       format: 'A4',
       margin: { top: '0', right: '0', bottom: '0', left: '0' },
       preferCSSPageSize: true,
       printBackground: true,
-    });
+    };
+
+    if (forceSinglePage) {
+      await page.evaluate(() => (document.fonts ? document.fonts.ready : Promise.resolve()));
+      const contentHeightPx = await page.evaluate(() => Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight
+      ));
+      pdfOptions.scale = computeSinglePageScale(contentHeightPx, A4_HEIGHT_PX);
+    }
+
+    return await page.pdf(pdfOptions);
   } catch (err) {
     const hint = !executablePath
       ? ' Tip: Set PUPPETEER_EXECUTABLE_PATH in your .env or docker-compose to point to your Chrome/Chromium binary.'
@@ -904,7 +931,7 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
   try {
     const finalHtml = await _buildAgreementHtml(agreement, landlord, tenant, property, options);
-    const buffer = await generatePuppeteerPDFBuffer(finalHtml);
+    const buffer = await generatePuppeteerPDFBuffer(finalHtml, options);
 
     // Only set headers once we have a valid buffer — prevents header-conflict errors
     res.setHeader('Content-Type', 'application/pdf');
@@ -920,7 +947,7 @@ const generateAgreementPDF = async (agreement, landlord, tenant, property, res, 
 
 const generateAgreementPDFBuffer = async (agreement, landlord, tenant, property, options = {}) => {
   const finalHtml = await _buildAgreementHtml(agreement, landlord, tenant, property, options);
-  return await generatePuppeteerPDFBuffer(finalHtml);
+  return await generatePuppeteerPDFBuffer(finalHtml, options);
 };
 
 /**
@@ -1126,7 +1153,7 @@ const generateReceiptPDFBuffer = async (payment, tenant, property, options = {})
     </html>
   `;
 
-  return await generatePuppeteerPDFBuffer(finalHtml);
+  return await generatePuppeteerPDFBuffer(finalHtml, options);
 };
 
 module.exports = {
