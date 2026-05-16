@@ -124,8 +124,8 @@ const pdfThemeSchema = new mongoose.Schema(
     // ─── Layout / Classification ─────────────────────────────────
     layoutStyle: {
       type: String,
-      enum: ['modern', 'classic', 'minimalist', 'legal', 'premium', 'contemporary', 'editorial', 'ledger'],
-      default: 'minimalist',
+      enum: ['full-width', 'sidebar-left', 'sidebar-right', 'split-header', 'centered-narrow', 'top-band', 'two-column-body', 'asymmetric'],
+      default: 'full-width',
     },
     isGlobal: {
       type: Boolean,
@@ -138,6 +138,46 @@ const pdfThemeSchema = new mongoose.Schema(
     isReceiptDefault: {
       type: Boolean,
       default: false,
+    },
+
+    // ─── NEW: Layout Architecture Fields ─────────────────────────
+    sidebarWidthPx: {
+      type: Number,
+      default: 220,
+    },
+    mainContentWidthPx: {
+      type: Number,
+      default: 574,
+    },
+    headerStyle: {
+      type: String,
+      enum: ['banner', 'inline', 'split', 'minimal'],
+      default: 'minimal',
+    },
+    tableZone: {
+      type: String,
+      enum: ['main', 'full'],
+      default: 'full',
+    },
+    maxComfortableTableCols: {
+      type: Number,
+      default: 6,
+    },
+    sidebarSections: {
+      type: [String],
+      default: [],
+    },
+    leftWidthPercent: {
+      type: Number,
+      default: 50,
+    },
+    rightWidthPercent: {
+      type: Number,
+      default: 50,
+    },
+    bodyMaxWidthPx: {
+      type: Number,
+      default: 600,
     },
 
     // ─── NEW: Modernization Fields (Step 8.1) ────────────────────

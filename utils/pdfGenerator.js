@@ -79,7 +79,15 @@ function buildThemeObject(rawTheme, customizations) {
     sectionRule: t.sectionRule || 'none',
     pageTexture: t.pageTexture || 'none',
     fontSizeScale: t.fontSizeScale || 1.0,
-    layoutStyle: t.layoutStyle || 'minimalist',
+    layoutStyle: t.layoutStyle || 'full-width',
+    sidebarWidthPx: t.sidebarWidthPx || 220,
+    mainContentWidthPx: t.mainContentWidthPx || 574,
+    headerStyle: t.headerStyle || 'minimal',
+    tableZone: t.tableZone || 'full',
+    leftWidthPercent: t.leftWidthPercent || 50,
+    rightWidthPercent: t.rightWidthPercent || 50,
+    bodyMaxWidthPx: t.bodyMaxWidthPx || 600,
+    sidebarSections: t.sidebarSections || [],
     googleFontUrl: t.googleFontUrl || '',
     watermarkEnabled: t.watermarkEnabled || false,
     watermarkText: t.watermarkText || '',
@@ -109,7 +117,95 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
-function applyThemeLayout(bodyHtml, layoutStyle = 'minimalist', agreement = {}) {
+function buildSidebarContent(agreement, sections) {
+  if (!sections || !sections.length || !agreement) return '';
+
+  let html = '<aside class="theme-sidebar"><div class="sidebar-inner">';
+  
+  const landlordName = agreement.landlord?.name || 'Landlord';
+  const tenantName = agreement.tenant?.name || 'Tenant';
+  
+  let startDate = 'TBD';
+  let endDate = 'TBD';
+  if (agreement.term) {
+    if (agreement.term.startDate) startDate = new Date(agreement.term.startDate).toLocaleDateString('en-US');
+    if (agreement.term.endDate) endDate = new Date(agreement.term.endDate).toLocaleDateString('en-US');
+  }
+
+  const rent = agreement.financials?.rentAmount ? `$${agreement.financials.rentAmount}` : 'TBD';
+  const deposit = agreement.financials?.depositAmount ? `$${agreement.financials.depositAmount}` : 'TBD';
+
+  sections.forEach(sec => {
+    if (sec === 'parties') {
+      html += `
+        <div class="sidebar-section">
+          <h4>Parties</h4>
+          <div class="sidebar-item">
+            <span class="sidebar-label">Landlord:</span>
+            <span class="sidebar-value">${escapeHtml(landlordName)}</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="sidebar-label">Tenant:</span>
+            <span class="sidebar-value">${escapeHtml(tenantName)}</span>
+          </div>
+        </div>
+      `;
+    }
+    if (sec === 'dates') {
+      html += `
+        <div class="sidebar-section">
+          <h4>Term</h4>
+          <div class="sidebar-item">
+            <span class="sidebar-label">Start Date:</span>
+            <span class="sidebar-value">${startDate}</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="sidebar-label">End Date:</span>
+            <span class="sidebar-value">${endDate}</span>
+          </div>
+        </div>
+      `;
+    }
+    if (sec === 'financials') {
+      html += `
+        <div class="sidebar-section">
+          <h4>Financials</h4>
+          <div class="sidebar-item">
+            <span class="sidebar-label">Monthly Rent:</span>
+            <span class="sidebar-value">${rent}</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="sidebar-label">Deposit:</span>
+            <span class="sidebar-value">${deposit}</span>
+          </div>
+        </div>
+      `;
+    }
+    if (sec === 'policies') {
+      const pets = agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed';
+      const utilities = agreement.utilitiesIncluded ? 'Included' : 'Not Included';
+      html += `
+        <div class="sidebar-section">
+          <h4>Policies</h4>
+          <div class="sidebar-item">
+            <span class="sidebar-label">Pets:</span>
+            <span class="sidebar-value">${pets}</span>
+          </div>
+          <div class="sidebar-item">
+            <span class="sidebar-label">Utilities:</span>
+            <span class="sidebar-value">${utilities}</span>
+          </div>
+        </div>
+      `;
+    }
+  });
+
+  html += '</div></aside>';
+  return html;
+}
+
+function applyThemeLayout(bodyHtml, theme = {}, agreement = {}) {
+  const layoutStyle = theme.layoutStyle || 'full-width';
   if (!bodyHtml || typeof bodyHtml !== 'string') return bodyHtml;
 
   let working = bodyHtml;
@@ -117,57 +213,74 @@ function applyThemeLayout(bodyHtml, layoutStyle = 'minimalist', agreement = {}) 
   const { block: heading, rest: afterHeading } = extractFirstBlock(working, /<h1\b[^>]*>[\s\S]*?<\/h1>/i);
   working = afterHeading;
 
-  const { block: intro, rest: afterIntro } = extractFirstBlock(working, /<p\b[^>]*>[\s\S]*?<\/p>/i);
-  working = afterIntro;
-
-  const { block: table, rest: afterTable } = extractFirstBlock(working, /<table\b[^>]*>[\s\S]*?<\/table>/i);
-  working = afterTable;
-
   const content = working.trim();
 
-  switch (layoutStyle) {
-    case 'classic':
-    case 'legal':
-    case 'minimalist':
-      return `
-        <div class="layout-simple-wrap">
-          ${intro || ''}
-          ${table ? `<div class="layout-table-block">${table}</div>` : ''}
-          ${content}
-        </div>
-      `;
+  const sidebarHtml = buildSidebarContent(agreement, theme.sidebarSections || []);
 
-    case 'premium':
-    case 'modern':
+  switch (layoutStyle) {
+    case 'sidebar-left':
       return `
-        <div class="layout-grid-wrap">
-          <div class="layout-intro-column">
-            ${intro || ''}
-            ${table ? `<div class="layout-table-block">${table}</div>` : ''}
-          </div>
-          <div class="layout-main-column">
+        <div class="layout-sidebar-left">
+          ${sidebarHtml}
+          <div class="layout-main-content">
             ${content}
           </div>
         </div>
       `;
-
-    case 'contemporary':
-    case 'editorial':
-    case 'ledger':
+    case 'sidebar-right':
       return `
-        <div class="layout-stack-wrap">
-          <div class="layout-intro-header">
-            ${intro || ''}
-            ${table ? `<div class="layout-table-block">${table}</div>` : ''}
+        <div class="layout-sidebar-right">
+          <div class="layout-main-content">
+            ${content}
+          </div>
+          ${sidebarHtml}
+        </div>
+      `;
+    case 'split-header':
+      return `
+        <div class="layout-split-header">
+          <div class="layout-split-info-strip">
+            ${sidebarHtml}
           </div>
           <div class="layout-main-content">
             ${content}
           </div>
         </div>
       `;
-
+    case 'two-column-body':
+      return `
+        <div class="layout-two-column-body">
+          ${content}
+        </div>
+      `;
+    case 'centered-narrow':
+      return `
+        <div class="layout-centered-narrow">
+          ${content}
+        </div>
+      `;
+    case 'top-band':
+      return `
+        <div class="layout-top-band">
+          ${content}
+        </div>
+      `;
+    case 'asymmetric':
+      return `
+        <div class="layout-asymmetric">
+          <div class="layout-main-content">
+            ${content}
+          </div>
+          ${sidebarHtml}
+        </div>
+      `;
+    case 'full-width':
     default:
-      return bodyHtml;
+      return `
+        <div class="layout-full-width">
+          ${content}
+        </div>
+      `;
   }
 }
 
@@ -248,7 +361,7 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
          ${safeHeading}
        </div>`;
 
-  const arrangedBodyHtml = applyThemeLayout(bodyHtmlRemaining, t.layoutStyle, agreement);
+  const arrangedBodyHtml = applyThemeLayout(bodyHtmlRemaining, t, agreement);
 
   return `
     <!DOCTYPE html>
@@ -287,15 +400,34 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         .standard-header { padding: 40px 60px 0; text-align: center; }
         .standard-header h1 { color: ${t.primaryColor || '#111'} !important; border-bottom: none !important; }
 
-        .layout-grid-wrap { display: grid; gap: 40px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
-        .layout-table-block { border: 1px solid ${t.tableBorder}; border-radius: ${t.tableRadius || '12px'}; padding: 12px; background: rgba(255,255,255,0.8); margin: 16px 0; }
-        .layout-table-block .agreement-table { margin: 0; }
+        .layout-full-width { width: 100%; }
         
-        .layout-stack-wrap .layout-intro-header { border-bottom: 1px solid ${t.tableBorder}; padding-bottom: 20px; margin-bottom: 24px; }
-
-        @media (max-width: 900px) {
-          .layout-grid-wrap { grid-template-columns: minmax(0, 1fr); }
-        }
+        .layout-sidebar-left { display: grid; grid-template-columns: ${t.sidebarWidthPx}px 1fr; gap: 40px; align-items: start; }
+        .layout-sidebar-right { display: grid; grid-template-columns: 1fr ${t.sidebarWidthPx}px; gap: 40px; align-items: start; }
+        
+        .layout-split-header .layout-split-info-strip { display: flex; gap: 40px; border-bottom: 2px solid ${t.tableBorder}; padding-bottom: 20px; margin-bottom: 30px; }
+        .layout-split-header .layout-split-info-strip .theme-sidebar { width: 100%; }
+        .layout-split-header .theme-sidebar .sidebar-inner { display: flex; gap: 40px; width: 100%; justify-content: space-between; flex-wrap: wrap; }
+        .layout-split-header .sidebar-section { margin-bottom: 0; flex: 1; min-width: 150px; }
+        
+        .layout-two-column-body { column-count: 2; column-gap: 40px; }
+        .layout-two-column-body > h2, .layout-two-column-body > h3, .layout-two-column-body > table { break-inside: avoid; column-span: all; }
+        
+        .layout-centered-narrow { max-width: ${t.bodyMaxWidthPx}px; margin: 0 auto; }
+        
+        .layout-top-band { width: 100%; }
+        
+        .layout-asymmetric { display: grid; grid-template-columns: ${t.leftWidthPercent}% ${t.rightWidthPercent}%; gap: 40px; align-items: start; }
+        
+        /* ── Sidebar Styling ── */
+        .theme-sidebar { font-size: 0.9em; }
+        .layout-sidebar-left .theme-sidebar, .layout-sidebar-right .theme-sidebar { padding: 20px; background-color: ${t.tableHeaderBg}; border-radius: ${t.tableRadius || '8px'}; color: ${t.tableHeaderText}; }
+        .layout-sidebar-left .theme-sidebar h4, .layout-sidebar-right .theme-sidebar h4 { color: ${t.tableHeaderText}; border-bottom-color: rgba(255,255,255,0.2); }
+        .sidebar-section { margin-bottom: 20px; }
+        .sidebar-section h4 { margin-top: 0; margin-bottom: 10px; font-size: 1.1em; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid ${t.tableBorder}; padding-bottom: 5px; }
+        .sidebar-item { margin-bottom: 8px; display: flex; flex-direction: column; }
+        .sidebar-label { font-weight: bold; font-size: 0.85em; opacity: 0.8; text-transform: uppercase; }
+        .sidebar-value { font-weight: 500; }
 
         /* ── Headings ── */
         h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: ${t.primaryColor || '#111'}; font-family: ${t.headingFont}; padding-bottom: 0.5rem; border-bottom: ${t.headerRule}; }
