@@ -66,7 +66,10 @@ function buildSidebarHtml(vars, theme, logoUrl, signatureHtml = '') {
   let sidebarContent = '';
 
   if (logoUrl && (logoPos === 'sidebar-top' || logoPos === 'sidebar-center')) {
-    sidebarContent += `<img src="${logoUrl}" class="sidebar-logo" alt="Logo" style="display:block;${logoPos === 'sidebar-center' ? 'margin:0 auto;' : ''}" />`;
+    const isCenteredLayout = ['grid-modular', 'three-column', 'card-header', 'infographic'].includes(theme?.layout?.type);
+    const shouldCenter = logoPos === 'sidebar-center' || isCenteredLayout;
+    
+    sidebarContent += `<img src="${logoUrl}" class="sidebar-logo" alt="Logo" style="display:block;${shouldCenter ? 'margin:0 auto;' : ''}" />`;
   }
 
   for (const sectionKey of sections) {
