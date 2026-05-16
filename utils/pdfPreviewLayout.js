@@ -351,12 +351,16 @@ function generateLayoutCss(theme, themeVars) {
     *, *::before, *::after { box-sizing: border-box; }
 
     .a4-page {
+      ${Object.entries(themeVars).map(([k, v]) => `${k}: ${v};`).join('\n      ')}
       --onepage-font-scale: 1;
       --onepage-line-height: 1;
       --onepage-padding-scale: 1;
       --onepage-table-padding: 10px 14px;
       --onepage-margin-scale: 1;
       --onepage-heading-scale: 1;
+      
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
 
     .a4-page {
