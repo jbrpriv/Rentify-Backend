@@ -690,7 +690,6 @@ function sidebarCss(vars, side) {
       flex-direction: column;
       gap: calc(14px * var(--onepage-margin-scale, 1));
       order: ${side === 'left' ? 0 : 1};
-      overflow: hidden;
       border-${side === 'left' ? 'right' : 'left'}: 3px solid ${sidebarAccent};
     }
 
@@ -698,6 +697,9 @@ function sidebarCss(vars, side) {
       max-height: calc(50px * var(--onepage-padding-scale, 1));
       width: auto;
       object-fit: contain;
+    }
+    .layout-sidebar .sidebar-logo-wrapper {
+      width: auto;
       margin-bottom: calc(8px * var(--onepage-margin-scale, 1));
     }
 
@@ -988,7 +990,6 @@ function timelineCss(vars) {
       display: flex;
       flex-direction: column;
       gap: 0;
-      overflow: hidden;
       position: relative;
     }
     .layout-sidebar::before {
@@ -1164,11 +1165,13 @@ function infographicCss(vars) {
       color: ${sidebarText};
       line-height: 1.3;
     }
-    .layout-sidebar .sidebar-logo,
-    .layout-sidebar .sidebar-logo-wrapper {
+    .layout-sidebar .sidebar-logo {
       max-height: calc(36px * var(--onepage-padding-scale, 1));
       width: 100%;
       object-fit: contain;
+    }
+    .layout-sidebar .sidebar-logo-wrapper {
+      width: 100%;
       margin-bottom: calc(12px * var(--onepage-margin-scale, 1));
     }
     .layout-main { flex: 1; }
@@ -1191,7 +1194,6 @@ function portfolioCss(vars) {
       display: flex;
       flex-direction: column;
       gap: calc(12px * var(--onepage-margin-scale, 1));
-      overflow: hidden;
     }
     .layout-sidebar .sidebar-section {
       padding: calc(10px * var(--onepage-padding-scale, 1)) calc(10px * var(--onepage-padding-scale, 1));
@@ -1228,6 +1230,9 @@ function portfolioCss(vars) {
       max-height: calc(44px * var(--onepage-padding-scale, 1));
       width: auto;
       object-fit: contain;
+    }
+    .layout-sidebar .sidebar-logo-wrapper {
+      width: auto;
       margin-bottom: calc(8px * var(--onepage-margin-scale, 1));
     }
     .layout-main { min-height: 0; }
@@ -1370,7 +1375,6 @@ function threeColumnCss(vars) {
       gap: 0;
       border-bottom: 2px solid ${primary};
       background: ${sidebarBg};
-      overflow: hidden;
     }
     .layout-sidebar .sidebar-section {
       padding: calc(12px * var(--onepage-padding-scale, 1)) calc(16px * var(--onepage-padding-scale, 1));
@@ -1406,11 +1410,13 @@ function threeColumnCss(vars) {
       line-height: 1.3;
       word-break: break-word;
     }
-    .layout-sidebar .sidebar-logo,
-    .layout-sidebar .sidebar-logo-wrapper {
+    .layout-sidebar .sidebar-logo {
       max-height: calc(36px * var(--onepage-padding-scale, 1));
       width: auto;
       object-fit: contain;
+    }
+    .layout-sidebar .sidebar-logo-wrapper {
+      width: auto;
       margin-bottom: calc(12px * var(--onepage-margin-scale, 1));
       grid-column: 1 / -1; justify-self: center;
     }
