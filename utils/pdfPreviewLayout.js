@@ -540,6 +540,53 @@ function generateLayoutCss(theme, themeVars) {
 
     .preview-variable { color: #0f172a; font-weight: 800; }
 
+    /* ── Signatures ── */
+    .sig-section {
+      margin-top: calc(40px * var(--onepage-margin-scale, 1));
+      page-break-inside: avoid;
+    }
+    .sig-grid {
+      display: flex;
+      justify-content: space-between;
+      gap: calc(20px * var(--onepage-padding-scale, 1));
+      margin-top: calc(15px * var(--onepage-margin-scale, 1));
+    }
+    .sig-box { flex: 1; }
+    .sig-label {
+      font-weight: 800;
+      font-size: calc(0.65rem * var(--onepage-font-scale, 1));
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      opacity: 0.6;
+      margin-bottom: 4px;
+    }
+    .sig-image {
+      display: block;
+      max-height: calc(60px * var(--onepage-padding-scale, 1));
+      max-width: 100%;
+      margin-bottom: 4px;
+      object-fit: contain;
+    }
+    .sig-blank {
+      height: calc(50px * var(--onepage-padding-scale, 1));
+      margin-bottom: 4px;
+    }
+    .sig-rule {
+      border-top: 1.5px solid ${primary};
+      margin-bottom: 6px;
+      opacity: 0.8;
+    }
+    .sig-name {
+      font-size: calc(0.9rem * var(--onepage-font-scale, 1));
+      font-weight: 700;
+      color: ${headingColor};
+    }
+    .sig-meta {
+      font-size: calc(0.6rem * var(--onepage-font-scale, 1));
+      opacity: 0.5;
+      margin-top: 2px;
+    }
+
     @media print {
       .preview-clauses-placeholder { border: none !important; background: transparent !important; }
     }

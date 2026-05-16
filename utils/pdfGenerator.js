@@ -95,17 +95,6 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
-function shouldPlaceSignatureInSidebar(theme = {}) {
-  const layoutStyle = theme.layoutStyle || 'full-width';
-  return [
-    'sidebar-left',
-    'sidebar-right',
-    'asymmetric',
-    'timeline',
-    'portfolio',
-    'split-screen',
-  ].includes(layoutStyle);
-}
 
 function buildSignatureSection(agreement, landlord, tenant, variant = 'body') {
   const landlordSig = agreement.signatures?.landlord;
@@ -510,7 +499,8 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
   const previewTheme = buildPreviewThemeFromPdfTheme(theme);
   const themeVars = buildThemeVarsFromPdfTheme(theme, previewTheme);
 
-  const signaturePlacement = shouldPlaceSignatureInSidebar(theme) ? 'sidebar' : 'body';
+  // Always place signatures in the body per user request
+  const signaturePlacement = 'body';
   const signatureHtml = buildSignatureSection(
     agreement,
     landlord,
