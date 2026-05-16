@@ -117,23 +117,73 @@ function escapeHtml(value = '') {
     .replace(/'/g, '&#39;');
 }
 
-function buildSidebarContent(agreement, sections) {
-  if (!sections || !sections.length || !agreement) return '';
+function shouldPlaceSignatureInSidebar(theme = {}) {
+  const layoutStyle = theme.layoutStyle || 'full-width';
+  return [
+    'sidebar-left',
+    'sidebar-right',
+    'asymmetric',
+    'timeline',
+    'portfolio',
+    'split-screen',
+  ].includes(layoutStyle);
+}
+
+function buildSignatureSection(agreement, landlord, tenant, variant = 'body') {
+  const landlordSig = agreement.signatures?.landlord;
+  const tenantSig = agreement.signatures?.tenant;
+  const sectionClass = variant === 'sidebar' ? 'sig-section sig-section--sidebar' : 'sig-section';
+
+  return `
+    <div class="${sectionClass}">
+      <h2>Signatures</h2>
+      <div class="sig-grid">
+        <div class="sig-box">
+          <div class="sig-label">Landlord Signature</div>
+          ${landlordSig?.signed
+            ? `<img class="sig-image" src="${landlordSig.drawData}" />`
+            : '<div class="sig-blank"></div>'}
+          <div class="sig-rule"></div>
+          <div class="sig-name">${landlord?.name || '____________________'}</div>
+          ${landlordSig?.signed
+            ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>`
+            : ''}
+        </div>
+        <div class="sig-box">
+          <div class="sig-label">Tenant Signature</div>
+          ${tenantSig?.signed
+            ? `<img class="sig-image" src="${tenantSig.drawData}" />`
+            : '<div class="sig-blank"></div>'}
+          <div class="sig-rule"></div>
+          <div class="sig-name">${tenant?.name || '____________________'}</div>
+          ${tenantSig?.signed
+            ? `<div class="sig-meta">Signed on ${new Date(tenantSig.signedAt).toLocaleString()}</div>`
+            : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildSidebarContent(agreement, sections, options = {}) {
+  const signatureHtml = options.signatureHtml || '';
+  if ((!sections || !sections.length) && !signatureHtml) return '';
+  if (!agreement && !signatureHtml) return '';
 
   let html = '<aside class="theme-sidebar"><div class="sidebar-inner">';
   
-  const landlordName = agreement.landlord?.name || 'Landlord';
-  const tenantName = agreement.tenant?.name || 'Tenant';
+  const landlordName = agreement?.landlord?.name || 'Landlord';
+  const tenantName = agreement?.tenant?.name || 'Tenant';
   
   let startDate = 'TBD';
   let endDate = 'TBD';
-  if (agreement.term) {
+  if (agreement?.term) {
     if (agreement.term.startDate) startDate = new Date(agreement.term.startDate).toLocaleDateString('en-US');
     if (agreement.term.endDate) endDate = new Date(agreement.term.endDate).toLocaleDateString('en-US');
   }
 
-  const rent = agreement.financials?.rentAmount ? `$${agreement.financials.rentAmount}` : 'TBD';
-  const deposit = agreement.financials?.depositAmount ? `$${agreement.financials.depositAmount}` : 'TBD';
+  const rent = agreement?.financials?.rentAmount ? `$${agreement.financials.rentAmount}` : 'TBD';
+  const deposit = agreement?.financials?.depositAmount ? `$${agreement.financials.depositAmount}` : 'TBD';
 
   sections.forEach(sec => {
     if (sec === 'parties') {
@@ -182,8 +232,8 @@ function buildSidebarContent(agreement, sections) {
       `;
     }
     if (sec === 'policies') {
-      const pets = agreement.petPolicy?.allowed ? 'Allowed' : 'Not Allowed';
-      const utilities = agreement.utilitiesIncluded ? 'Included' : 'Not Included';
+      const pets = agreement?.petPolicy?.allowed ? 'Allowed' : 'Not Allowed';
+      const utilities = agreement?.utilitiesIncluded ? 'Included' : 'Not Included';
       html += `
         <div class="sidebar-section">
           <h4>Policies</h4>
@@ -200,11 +250,19 @@ function buildSidebarContent(agreement, sections) {
     }
   });
 
+  if (signatureHtml) {
+    html += `
+      <div class="sidebar-section sidebar-signature">
+        ${signatureHtml}
+      </div>
+    `;
+  }
+
   html += '</div></aside>';
   return html;
 }
 
-function applyThemeLayout(bodyHtml, theme = {}, agreement = {}) {
+function applyThemeLayout(bodyHtml, theme = {}, agreement = {}, options = {}) {
   const layoutStyle = theme.layoutStyle || 'full-width';
   if (!bodyHtml || typeof bodyHtml !== 'string') return bodyHtml;
 
@@ -215,7 +273,7 @@ function applyThemeLayout(bodyHtml, theme = {}, agreement = {}) {
 
   const content = working.trim();
 
-  const sidebarHtml = buildSidebarContent(agreement, theme.sidebarSections || []);
+  const sidebarHtml = buildSidebarContent(agreement, theme.sidebarSections || [], options);
 
   switch (layoutStyle) {
       case 'timeline':
@@ -342,9 +400,6 @@ function getDefaultAgreementHtml() {
  * Wraps the agreement body in a professional HTML document with Times New Roman styling.
  */
 function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
-  const landlordSig = agreement.signatures?.landlord;
-  const tenantSig = agreement.signatures?.tenant;
-
   const t = theme; // Use the already built theme object
 
   const googleFontLink = t.googleFontUrl
@@ -377,7 +432,19 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
          ${safeHeading}
        </div>`;
 
-  const arrangedBodyHtml = applyThemeLayout(bodyHtmlRemaining, t, agreement);
+  const signaturePlacement = shouldPlaceSignatureInSidebar(t) ? 'sidebar' : 'body';
+  const signatureHtml = buildSignatureSection(
+    agreement,
+    landlord,
+    tenant,
+    signaturePlacement === 'sidebar' ? 'sidebar' : 'body'
+  );
+
+  const arrangedBodyHtml = applyThemeLayout(bodyHtmlRemaining, t, agreement, {
+    signatureHtml: signaturePlacement === 'sidebar' ? signatureHtml : '',
+  });
+
+  const bodySignatureHtml = signaturePlacement === 'sidebar' ? '' : signatureHtml;
 
   return `
     <!DOCTYPE html>
@@ -532,39 +599,23 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         .sig-rule { border-top: 1.5px solid #000; margin-bottom: 8px; }
         .sig-name { font-size: 11pt; font-weight: bold; }
         .sig-meta { font-size: 8pt; color: #666; margin-top: 2px; }
+
+        .sig-section--sidebar { margin-top: 24px; }
+        .sig-section--sidebar h2 { font-size: 0.95rem; margin: 0 0 10px; border-bottom: none; color: inherit; }
+        .sig-section--sidebar .sig-grid { flex-direction: column; gap: 16px; margin-top: 8px; }
+        .sig-section--sidebar .sig-label { font-size: 8pt; color: currentColor; opacity: 0.8; }
+        .sig-section--sidebar .sig-image { max-width: 160px; max-height: 56px; }
+        .sig-section--sidebar .sig-blank { height: 56px; }
+        .sig-section--sidebar .sig-rule { border-top-color: currentColor; opacity: 0.7; }
+        .sig-section--sidebar .sig-name { font-size: 10pt; }
+        .sig-section--sidebar .sig-meta { color: currentColor; opacity: 0.8; }
       </style>
     </head>
       <div class="container">
         ${heroHtml}
         <div class="content-shell">
           ${arrangedBodyHtml}
-        <div class="sig-section">
-          <h2>Signatures</h2>
-          <div class="sig-grid">
-            <div class="sig-box">
-              <div class="sig-label">Landlord Signature</div>
-              ${landlordSig?.signed
-                ? `<img class="sig-image" src="${landlordSig.drawData}" />`
-                : '<div class="sig-blank"></div>'}
-              <div class="sig-rule"></div>
-              <div class="sig-name">${landlord?.name || '____________________'}</div>
-              ${landlordSig?.signed
-                ? `<div class="sig-meta">Signed on ${new Date(landlordSig.signedAt).toLocaleString()}</div>`
-                : ''}
-            </div>
-            <div class="sig-box">
-              <div class="sig-label">Tenant Signature</div>
-              ${tenantSig?.signed
-                ? `<img class="sig-image" src="${tenantSig.drawData}" />`
-                : '<div class="sig-blank"></div>'}
-              <div class="sig-rule"></div>
-              <div class="sig-name">${tenant?.name || '____________________'}</div>
-              ${tenantSig?.signed
-                ? `<div class="sig-meta">Signed on ${new Date(tenantSig.signedAt).toLocaleString()}</div>`
-                : ''}
-            </div>
-          </div>
-        </div>
+          ${bodySignatureHtml}
       </div>
     </body>
     </html>
