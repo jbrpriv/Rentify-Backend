@@ -18,6 +18,13 @@ const AgreementTemplate = require('../models/AgreementTemplate');
 const Agreement = require('../models/Agreement');
 const { getPlatformBranding } = require('./platformSettings');
 const PdfTheme = require('../models/PdfTheme');
+const {
+  buildPreviewLayoutHtml,
+  buildPreviewThemeFromPdfTheme,
+  buildThemeVarsFromPdfTheme,
+  generateLayoutCss,
+  ONE_PAGE_ENFORCER_SCRIPT,
+} = require('./pdfPreviewLayout');
 
 const pickThemeString = (value, fallback) => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -67,48 +74,6 @@ function applyTemplateCustomizations(theme = {}, customizations = {}) {
  * buildThemeObject(rawTheme, customizations)
  * Maps backend PdfTheme fields to the unified display vars the HTML generator needs.
  */
-function buildThemeObject(rawTheme, customizations) {
-  const t = applyTemplateCustomizations(rawTheme || {}, customizations || {});
-  
-  return {
-    ...t,
-    pageBackground: t.backgroundColor || t.pageBackgroundColor || '#FFFFFF',
-    heroBackground: t.heroBgColor || t.heroBackground || 'transparent',
-    heroPattern: t.heroPattern || 'none',
-    heroHeight: t.heroHeight || 200,
-    logoMaxHeight: t.logoMaxHeight || '80px',
-    logoAlignment: 'center',
-    tableRadius: t.tableRadius || '0px',
-    headingFont: t.headingFontFamily || t.fontFamily || 'Helvetica',
-    bodyFont: t.fontFamily || 'Helvetica',
-    primaryColor: t.primaryColor || '#000000',
-    accentColor: t.accentColor || '#333333',
-    headingColor: t.headingColor || '#000000',
-    bodyTextColor: t.bodyTextColor || '#333333',
-    tableBorder: t.tableBorderColor || t.tableBorder || '#cbd5e1',
-    tableHeaderBg: t.tableHeaderBg || '#f8fafc',
-    tableHeaderText: t.tableHeaderTextColor || t.tableHeaderText || '#334155',
-    headerRule: t.headerRule || 'none',
-    sectionRule: t.sectionRule || 'none',
-    pageTexture: t.pageTexture || 'none',
-    fontSizeScale: t.fontSizeScale || 1.0,
-    layoutStyle: t.layoutStyle || 'full-width',
-    sidebarWidthPx: t.sidebarWidthPx || 220,
-    mainContentWidthPx: t.mainContentWidthPx || 574,
-    headerStyle: t.headerStyle || 'minimal',
-    tableZone: t.tableZone || 'full',
-    leftWidthPercent: t.leftWidthPercent || 50,
-    rightWidthPercent: t.rightWidthPercent || 50,
-    bodyMaxWidthPx: t.bodyMaxWidthPx || 600,
-    sidebarSections: t.sidebarSections || [],
-    googleFontUrl: t.googleFontUrl || '',
-    watermarkEnabled: t.watermarkEnabled || false,
-    watermarkText: t.watermarkText || '',
-    watermarkOpacity: t.watermarkOpacity || 0,
-    watermarkColor: t.watermarkColor || '#000000',
-    logoUrl: t.logoUrl || '',
-  };
-}
 
 function extractFirstBlock(html, regex) {
   const match = html.match(regex);
@@ -178,198 +143,6 @@ function buildSignatureSection(agreement, landlord, tenant, variant = 'body') {
   `;
 }
 
-function buildSidebarContent(agreement, sections, options = {}) {
-  const signatureHtml = options.signatureHtml || '';
-  if ((!sections || !sections.length) && !signatureHtml) return '';
-  if (!agreement && !signatureHtml) return '';
-
-  let html = '<aside class="theme-sidebar"><div class="sidebar-inner">';
-  
-  const landlordName = agreement?.landlord?.name || 'Landlord';
-  const tenantName = agreement?.tenant?.name || 'Tenant';
-  
-  let startDate = 'TBD';
-  let endDate = 'TBD';
-  if (agreement?.term) {
-    if (agreement.term.startDate) startDate = new Date(agreement.term.startDate).toLocaleDateString('en-US');
-    if (agreement.term.endDate) endDate = new Date(agreement.term.endDate).toLocaleDateString('en-US');
-  }
-
-  const rent = agreement?.financials?.rentAmount ? `$${agreement.financials.rentAmount}` : 'TBD';
-  const deposit = agreement?.financials?.depositAmount ? `$${agreement.financials.depositAmount}` : 'TBD';
-
-  sections.forEach(sec => {
-    if (sec === 'parties') {
-      html += `
-        <div class="sidebar-section">
-          <h4>Parties</h4>
-          <div class="sidebar-item">
-            <span class="sidebar-label">Landlord:</span>
-            <span class="sidebar-value">${escapeHtml(landlordName)}</span>
-          </div>
-          <div class="sidebar-item">
-            <span class="sidebar-label">Tenant:</span>
-            <span class="sidebar-value">${escapeHtml(tenantName)}</span>
-          </div>
-        </div>
-      `;
-    }
-    if (sec === 'dates') {
-      html += `
-        <div class="sidebar-section">
-          <h4>Term</h4>
-          <div class="sidebar-item">
-            <span class="sidebar-label">Start Date:</span>
-            <span class="sidebar-value">${startDate}</span>
-          </div>
-          <div class="sidebar-item">
-            <span class="sidebar-label">End Date:</span>
-            <span class="sidebar-value">${endDate}</span>
-          </div>
-        </div>
-      `;
-    }
-    if (sec === 'financials') {
-      html += `
-        <div class="sidebar-section">
-          <h4>Financials</h4>
-          <div class="sidebar-item">
-            <span class="sidebar-label">Monthly Rent:</span>
-            <span class="sidebar-value">${rent}</span>
-          </div>
-          <div class="sidebar-item">
-            <span class="sidebar-label">Deposit:</span>
-            <span class="sidebar-value">${deposit}</span>
-          </div>
-        </div>
-      `;
-    }
-    if (sec === 'policies') {
-      const pets = agreement?.petPolicy?.allowed ? 'Allowed' : 'Not Allowed';
-      const utilities = agreement?.utilitiesIncluded ? 'Included' : 'Not Included';
-      html += `
-        <div class="sidebar-section">
-          <h4>Policies</h4>
-          <div class="sidebar-item">
-            <span class="sidebar-label">Pets:</span>
-            <span class="sidebar-value">${pets}</span>
-          </div>
-          <div class="sidebar-item">
-            <span class="sidebar-label">Utilities:</span>
-            <span class="sidebar-value">${utilities}</span>
-          </div>
-        </div>
-      `;
-    }
-  });
-
-  if (signatureHtml) {
-    html += `
-      <div class="sidebar-section sidebar-signature">
-        ${signatureHtml}
-      </div>
-    `;
-  }
-
-  html += '</div></aside>';
-  return html;
-}
-
-function applyThemeLayout(bodyHtml, theme = {}, agreement = {}, options = {}) {
-  const layoutStyle = theme.layoutStyle || 'full-width';
-  if (!bodyHtml || typeof bodyHtml !== 'string') return bodyHtml;
-
-  let working = bodyHtml;
-  // Extract and DISCARD the H1 from the body content (it will be rendered in the global hero)
-  const { block: heading, rest: afterHeading } = extractFirstBlock(working, /<h1\b[^>]*>[\s\S]*?<\/h1>/i);
-  working = afterHeading;
-
-  const content = working.trim();
-
-  const sidebarHtml = buildSidebarContent(agreement, theme.sidebarSections || [], options);
-
-  switch (layoutStyle) {
-      case 'timeline':
-      case 'grid-modular':
-      case 'infographic':
-      case 'portfolio':
-      case 'card-header':
-      case 'split-screen':
-      case 'three-column':
-      case 'banner-circle':
-        return `
-          <div class="layout-${layoutStyle}">
-            ${sidebarHtml}
-            <div class="layout-main-content">
-              ${content}
-            </div>
-          </div>
-        `;
-    case 'sidebar-left':
-      return `
-        <div class="layout-sidebar-left">
-          ${sidebarHtml}
-          <div class="layout-main-content">
-            ${content}
-          </div>
-        </div>
-      `;
-    case 'sidebar-right':
-      return `
-        <div class="layout-sidebar-right">
-          <div class="layout-main-content">
-            ${content}
-          </div>
-          ${sidebarHtml}
-        </div>
-      `;
-    case 'split-header':
-      return `
-        <div class="layout-split-header">
-          <div class="layout-split-info-strip">
-            ${sidebarHtml}
-          </div>
-          <div class="layout-main-content">
-            ${content}
-          </div>
-        </div>
-      `;
-    case 'two-column-body':
-      return `
-        <div class="layout-two-column-body">
-          ${content}
-        </div>
-      `;
-    case 'centered-narrow':
-      return `
-        <div class="layout-centered-narrow">
-          ${content}
-        </div>
-      `;
-    case 'top-band':
-      return `
-        <div class="layout-top-band">
-          ${content}
-        </div>
-      `;
-    case 'asymmetric':
-      return `
-        <div class="layout-asymmetric">
-          <div class="layout-main-content">
-            ${content}
-          </div>
-          ${sidebarHtml}
-        </div>
-      `;
-    case 'full-width':
-    default:
-      return `
-        <div class="layout-full-width">
-          ${content}
-        </div>
-      `;
-  }
-}
 
 /**
  * Returns a simple default agreement HTML when no template body is available.
@@ -412,52 +185,13 @@ function getDefaultAgreementHtml() {
 /**
  * Wraps the agreement body in a professional HTML document with Times New Roman styling.
  */
-function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
-  const t = theme; // Use the already built theme object
-
-  const googleFontLink = t.googleFontUrl
-    ? `<link rel="stylesheet" href="${t.googleFontUrl}" />`
+function wrapInHtmlTemplate(layoutHtml, previewTheme, themeVars) {
+  const googleFontUrl = themeVars['--theme-google-font-url'] || '';
+  const googleFontLink = googleFontUrl
+    ? `<link rel="stylesheet" href="${googleFontUrl}" />`
     : '';
 
-  const watermarkHtml = t.watermarkEnabled && t.watermarkText
-    ? `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:100px;font-weight:900;letter-spacing:0.15em;color:${t.watermarkColor};opacity:${t.watermarkOpacity};pointer-events:none;z-index:0;white-space:nowrap;">${t.watermarkText}</div>`
-    : '';
-
-  // ─── Extract parts ───
-  const { block: headingHtml, rest: bodyHtmlRemaining } = extractFirstBlock(bodyHtml, /<h1\b[^>]*>[\s\S]*?<\/h1>/i);
-  const safeHeading = headingHtml || '<h1>Rental Agreement</h1>';
-
-  const logoHtml = t.logoUrl
-    ? `<div class="logo-container"><img src="${t.logoUrl}" alt="Logo" /></div>`
-    : '';
-
-  const hasHeroBackground = (t.heroPattern !== 'none' || t.heroBackground !== 'transparent');
-
-  const heroHtml = hasHeroBackground
-    ? `<div class="hero-section" style="background-color:${t.heroBackground};background-image:${t.heroPattern};background-repeat:no-repeat;background-size:cover;background-position:top center;height:${t.heroHeight}px;">
-         <div class="hero-inner">
-           ${logoHtml}
-           <div class="hero-heading">${safeHeading}</div>
-         </div>
-       </div>`
-    : `<div class="standard-header">
-         ${logoHtml}
-         ${safeHeading}
-       </div>`;
-
-  const signaturePlacement = shouldPlaceSignatureInSidebar(t) ? 'sidebar' : 'body';
-  const signatureHtml = buildSignatureSection(
-    agreement,
-    landlord,
-    tenant,
-    signaturePlacement === 'sidebar' ? 'sidebar' : 'body'
-  );
-
-  const arrangedBodyHtml = applyThemeLayout(bodyHtmlRemaining, t, agreement, {
-    signatureHtml: signaturePlacement === 'sidebar' ? signatureHtml : '',
-  });
-
-  const bodySignatureHtml = signaturePlacement === 'sidebar' ? '' : signatureHtml;
+  const css = generateLayoutCss(previewTheme, themeVars);
 
   return `
     <!DOCTYPE html>
@@ -470,166 +204,18 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
           size: A4;
           margin: 0;
         }
-
-        body {
-          font-family: ${t.fontFamily};
-          line-height: 1.5;
-          margin: 0;
-          padding: 0;
-          color: ${t.bodyTextColor};
-          font-size: ${12 * t.fontSizeScale}pt;
-          background-color: ${t.backgroundColor};
-          ${t.pageTexture !== 'none' ? `background-image: ${t.pageTexture};` : ''}
+        body { margin: 0; padding: 0; -webkit-print-color-adjust: exact; }
+        ${css}
+        
+        /* Ensure the container fills the A4 page for the enforcer to measure correctly */
+        .a4-page {
+          box-shadow: none !important;
+          margin: 0 !important;
         }
-        .container { position: relative; width: 100%; min-height: 100vh; }
-        .content-shell {
-          position: relative;
-          z-index: 1;
-          padding: 56px 60px 60px;
-        }
-
-        /* ── Theme Layout Engine ── */
-        .hero-section { position: relative; width: 100%; display: flex; align-items: center; justify-content: center; text-align: center; }
-        .hero-inner { padding: 40px 60px; width: 100%; }
-        .hero-heading h1 { color: ${t.headingColor} !important; border-bottom: none !important; margin: 0; }
-        
-        .standard-header { padding: 40px 60px 0; text-align: center; }
-        .standard-header h1 { color: ${t.primaryColor || '#111'} !important; border-bottom: none !important; }
-
-        .layout-full-width { width: 100%; }
-        
-        .layout-sidebar-left { display: grid; grid-template-columns: ${t.sidebarWidthPx}px 1fr; gap: 40px; align-items: start; }
-        .layout-sidebar-right { display: grid; grid-template-columns: 1fr ${t.sidebarWidthPx}px; gap: 40px; align-items: start; }
-        
-        .layout-split-header .layout-split-info-strip { display: flex; gap: 40px; border-bottom: 2px solid ${t.tableBorder}; padding-bottom: 20px; margin-bottom: 30px; }
-        .layout-split-header .layout-split-info-strip .theme-sidebar { width: 100%; }
-        .layout-split-header .theme-sidebar .sidebar-inner { display: flex; gap: 40px; width: 100%; justify-content: space-between; flex-wrap: wrap; }
-        .layout-split-header .sidebar-section { margin-bottom: 0; flex: 1; min-width: 150px; }
-        
-        .layout-two-column-body { column-count: 2; column-gap: 40px; }
-        .layout-two-column-body > h2, .layout-two-column-body > h3, .layout-two-column-body > table { break-inside: avoid; column-span: all; }
-        
-        .layout-centered-narrow { max-width: ${t.bodyMaxWidthPx}px; margin: 0 auto; }
-        
-        .layout-top-band { width: 100%; }
-        
-        .layout-asymmetric { display: grid; grid-template-columns: ${t.leftWidthPercent}% ${t.rightWidthPercent}%; gap: 40px; align-items: start; }
-        
-        /* ── New Professional Layouts ── */
-        .layout-timeline { display: flex; flex-direction: row; gap: 40px; }
-        .layout-timeline .theme-sidebar { border-right: 2px solid ${t.accentColor}; position: relative; }
-        .layout-timeline .sidebar-section { position: relative; padding-right: 20px; margin-bottom: 40px; }
-        .layout-timeline .sidebar-section::after { content: ''; position: absolute; right: -7px; top: 5px; width: 12px; height: 12px; border-radius: 50%; background: ${t.accentColor}; }
-        
-        .layout-grid-modular { display: flex; flex-direction: column; }
-        .layout-grid-modular .theme-sidebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 40px; }
-        .layout-grid-modular .sidebar-section { border: 1px solid ${t.tableBorder}; border-radius: 8px; padding: 16px; background: #fafafa; }
-        
-        .layout-infographic { display: flex; flex-direction: column; }
-        .layout-infographic .theme-sidebar { display: flex; justify-content: space-around; background: ${t.primaryColor}; color: white; padding: 20px; border-radius: 12px; margin-bottom: 30px; }
-        
-        .layout-portfolio { display: grid; grid-template-columns: 1fr 2fr; gap: 30px; }
-        
-        .layout-card-header { display: flex; flex-direction: column; }
-        .layout-card-header .theme-sidebar { align-self: flex-end; width: 300px; border: 2px solid ${t.primaryColor}; padding: 20px; border-radius: 8px; margin-bottom: 40px; }
-        
-        .layout-split-screen { display: flex; flex-direction: row; min-height: 297mm; margin: -60px; }
-        .layout-split-screen .theme-sidebar { width: 50%; background: ${t.primaryColor}; color: white; padding: 60px; }
-        .layout-split-screen .layout-main-content { width: 50%; padding: 60px; }
-        
-        .layout-three-column { display: flex; flex-direction: column; }
-        .layout-three-column .theme-sidebar { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px; margin-bottom: 40px; border-bottom: 2px solid ${t.tableBorder}; padding-bottom: 20px; }
-        
-        .layout-banner-circle { display: flex; flex-direction: column; position: relative; }
-        .layout-banner-circle .theme-sidebar { display: none; }
-        .layout-banner-circle .logo-container { position: absolute; top: -40px; left: 50%; transform: translateX(-50%); width: 100px; height: 100px; border-radius: 50%; background: white; border: 4px solid ${t.primaryColor}; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        
-        /* ── Sidebar Styling ── */
-        .theme-sidebar { font-size: 0.9em; }
-        .layout-sidebar-left .theme-sidebar, .layout-sidebar-right .theme-sidebar { padding: 20px; background-color: ${t.tableHeaderBg}; border-radius: ${t.tableRadius || '8px'}; color: ${t.tableHeaderText}; }
-        .layout-sidebar-left .theme-sidebar h4, .layout-sidebar-right .theme-sidebar h4 { color: ${t.tableHeaderText}; border-bottom-color: rgba(255,255,255,0.2); }
-        .sidebar-section { margin-bottom: 20px; }
-        .sidebar-section h4 { margin-top: 0; margin-bottom: 10px; font-size: 1.1em; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid ${t.tableBorder}; padding-bottom: 5px; }
-        .sidebar-item { margin-bottom: 8px; display: flex; flex-direction: column; }
-        .sidebar-label { font-weight: bold; font-size: 0.85em; opacity: 0.8; text-transform: uppercase; }
-        .sidebar-value { font-weight: 500; }
-
-        /* ── Headings ── */
-        h1 { font-size: 2.25rem; font-weight: 800; margin-bottom: 1.5rem; color: ${t.primaryColor || '#111'}; font-family: ${t.headingFont}; padding-bottom: 0.5rem; border-bottom: ${t.headerRule}; }
-        h2 { font-size: 1.5rem;  font-weight: 700; margin-top: 1.5rem; margin-bottom: 1rem; color: ${t.primaryColor || '#111'}; font-family: ${t.headingFont}; padding-bottom: 0.25rem; border-bottom: ${t.sectionRule}; }
-        h3 { font-size: 1.25rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.75rem; color: ${t.primaryColor || '#111'}; font-family: ${t.headingFont}; }
-        h4 { font-size: 1.1rem; font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.5rem; color: ${t.primaryColor || '#111'}; }
-        h5, h6 { font-size: 1rem; font-weight: 700; margin-top: 0.5rem; margin-bottom: 0.5rem; color: ${t.primaryColor || '#111'}; }
-        p  { margin-bottom: 1em; }
-        ul, ol { margin-left: 1.5em; margin-bottom: 1em; }
-
-        /* ── Alignment ── */
-        h1, h2, h3, h4, h5, h6, p, div, li, blockquote { display: block; margin-bottom: 0.5em; }
-        [style*="text-align: center"], [style*="text-align:center"], .text-center, [align="center"] { text-align: center !important; }
-        [style*="text-align: right"], [style*="text-align:right"], .text-right, [align="right"] { text-align: right !important; }
-        [style*="text-align: justify"], [style*="text-align:justify"], .text-justify, [align="justify"] { text-align: justify !important; }
-        [style*="text-align: left"], [style*="text-align:left"], .text-left, [align="left"] { text-align: left !important; }
-
-        strong, b { font-weight: bold; }
-        em, i     { font-style: italic; }
-        u         { text-decoration: underline; }
-        span[data-type="variable"] { font-weight: bold; }
-
-        .clause-section { margin-top: 1.5em; margin-bottom: 1em; }
-        .clause-section h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.5em; }
-        .clause-section p  { margin: 0; }
-        
-        .document-image { max-width: 100%; height: auto; border-radius: 4px; margin-top: 1.5rem; margin-bottom: 1.5rem; }
-
-        /* ── Split Column ── */
-        .dual-column-wrapper { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; position: relative; min-height: 100px; margin: 1.5rem 0; }
-        .dual-column-wrapper::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 2px dotted ${t.tableBorder}; transform: translateX(-50%); z-index: 1; }
-        .dual-column-side { padding: 0 20px; position: relative; z-index: 2; min-width: 0; word-wrap: break-word; overflow-wrap: break-word; max-width: 100%; }
-
-        /* ── Tables ── */
-        .agreement-table { width: 100%; margin: 1.5rem 0; border-collapse: collapse; table-layout: auto; }
-        .agreement-table th, .agreement-table td { min-width: 1em; border: 1px solid ${t.tableBorder}; padding: 10px 14px; vertical-align: top; }
-        .agreement-table th { font-weight: bold; text-align: left; background: ${t.tableHeaderBg} !important; color: ${t.tableHeaderText} !important; background-attachment: local; }
-        .agreement-table th p { color: ${t.tableHeaderText} !important; }
-        .agreement-table p { margin: 0; }
-
-        /* ── Logo detection CSS (Step 7.2) ── */
-        .logo-container { margin-bottom: 2rem; text-align: center !important; }
-        .logo-container img {
-          max-height: 80px;
-          width: auto;
-          height: auto;
-          display: inline-block;
-        }
-
-        /* ── Signature block ── */
-        .sig-section { margin-top: 60px; page-break-inside: avoid; }
-        .sig-grid { display: flex; justify-content: space-between; gap: 40px; margin-top: 20px; }
-        .sig-box { flex: 1; }
-        .sig-label { font-weight: bold; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; color: #444; margin-bottom: 6px; }
-        .sig-image { display: block; max-height: 64px; max-width: 200px; margin-bottom: 4px; object-fit: contain; }
-        .sig-blank { height: 64px; margin-bottom: 4px; }
-        .sig-rule { border-top: 1.5px solid #000; margin-bottom: 8px; }
-        .sig-name { font-size: 11pt; font-weight: bold; }
-        .sig-meta { font-size: 8pt; color: #666; margin-top: 2px; }
-
-        .sig-section--sidebar { margin-top: 24px; }
-        .sig-section--sidebar h2 { font-size: 0.95rem; margin: 0 0 10px; border-bottom: none; color: inherit; }
-        .sig-section--sidebar .sig-grid { flex-direction: column; gap: 16px; margin-top: 8px; }
-        .sig-section--sidebar .sig-label { font-size: 8pt; color: currentColor; opacity: 0.8; }
-        .sig-section--sidebar .sig-image { max-width: 160px; max-height: 56px; }
-        .sig-section--sidebar .sig-blank { height: 56px; }
-        .sig-section--sidebar .sig-rule { border-top-color: currentColor; opacity: 0.7; }
-        .sig-section--sidebar .sig-name { font-size: 10pt; }
-        .sig-section--sidebar .sig-meta { color: currentColor; opacity: 0.8; }
       </style>
     </head>
-      <div class="container">
-        ${heroHtml}
-        <div class="content-shell">
-          ${arrangedBodyHtml}
-          ${bodySignatureHtml}
-      </div>
+    <body>
+      ${layoutHtml}
     </body>
     </html>
   `;
@@ -714,21 +300,19 @@ async function generatePuppeteerPDFBuffer(html, options = {}) {
     // are fully loaded before rendering the PDF.
     await page.setContent(html, { waitUntil: 'load' });
 
+    // ─── One-Page Enforcer ───
+    if (forceSinglePage) {
+      await page.evaluate(() => (document.fonts ? document.fonts.ready : Promise.resolve()));
+      // Run the enforcer script ported from the frontend
+      await page.evaluate(ONE_PAGE_ENFORCER_SCRIPT);
+    }
+
     const pdfOptions = {
       format: 'A4',
       margin: { top: '0', right: '0', bottom: '0', left: '0' },
       preferCSSPageSize: true,
       printBackground: true,
     };
-
-    if (forceSinglePage) {
-      await page.evaluate(() => (document.fonts ? document.fonts.ready : Promise.resolve()));
-      const contentHeightPx = await page.evaluate(() => Math.max(
-        document.body.scrollHeight,
-        document.documentElement.scrollHeight
-      ));
-      pdfOptions.scale = computeSinglePageScale(contentHeightPx, A4_HEIGHT_PX);
-    }
 
     return await page.pdf(pdfOptions);
   } catch (err) {
@@ -923,9 +507,27 @@ async function _buildAgreementHtml(agreement, landlord, tenant, property, option
     return `<p class="logo-container">${imgTag}</p>`;
   });
 
-  const finalTheme = buildThemeObject(theme, template?.customizations);
+  const previewTheme = buildPreviewThemeFromPdfTheme(theme);
+  const themeVars = buildThemeVarsFromPdfTheme(theme, previewTheme);
 
-  return wrapInHtmlTemplate(substitutedHtml, agreement, landlord, tenant, finalTheme);
+  const signaturePlacement = shouldPlaceSignatureInSidebar(theme) ? 'sidebar' : 'body';
+  const signatureHtml = buildSignatureSection(
+    agreement,
+    landlord,
+    tenant,
+    signaturePlacement
+  );
+
+  const layoutHtml = buildPreviewLayoutHtml(
+    substitutedHtml,
+    vars,
+    previewTheme,
+    theme.logoUrl,
+    signatureHtml,
+    signaturePlacement
+  );
+
+  return wrapInHtmlTemplate(layoutHtml, previewTheme, themeVars);
 }
 
 const generateAgreementPDF = async (agreement, landlord, tenant, property, res, options = {}) => {
