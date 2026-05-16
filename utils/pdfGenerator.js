@@ -218,6 +218,22 @@ function applyThemeLayout(bodyHtml, theme = {}, agreement = {}) {
   const sidebarHtml = buildSidebarContent(agreement, theme.sidebarSections || []);
 
   switch (layoutStyle) {
+      case 'timeline':
+      case 'grid-modular':
+      case 'infographic':
+      case 'portfolio':
+      case 'card-header':
+      case 'split-screen':
+      case 'three-column':
+      case 'banner-circle':
+        return `
+          <div class="layout-${layoutStyle}">
+            ${sidebarHtml}
+            <div class="layout-main-content">
+              ${content}
+            </div>
+          </div>
+        `;
     case 'sidebar-left':
       return `
         <div class="layout-sidebar-left">

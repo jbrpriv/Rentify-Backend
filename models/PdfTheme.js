@@ -124,7 +124,12 @@ const pdfThemeSchema = new mongoose.Schema(
     // ─── Layout / Classification ─────────────────────────────────
     layoutStyle: {
       type: String,
-      enum: ['full-width', 'sidebar-left', 'sidebar-right', 'split-header', 'centered-narrow', 'top-band', 'two-column-body', 'asymmetric'],
+      enum: [
+        'full-width', 'sidebar-left', 'sidebar-right', 'split-header', 
+        'centered-narrow', 'top-band', 'two-column-body', 'asymmetric',
+        'timeline', 'grid-modular', 'infographic', 'portfolio',
+        'card-header', 'split-screen', 'three-column', 'banner-circle'
+      ],
       default: 'full-width',
     },
     isGlobal: {
