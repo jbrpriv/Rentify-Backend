@@ -873,7 +873,8 @@ function twoColumnBodyCss(vars) {
     .layout-page-wrapper {
       display: grid;
       grid-template-columns: ${sidebarWidth}px 1fr;
-      min-height: 1123px;
+      width: 794px;
+      height: 1123px;
     }
 
     .layout-sidebar {
@@ -925,8 +926,11 @@ function twoColumnBodyCss(vars) {
     }
 
     .layout-main { 
-       flex: 1; 
+       display: flex;
+       flex-direction: column;
        min-height: 0;
+       width: 100%;
+       overflow: hidden;
     }
 
     .a4-page-body {
