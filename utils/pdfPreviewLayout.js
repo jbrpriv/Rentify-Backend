@@ -1406,11 +1406,13 @@ function threeColumnCss(vars) {
       line-height: 1.3;
       word-break: break-word;
     }
-    .layout-sidebar .sidebar-logo {
+    .layout-sidebar .sidebar-logo,
+    .layout-sidebar .sidebar-logo-wrapper {
       max-height: calc(36px * var(--onepage-padding-scale, 1));
       width: auto;
       object-fit: contain;
-      margin-bottom: calc(6px * var(--onepage-margin-scale, 1));
+      margin-bottom: calc(12px * var(--onepage-margin-scale, 1));
+      grid-column: 1 / -1; justify-self: center;
     }
     .layout-main { flex: 1; }
   `;
