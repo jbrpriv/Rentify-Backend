@@ -9,6 +9,7 @@ const LAYOUTS_WITH_SIDEBAR = new Set([
   'card-header',
   'split-screen',
   'three-column',
+  'two-column-body',
 ]);
 
 const SIDEBAR_CATEGORIES = {
@@ -377,9 +378,13 @@ function generateLayoutCss(theme, themeVars) {
       position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%) rotate(-35deg);
       font-size: 100px; font-weight: 900; letter-spacing: 0.15em;
-      color: var(--theme-watermark-color, transparent);
+      color: var(--theme-watermark-color, rgba(0,0,0,0.05));
       opacity: var(--theme-watermark-opacity, 0);
-      pointer-events: none; z-index: 100; white-space: nowrap;
+      pointer-events: none; 
+      z-index: 9999; 
+      white-space: nowrap;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
 
     .theme-hero-band {
@@ -862,20 +867,72 @@ function topBandCss() {
 }
 
 function twoColumnBodyCss(vars) {
-  const { tableBorder } = vars;
+  const { tableBorder, sidebarWidth, sidebarBg, sidebarText, sidebarAccent, headingFont } = vars;
 
   return `
     .layout-page-wrapper {
+      display: grid;
+      grid-template-columns: ${sidebarWidth}px 1fr;
+      min-height: 1123px;
+    }
+
+    .layout-sidebar {
+      background: ${sidebarBg};
+      color: ${sidebarText};
+      padding: calc(30px * var(--onepage-padding-scale, 1)) calc(20px * var(--onepage-padding-scale, 1));
       display: flex;
       flex-direction: column;
-      height: 100%;
+      gap: calc(14px * var(--onepage-margin-scale, 1));
+      border-right: 3px solid ${sidebarAccent};
     }
-    .layout-sidebar { display: none; }
-    .layout-main { flex: 1; }
+
+    .layout-sidebar .sidebar-logo {
+      max-height: calc(50px * var(--onepage-padding-scale, 1));
+      width: auto;
+      object-fit: contain;
+    }
+
+    .layout-sidebar .sidebar-title {
+      font-family: ${headingFont};
+      font-weight: 900;
+      font-size: calc(0.95rem * var(--onepage-heading-scale, 1));
+      color: ${sidebarAccent};
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 0 0 calc(4px * var(--onepage-margin-scale, 1)) 0;
+      padding-bottom: calc(4px * var(--onepage-margin-scale, 1));
+      border-bottom: 2px solid ${sidebarAccent}40;
+    }
+
+    .layout-sidebar .sidebar-section {
+      margin-bottom: calc(10px * var(--onepage-margin-scale, 1));
+    }
+
+    .layout-sidebar .sidebar-label {
+      font-size: calc(0.6rem * var(--onepage-font-scale, 1));
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      opacity: 0.6;
+      margin-bottom: 2px;
+    }
+
+    .layout-sidebar .sidebar-value {
+      font-size: calc(0.75rem * var(--onepage-font-scale, 1));
+      font-weight: 600;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+
+    .layout-main { 
+       flex: 1; 
+       min-height: 0;
+    }
 
     .a4-page-body {
       column-gap: 30px;
       column-rule: 1px solid ${tableBorder};
+      padding: calc(40px * var(--onepage-padding-scale, 1)) calc(30px * var(--onepage-padding-scale, 1));
     }
     .a4-page-body:not(:has(.ProseMirror)) {
       columns: 2;

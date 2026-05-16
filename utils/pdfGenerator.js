@@ -62,7 +62,7 @@ function applyTemplateCustomizations(theme = {}, customizations = {}) {
     watermarkEnabled,
     watermarkOpacity: customWatermark
       ? 0.08
-      : (typeof theme.watermarkOpacity === 'number' ? theme.watermarkOpacity : 0.04),
+      : (typeof theme.watermarkOpacity === 'number' && theme.watermarkOpacity > 0 ? theme.watermarkOpacity : 0.08),
     watermarkColor: customWatermark
       ? (theme.watermarkColor || theme.primaryColor || '#000000')
       : theme.watermarkColor,
