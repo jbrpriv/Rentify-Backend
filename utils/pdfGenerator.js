@@ -435,6 +435,35 @@ function wrapInHtmlTemplate(bodyHtml, agreement, landlord, tenant, theme) {
         
         .layout-asymmetric { display: grid; grid-template-columns: ${t.leftWidthPercent}% ${t.rightWidthPercent}%; gap: 40px; align-items: start; }
         
+        /* ── New Professional Layouts ── */
+        .layout-timeline { display: flex; flex-direction: row; gap: 40px; }
+        .layout-timeline .theme-sidebar { border-right: 2px solid ${t.accentColor}; position: relative; }
+        .layout-timeline .sidebar-section { position: relative; padding-right: 20px; margin-bottom: 40px; }
+        .layout-timeline .sidebar-section::after { content: ''; position: absolute; right: -7px; top: 5px; width: 12px; height: 12px; border-radius: 50%; background: ${t.accentColor}; }
+        
+        .layout-grid-modular { display: flex; flex-direction: column; }
+        .layout-grid-modular .theme-sidebar { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .layout-grid-modular .sidebar-section { border: 1px solid ${t.tableBorder}; border-radius: 8px; padding: 16px; background: #fafafa; }
+        
+        .layout-infographic { display: flex; flex-direction: column; }
+        .layout-infographic .theme-sidebar { display: flex; justify-content: space-around; background: ${t.primaryColor}; color: white; padding: 20px; border-radius: 12px; margin-bottom: 30px; }
+        
+        .layout-portfolio { display: grid; grid-template-columns: 1fr 2fr; gap: 30px; }
+        
+        .layout-card-header { display: flex; flex-direction: column; }
+        .layout-card-header .theme-sidebar { align-self: flex-end; width: 300px; border: 2px solid ${t.primaryColor}; padding: 20px; border-radius: 8px; margin-bottom: 40px; }
+        
+        .layout-split-screen { display: flex; flex-direction: row; min-height: 297mm; margin: -60px; }
+        .layout-split-screen .theme-sidebar { width: 50%; background: ${t.primaryColor}; color: white; padding: 60px; }
+        .layout-split-screen .layout-main-content { width: 50%; padding: 60px; }
+        
+        .layout-three-column { display: flex; flex-direction: column; }
+        .layout-three-column .theme-sidebar { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px; margin-bottom: 40px; border-bottom: 2px solid ${t.tableBorder}; padding-bottom: 20px; }
+        
+        .layout-banner-circle { display: flex; flex-direction: column; position: relative; }
+        .layout-banner-circle .theme-sidebar { display: none; }
+        .layout-banner-circle .logo-container { position: absolute; top: -40px; left: 50%; transform: translateX(-50%); width: 100px; height: 100px; border-radius: 50%; background: white; border: 4px solid ${t.primaryColor}; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        
         /* ── Sidebar Styling ── */
         .theme-sidebar { font-size: 0.9em; }
         .layout-sidebar-left .theme-sidebar, .layout-sidebar-right .theme-sidebar { padding: 20px; background-color: ${t.tableHeaderBg}; border-radius: ${t.tableRadius || '8px'}; color: ${t.tableHeaderText}; }
